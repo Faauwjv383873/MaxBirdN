@@ -3,21 +3,18 @@ package com.example.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.api.GraphQlQuery
-import com.example.api.LoginRequest
-import com.example.api.ProfileDevice
-import com.example.api.ShikhoApiService
-import com.example.api.UserCheckRequest
-import com.example.api.UserProfile
+import com.example.api.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 sealed class AuthState {
     object Idle : AuthState()
     object Loading : AuthState()
-    data class UserCheckSuccess(val phone: String, val pinExists: Boolean) : AuthState()
+    data class NavigateToPin(val phone: String) : AuthState()
+    data class NavigateToOtp(val phone: String, val authType: String) : AuthState()
     object LoginSuccess : AuthState()
     data class ProfileLoaded(val profile: UserProfile) : AuthState()
     data class Error(val message: String) : AuthState()
@@ -50,10 +47,18 @@ class AuthViewModel(
         viewModelScope.launch {
             try {
                 val response = apiService.checkUser(UserCheckRequest(phone = phone))
-                if (response.code == 200) {
-                    _authState.value = AuthState.UserCheckSuccess(phone, response.pin_exist)
+                if (response.code == 200 && response.pin_exist == true) {
+                    _authState.value = AuthState.NavigateToPin(phone)
                 } else {
-                    _authState.value = AuthState.Error(response.message)
+                    // Profile exists but no pin, or treated as signup
+                    sendSmsInternal(phone, "signup")
+                }
+            } catch (e: HttpException) {
+                if (e.code() == 404) {
+                    // Profile not found -> New user signup flow
+                    sendSmsInternal(phone, "signup")
+                } else {
+                    _authState.value = AuthState.Error("API Error: ${e.code()}")
                 }
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.localizedMessage ?: "Network error occurred")
@@ -61,34 +66,95 @@ class AuthViewModel(
         }
     }
 
-    fun login(phone: String, otp: String) {
+    fun triggerForgotPassword(phone: String) {
+        _authState.value = AuthState.Loading
+        viewModelScope.launch {
+            sendSmsInternal(phone, "login")
+        }
+    }
+
+    fun triggerResendOtp(phone: String, authType: String) {
         _authState.value = AuthState.Loading
         viewModelScope.launch {
             try {
-                val deviceId = sessionManager.getDeviceId()
                 val adsId = sessionManager.getGoogleAdsId()
-                
-                val request = LoginRequest(
-                    phone = phone,
-                    otp = otp,
-                    profile = ProfileDevice(device_id = deviceId),
-                    google_ads_id = adsId
-                )
-                
-                val response = apiService.login(request)
-                
-                // Store tokens
-                sessionManager.saveTokens(
-                    accessToken = response.tokens.access_token,
-                    refreshToken = response.tokens.refresh_token,
-                    userId = response.tokens.user_id
-                )
-                
-                _authState.value = AuthState.LoginSuccess
-                fetchProfile()
+                val req = SendSmsRequest(phone = phone, auth_type = authType, google_ads_id = adsId)
+                val response = apiService.sendSms(req)
+                if (response.code == 200) {
+                    _authState.value = AuthState.Idle // keep it on same screen naturally
+                } else {
+                    _authState.value = AuthState.Error(response.message)
+                }
             } catch (e: Exception) {
-                _authState.value = AuthState.Error(e.localizedMessage ?: "Failed to login")
+                _authState.value = AuthState.Error("Failed to resend OTP")
             }
+        }
+    }
+
+    private suspend fun sendSmsInternal(phone: String, authType: String) {
+        try {
+            val adsId = sessionManager.getGoogleAdsId()
+            val req = SendSmsRequest(phone = phone, auth_type = authType, google_ads_id = adsId)
+            val response = apiService.sendSms(req)
+            if (response.code == 200) {
+                _authState.value = AuthState.NavigateToOtp(phone, authType)
+            } else {
+                _authState.value = AuthState.Error(response.message)
+            }
+        } catch (e: Exception) {
+            _authState.value = AuthState.Error("Failed to send SMS: ${e.localizedMessage}")
+        }
+    }
+
+    fun submitOtp(phone: String, otp: String) {
+        _authState.value = AuthState.Loading
+        viewModelScope.launch {
+            try {
+                val response = apiService.verifyOtp(VerifyOtpRequest(phone = phone, otp = otp))
+                if (response.code == 200 || response.code == 201) {
+                    loginInternal(phone, otp)
+                } else {
+                    _authState.value = AuthState.Error(response.message)
+                }
+            } catch (e: Exception) {
+                _authState.value = AuthState.Error("Invalid OTP. Verification failed.")
+            }
+        }
+    }
+
+    fun submitPin(phone: String, pin: String) {
+        _authState.value = AuthState.Loading
+        viewModelScope.launch {
+            loginInternal(phone, pin)
+        }
+    }
+
+    private suspend fun loginInternal(phone: String, otpOrPin: String) {
+        try {
+            val deviceId = sessionManager.getDeviceId()
+            val adsId = sessionManager.getGoogleAdsId()
+            
+            val request = LoginRequest(
+                phone = phone,
+                otp = otpOrPin,
+                profile = ProfileDevice(device_id = deviceId),
+                google_ads_id = adsId
+            )
+            
+            val response = apiService.login(request)
+            
+            sessionManager.saveTokens(
+                accessToken = response.tokens.access_token,
+                refreshToken = response.tokens.refresh_token,
+                userId = response.tokens.user_id
+            )
+            
+            _authState.value = AuthState.LoginSuccess
+            fetchProfile()
+        } catch (e: HttpException) {
+            _authState.value = AuthState.Error("Incorrect PIN or OTP.")
+        } catch (e: Exception) {
+            _authState.value = AuthState.Error(e.localizedMessage ?: "Failed to login")
         }
     }
 

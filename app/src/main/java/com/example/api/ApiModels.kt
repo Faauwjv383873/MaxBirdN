@@ -12,7 +12,35 @@ data class UserCheckRequest(
 data class UserCheckResponse(
     val code: Int,
     val message: String,
-    val pin_exist: Boolean
+    val pin_exist: Boolean? = false
+)
+
+@JsonClass(generateAdapter = true)
+data class SendSmsRequest(
+    val phone: String,
+    val type: String = "student",
+    val auth_type: String,
+    val vendor: String = "shikho",
+    val google_ads_id: String
+)
+
+@JsonClass(generateAdapter = true)
+data class SendSmsResponse(
+    val message: String,
+    val code: Int
+)
+
+@JsonClass(generateAdapter = true)
+data class VerifyOtpRequest(
+    val phone: String,
+    val otp: String,
+    val type: String = "student"
+)
+
+@JsonClass(generateAdapter = true)
+data class VerifyOtpResponse(
+    val message: String,
+    val code: Int
 )
 
 @JsonClass(generateAdapter = true)

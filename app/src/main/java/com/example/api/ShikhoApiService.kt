@@ -27,6 +27,24 @@ interface ShikhoApiService {
         "Content-Type: application/json",
         "X-User-Timezone: Asia/Dhaka"
     )
+    @POST("/auth/v2/send/sms")
+    suspend fun sendSms(@Body request: SendSmsRequest): SendSmsResponse
+
+    @Headers(
+        "User-Agent: Shikho",
+        "Accept: application/json",
+        "Content-Type: application/json",
+        "X-User-Timezone: Asia/Dhaka"
+    )
+    @POST("/auth/v2/verify/otp")
+    suspend fun verifyOtp(@Body request: VerifyOtpRequest): VerifyOtpResponse
+
+    @Headers(
+        "User-Agent: Shikho",
+        "Accept: application/json",
+        "Content-Type: application/json",
+        "X-User-Timezone: Asia/Dhaka"
+    )
     @POST("/auth/v2/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
 
@@ -47,11 +65,11 @@ interface ShikhoApiService {
 
         fun create(): ShikhoApiService {
             val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY // We can tone this down in prod, but keeping it for debug
+                level = HttpLoggingInterceptor.Level.BODY 
             }
 
             val client = OkHttpClient.Builder()
-                .addInterceptor(logging) // Adding standard interceptor, not any external tracking SDK
+                .addInterceptor(logging)
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()

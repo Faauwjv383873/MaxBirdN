@@ -23,20 +23,24 @@ import com.example.auth.AuthViewModel
 fun LoginScreen(
     viewModel: AuthViewModel,
     authState: AuthState,
-    onNavigateToOtp: (String, Boolean) -> Unit
+    onNavigateToPin: (String) -> Unit,
+    onNavigateToOtp: (String, String) -> Unit
 ) {
     var phoneInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     LaunchedEffect(authState) {
         when (authState) {
-            is AuthState.UserCheckSuccess -> {
-                val state = authState as AuthState.UserCheckSuccess
-                onNavigateToOtp(state.phone, state.pinExists)
+            is AuthState.NavigateToPin -> {
+                onNavigateToPin(authState.phone)
+                viewModel.resetState()
+            }
+            is AuthState.NavigateToOtp -> {
+                onNavigateToOtp(authState.phone, authState.authType)
                 viewModel.resetState()
             }
             is AuthState.Error -> {
-                errorMessage = (authState as AuthState.Error).message
+                errorMessage = authState.message
             }
             else -> {}
         }
@@ -92,7 +96,7 @@ fun LoginScreen(
                 )
             }
             
-            Divider(
+            VerticalDivider(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(1.dp),
@@ -102,14 +106,12 @@ fun LoginScreen(
             TextField(
                 value = phoneInput,
                 onValueChange = { newValue ->
-                    // Only allow digits
                     if (newValue.all { it.isDigit() } && newValue.length <= 11) {
                         phoneInput = newValue
                         errorMessage = null
                     }
                 },
-                modifier = Modifier
-                    .fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,

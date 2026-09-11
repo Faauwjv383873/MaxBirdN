@@ -19,32 +19,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.auth.AuthState
 import com.example.auth.AuthViewModel
-import kotlinx.coroutines.delay
 
 @Composable
-fun OtpScreen(
+fun PinScreen(
     phone: String,
-    authType: String,
     viewModel: AuthViewModel,
     authState: AuthState,
     onLoginSuccess: () -> Unit,
+    onForgotPasswordNavigate: (String) -> Unit,
     onBack: () -> Unit
 ) {
-    var otpValue by remember { mutableStateOf("") }
+    var pinValue by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var timer by remember { mutableStateOf(120) }
-
-    LaunchedEffect(Unit) {
-        while (timer > 0) {
-            delay(1000L)
-            timer--
-        }
-    }
 
     LaunchedEffect(authState) {
         when (authState) {
             is AuthState.LoginSuccess -> {
                 onLoginSuccess()
+                viewModel.resetState()
+            }
+            is AuthState.NavigateToOtp -> {
+                onForgotPasswordNavigate(authState.authType)
                 viewModel.resetState()
             }
             is AuthState.Error -> {
@@ -62,34 +57,32 @@ fun OtpScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        val title = if (authType == "login") "পাসওয়ার্ড রিসেট করতে নম্বর ভেরিফাই করুন" else "Verify OTP"
-        
         Text(
-            text = title,
-            fontSize = 24.sp,
+            text = "Enter PIN",
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
         Text(
-            text = "Enter the 4-digit code sent to +$phone",
+            text = "Enter your 6-digit permanent PIN",
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(bottom = 32.dp)
         )
 
-        OtpDigitInputField(
-            value = otpValue,
-            length = 4,
+        PinDigitInputField(
+            value = pinValue,
+            length = 6,
+            isPassword = true,
             onValueChange = {
-                if (it.length <= 4 && it.all { char -> char.isDigit() }) {
-                    otpValue = it
+                if (it.length <= 6 && it.all { char -> char.isDigit() }) {
+                    pinValue = it
                     errorMessage = null
-                    if (it.length == 4) {
-                        viewModel.submitOtp(phone, it)
+                    if (it.length == 6) {
+                        viewModel.submitPin(phone, it)
                     }
                 }
             }
@@ -106,15 +99,12 @@ fun OtpScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         TextButton(
-            onClick = {
-                timer = 120
-                viewModel.triggerResendOtp(phone, authType)
-            },
-            enabled = timer == 0 && authState != AuthState.Loading
+            onClick = { viewModel.triggerForgotPassword(phone) },
+            enabled = authState != AuthState.Loading
         ) {
             Text(
-                text = if (timer > 0) "Resend code in ${String.format("%02d:%02d", timer / 60, timer % 60)}" else "Resend Code",
-                color = if (timer > 0) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primary,
+                text = "Forgot Password?",
+                color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -135,9 +125,10 @@ fun OtpScreen(
 }
 
 @Composable
-fun OtpDigitInputField(
+fun PinDigitInputField(
     value: String,
     length: Int,
+    isPassword: Boolean = false,
     onValueChange: (String) -> Unit
 ) {
     BasicTextField(
@@ -149,13 +140,14 @@ fun OtpDigitInputField(
                 repeat(length) { index ->
                     val char = when {
                         index >= value.length -> ""
+                        isPassword -> "•"
                         else -> value[index].toString()
                     }
                     val isFocused = value.length == index
 
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(48.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surface)
                             .border(

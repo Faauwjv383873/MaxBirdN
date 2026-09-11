@@ -15,6 +15,7 @@ import com.example.auth.AuthViewModelFactory
 import com.example.auth.SessionManager
 import com.example.api.ShikhoApiService
 import com.example.ui.screens.LoginScreen
+import com.example.ui.screens.PinScreen
 import com.example.ui.screens.OtpScreen
 import com.example.ui.screens.ProfileScreen
 import androidx.compose.ui.platform.LocalContext
@@ -22,7 +23,8 @@ import androidx.compose.runtime.remember
 
 object Routes {
     const val LOGIN = "login"
-    const val OTP = "otp/{phone}/{pinExists}"
+    const val PIN = "pin/{phone}"
+    const val OTP = "otp/{phone}/{authType}"
     const val PROFILE = "profile"
 }
 
@@ -55,18 +57,41 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             LoginScreen(
                 viewModel = authViewModel,
                 authState = authState,
-                onNavigateToOtp = { phone, pinExists ->
-                    navController.navigate("otp/$phone/$pinExists")
+                onNavigateToPin = { phone ->
+                    navController.navigate("pin/$phone")
+                },
+                onNavigateToOtp = { phone, authType ->
+                    navController.navigate("otp/$phone/$authType")
+                }
+            )
+        }
+        
+        composable(Routes.PIN) { backStackEntry ->
+            val phone = backStackEntry.arguments?.getString("phone") ?: ""
+            PinScreen(
+                phone = phone,
+                viewModel = authViewModel,
+                authState = authState,
+                onLoginSuccess = {
+                    navController.navigate(Routes.PROFILE) {
+                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    }
+                },
+                onForgotPasswordNavigate = { authType ->
+                    navController.navigate("otp/$phone/$authType")
+                },
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }
         
         composable(Routes.OTP) { backStackEntry ->
             val phone = backStackEntry.arguments?.getString("phone") ?: ""
-            val pinExists = backStackEntry.arguments?.getString("pinExists")?.toBoolean() ?: false
+            val authType = backStackEntry.arguments?.getString("authType") ?: "signup"
             OtpScreen(
                 phone = phone,
-                pinExists = pinExists,
+                authType = authType,
                 viewModel = authViewModel,
                 authState = authState,
                 onLoginSuccess = {
