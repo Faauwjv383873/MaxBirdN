@@ -70,6 +70,7 @@ fun ChapterLessonsScreen(
     viewModel: CourseViewModel,
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
+    onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -348,17 +349,22 @@ fun ChapterLessonsScreen(
                                     subjectColorHex = uiState.selectedSubjectColor,
                                     subjectColor = subjectColor,
                                     onClick = {
-                                        val videoUrl = lesson.live_class?.recording_url ?: ""
-                                        val title = lesson.title ?: "ক্লাস লেকচার"
-                                        val isLive = lesson.live_class?.is_on_going == true ||
-                                                lesson.content_type?.contains("LIVE", ignoreCase = true) == true
-                                        onPlayVideo(
-                                            videoUrl,
-                                            title,
-                                            uiState.selectedSubjectTitle,
-                                            uiState.selectedSubjectColor,
-                                            isLive
-                                        )
+                                        viewModel.selectLesson(lesson)
+                                        if (onOpenLessonDetail != null) {
+                                            onOpenLessonDetail(lesson)
+                                        } else {
+                                            val videoUrl = lesson.live_class?.recording_url ?: ""
+                                            val title = lesson.title ?: "ক্লাস লেকচার"
+                                            val isLive = lesson.live_class?.is_on_going == true ||
+                                                    lesson.content_type?.contains("LIVE", ignoreCase = true) == true
+                                            onPlayVideo(
+                                                videoUrl,
+                                                title,
+                                                uiState.selectedSubjectTitle,
+                                                uiState.selectedSubjectColor,
+                                                isLive
+                                            )
+                                        }
                                     }
                                 )
                             }

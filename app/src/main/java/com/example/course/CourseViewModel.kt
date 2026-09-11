@@ -53,7 +53,10 @@ data class CourseUiState(
     val selectedChapterStatus: String = "",
     val lessons: List<StudentLessonItem> = emptyList(),
     val isLessonsLoading: Boolean = false,
-    val lessonsErrorMessage: String? = null
+    val lessonsErrorMessage: String? = null,
+
+    // Tier 4: Selected Lesson Detail
+    val selectedLesson: StudentLessonItem? = null
 )
 
 class CourseViewModel(
@@ -66,6 +69,12 @@ class CourseViewModel(
 
     init {
         loadSubjects()
+    }
+
+    fun selectLesson(lesson: StudentLessonItem) {
+        _uiState.update {
+            it.copy(selectedLesson = lesson)
+        }
     }
 
     fun loadSubjects(forceRefresh: Boolean = false) {
@@ -366,13 +375,51 @@ class CourseViewModel(
                             data {
                               id
                               title
+                              content_id
                               content_type
                               user_activity_state
+                              start_time
+                              end_time
+                              subject_id
+                              subject_name
+                              color_code
+                              icon
                               live_class {
                                 id
                                 recording_url
+                                chapter_name
+                                is_on_going
                                 start_time
+                                end_time
                                 type
+                                slide_url
+                                topics {
+                                  id
+                                  title
+                                  name
+                                }
+                                teacher {
+                                  id
+                                  name
+                                  first_name
+                                  last_name
+                                  avatar
+                                  subject
+                                }
+                                instructor {
+                                  id
+                                  name
+                                  first_name
+                                  last_name
+                                  avatar
+                                  subject
+                                }
+                                attachments {
+                                  id
+                                  title
+                                  url
+                                  file_type
+                                }
                               }
                             }
                           }

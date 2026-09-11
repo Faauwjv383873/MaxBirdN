@@ -317,6 +317,52 @@ data class StudentLessonItem(
 )
 
 @JsonClass(generateAdapter = true)
+data class TopicItem(
+    val id: String? = null,
+    val title: String? = null,
+    val name: String? = null,
+    val description: String? = null
+) {
+    val displayTitle: String
+        get() = title ?: name ?: description ?: ""
+}
+
+@JsonClass(generateAdapter = true)
+data class TeacherItem(
+    val id: String? = null,
+    val name: String? = null,
+    val first_name: String? = null,
+    val last_name: String? = null,
+    val avatar: String? = null,
+    val image: String? = null,
+    val subject: String? = null,
+    val designation: String? = null
+) {
+    val displayName: String
+        get() = name ?: listOfNotNull(first_name, last_name).joinToString(" ").ifBlank { "শিক্ষক" }
+
+    val displayAvatar: String?
+        get() = avatar ?: image
+}
+
+@JsonClass(generateAdapter = true)
+data class LessonAttachmentItem(
+    val id: String? = null,
+    val title: String? = null,
+    val name: String? = null,
+    val url: String? = null,
+    val link: String? = null,
+    val file_type: String? = null,
+    val is_solution_sheet: Boolean? = null
+) {
+    val downloadUrl: String?
+        get() = url ?: link
+
+    val displayTitle: String
+        get() = title ?: name ?: "লেকচার স্লাইড"
+}
+
+@JsonClass(generateAdapter = true)
 data class LiveClassDetails(
     val id: String? = null,
     val recording_url: String? = null,
@@ -324,8 +370,27 @@ data class LiveClassDetails(
     val is_on_going: Boolean? = false,
     val start_time: String? = null,
     val end_time: String? = null,
-    val type: String? = null
-)
+    val type: String? = null,
+    val topics: List<TopicItem>? = emptyList(),
+    val teacher: TeacherItem? = null,
+    val instructor: TeacherItem? = null,
+    val attachments: List<LessonAttachmentItem>? = emptyList(),
+    val attachment_list: List<LessonAttachmentItem>? = emptyList(),
+    val slide_url: String? = null
+) {
+    val teacherName: String?
+        get() = teacher?.displayName ?: instructor?.displayName
+
+    val teacherAvatar: String?
+        get() = teacher?.displayAvatar ?: instructor?.displayAvatar
+
+    val lectureSlideUrl: String?
+        get() = slide_url
+            ?: attachments?.firstOrNull { it.file_type.equals("pdf", ignoreCase = true) || it.downloadUrl?.contains(".pdf", ignoreCase = true) == true }?.downloadUrl
+            ?: attachment_list?.firstOrNull { it.file_type.equals("pdf", ignoreCase = true) || it.downloadUrl?.contains(".pdf", ignoreCase = true) == true }?.downloadUrl
+            ?: attachments?.firstOrNull()?.downloadUrl
+            ?: attachment_list?.firstOrNull()?.downloadUrl
+}
 
 @JsonClass(generateAdapter = true)
 data class ModelTestDetails(

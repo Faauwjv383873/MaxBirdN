@@ -40,6 +40,7 @@ object Routes {
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
     const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}"
+    const val LESSON_DETAIL_PLAYER = "lesson_detail_player"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
 }
 
@@ -259,12 +260,27 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onBack = {
                     navController.popBackStack()
                 },
+                onOpenLessonDetail = { _ ->
+                    navController.navigate(Routes.LESSON_DETAIL_PLAYER)
+                },
                 onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->
                     val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
                     val encodedTitle = URLEncoder.encode(title, "UTF-8")
                     val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
                     val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
                     navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
+                }
+            )
+        }
+
+        composable(Routes.LESSON_DETAIL_PLAYER) {
+            val courseUiState by courseViewModel.uiState.collectAsState()
+            LessonDetailPlayerScreen(
+                lesson = courseUiState.selectedLesson,
+                subjectName = courseUiState.selectedSubjectTitle,
+                subjectColorHex = courseUiState.selectedSubjectColor,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }
