@@ -82,7 +82,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 viewModel = authViewModel,
                 authState = authState,
                 onLoginSuccess = {
-                    homeViewModel.loadDashboardData()
+                    homeViewModel.loadData()
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
@@ -146,6 +146,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
         composable(Routes.HOME) {
             MainContainerScreen(
+                homeViewModel = homeViewModel,
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {

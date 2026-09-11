@@ -47,11 +47,77 @@ class SessionManager(context: Context) {
     fun getAccessToken(): String? = sharedPreferences.getString("access_token", null)
     fun getUserId(): String? = sharedPreferences.getString("user_id", null)
 
+    fun saveActiveProgram(programId: String, titleBn: String?) {
+        sharedPreferences.edit()
+            .putString("active_program_id", programId)
+            .putString("active_program_title_bn", titleBn)
+            .apply()
+    }
+
+    fun getActiveProgramId(): String? = sharedPreferences.getString("active_program_id", null)
+    fun getActiveProgramTitleBn(): String? = sharedPreferences.getString("active_program_title_bn", null)
+
+    fun saveUserAcademicInfo(batchId: String?, className: String?, group: String?, vendor: String? = "BD") {
+        sharedPreferences.edit()
+            .putString("academic_batch_id", batchId)
+            .putString("academic_class_name", className)
+            .putString("academic_group", group)
+            .putString("academic_vendor", vendor ?: "BD")
+            .apply()
+    }
+
+    fun getUserBatchId(): String? = sharedPreferences.getString("academic_batch_id", "HSC 2027")
+    fun getUserClassName(): String? = sharedPreferences.getString("academic_class_name", "C11")
+    fun getUserGroup(): String? = sharedPreferences.getString("academic_group", "Humanities")
+    fun getUserVendor(): String? = sharedPreferences.getString("academic_vendor", "BD")
+
+    fun saveUserProfile(
+        firstName: String?,
+        lastName: String?,
+        avatar: String?,
+        schoolName: String? = null,
+        classDisplay: String? = null
+    ) {
+        sharedPreferences.edit()
+            .putString("user_first_name", firstName)
+            .putString("user_last_name", lastName)
+            .putString("user_avatar", avatar)
+            .putString("user_school_name", schoolName)
+            .putString("user_class_display", classDisplay)
+            .apply()
+    }
+
+    fun getUserFirstName(): String? = sharedPreferences.getString("user_first_name", null)
+    fun getUserSchoolName(): String? = sharedPreferences.getString("user_school_name", null)
+    fun getUserClassDisplay(): String? = sharedPreferences.getString("user_class_display", null)
+
+    fun getUserFullName(): String? {
+        val first = sharedPreferences.getString("user_first_name", null)
+        val last = sharedPreferences.getString("user_last_name", null)
+        return when {
+            !first.isNullOrBlank() && !last.isNullOrBlank() -> "$first $last"
+            !first.isNullOrBlank() -> first
+            !last.isNullOrBlank() -> last
+            else -> null
+        }
+    }
+
+    fun getUserAvatar(): String? = sharedPreferences.getString("user_avatar", null)
+
     fun clearSession() {
         sharedPreferences.edit()
             .remove("access_token")
             .remove("refresh_token")
             .remove("user_id")
+            .remove("active_program_id")
+            .remove("active_program_title_bn")
+            .remove("academic_batch_id")
+            .remove("academic_class_name")
+            .remove("academic_group")
+            .remove("academic_vendor")
+            .remove("user_first_name")
+            .remove("user_last_name")
+            .remove("user_avatar")
             .apply()
     }
 }

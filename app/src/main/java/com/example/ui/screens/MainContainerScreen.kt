@@ -5,24 +5,22 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.home.HomeViewModel
 import com.example.ui.navigation.NavigationItem
 
 @Composable
 fun MainContainerScreen(
+    homeViewModel: HomeViewModel,
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -85,13 +83,23 @@ fun MainContainerScreen(
                 .padding(innerPadding)
         ) {
             AnimatedContent(
-                targetState = currentTab,
+                targetState = selectedIndex,
                 transitionSpec = {
                     fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
                 },
-                label = "TabTransition"
-            ) { targetItem ->
-                ComingSoonScreen(tabItem = targetItem)
+                label = "TabContentTransition"
+            ) { tabIndex ->
+                when (tabIndex) {
+                    0 -> {
+                        HomeScreen(
+                            viewModel = homeViewModel,
+                            onNavigateToProfile = { selectedIndex = 3 }
+                        )
+                    }
+                    else -> {
+                        ComingSoonScreen(tabItem = NavigationItem.items[tabIndex])
+                    }
+                }
             }
         }
     }

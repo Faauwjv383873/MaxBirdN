@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,14 +17,77 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.EnrolledProgram
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class ProgramBadgeInfo(
+    val text: String,
+    val containerColor: Color,
+    val textColor: Color
+)
+
+fun getProgramBadge(program: EnrolledProgram): ProgramBadgeInfo {
+    val details = program.enrollment_details
+    val type = details?.type
+    val isActive = details?.is_active == true
+    val isTrial = type == "FullApTrial" || program.trial_enabled == true
+
+    val isTrialExpired = if (isTrial && !details?.trial_end_date.isNullOrBlank()) {
+        try {
+            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+            val date = format.parse(details!!.trial_end_date!!)
+            date != null && date.before(Date())
+        } catch (_: Exception) {
+            !isActive
+        }
+    } else {
+        !isActive && isTrial
+    }
+
+    return when {
+        isTrial && (isTrialExpired || !isActive) -> {
+            ProgramBadgeInfo(
+                text = "ফ্রিতে শেখা শেষ",
+                containerColor = Color(0xFFFFF3E0),
+                textColor = Color(0xFFE65100) // Orange / Amber
+            )
+        }
+        isActive && !isTrial -> {
+            ProgramBadgeInfo(
+                text = "ভর্তি হয়েছো",
+                containerColor = Color(0xFFE8F5E9),
+                textColor = Color(0xFF2E7D32) // Soft Green
+            )
+        }
+        isActive && isTrial -> {
+            ProgramBadgeInfo(
+                text = "ফ্রি ট্রায়াল",
+                containerColor = Color(0xFFE3F2FD),
+                textColor = Color(0xFF1565C0) // Soft Blue
+            )
+        }
+        else -> {
+            ProgramBadgeInfo(
+                text = "প্রোগ্রাম",
+                containerColor = Color(0xFFF5F5F5),
+                textColor = Color(0xFF616161)
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,28 +101,47 @@ fun CourseSwitcherBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .width(44.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+            )
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 24.dp)
         ) {
-            // Header with title and close button
+            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "কোর্স সুইচ করো",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column {
+                    Text(
+                        text = "কোর্স সুইচ করো",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "তোমার এনরোল করা প্রোগ্রামসমূহ:",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
 
                 IconButton(
                     onClick = onDismiss,
@@ -74,138 +159,153 @@ fun CourseSwitcherBottomSheet(
                 }
             }
 
-            Text(
-                text = "তোমার এনরোল করা প্রোগ্রামসমূহ:",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
+            Spacer(modifier = Modifier.height(14.dp))
 
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(enrolledPrograms) { program ->
-                    val isSelected = activeProgram?.id == program.id
-                    val isTrial = program.enrollment_details?.type == "FullApTrial"
-                    val isActive = program.enrollment_details?.is_active == true
+            if (enrolledPrograms.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "কোনো কোর্স পাওয়া যায়নি",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(enrolledPrograms, key = { it.id }) { program ->
+                        val isSelected = activeProgram?.id == program.id
+                        val badge = getProgramBadge(program)
 
-                    val badgeText = when {
-                        isActive && !isTrial -> "ভর্তি হয়েছো"
-                        isActive && isTrial -> "ফ্রি ট্রায়াল চালু"
-                        !isActive && isTrial -> "ফ্রিতে শেখা শেষ"
-                        else -> "প্রোগ্রাম"
-                    }
+                        val animatedCardBg by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            animationSpec = tween(durationMillis = 200),
+                            label = "cardBg"
+                        )
 
-                    val badgeColor = when {
-                        isActive && !isTrial -> Color(0xFF0F9D58)
-                        isActive && isTrial -> Color(0xFF2196F3)
-                        else -> Color(0xFFE53935)
-                    }
+                        val animatedBorderColor by animateColorAsState(
+                            targetValue = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            },
+                            animationSpec = tween(durationMillis = 200),
+                            label = "borderColor"
+                        )
 
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onSelectProgram(program)
-                            }
-                    ) {
-                        Row(
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.School,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
+                                .shadow(
+                                    elevation = if (isSelected) 4.dp else 1.dp,
+                                    shape = RoundedCornerShape(16.dp),
+                                    ambientColor = Color.Black.copy(alpha = 0.05f),
+                                    spotColor = Color.Black.copy(alpha = 0.08f)
                                 )
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    onSelectProgram(program)
+                                },
+                            shape = RoundedCornerShape(16.dp),
+                            color = animatedCardBg,
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = animatedBorderColor
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                // Program Icon Box
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isSelected) {
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                            }
+                                        ),
+                                    contentAlignment = Alignment.Center
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.School,
+                                        contentDescription = null,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                // Details Column
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    // Status Badge
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = badgeColor.copy(alpha = 0.12f)
+                                        color = badge.containerColor
                                     ) {
                                         Text(
-                                            text = badgeText,
-                                            color = badgeColor,
+                                            text = badge.text,
+                                            color = badge.textColor,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                         )
                                     }
 
-                                    if (program.classes?.isNotEmpty() == true) {
-                                        Text(
-                                            text = program.classes.first(),
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
+                                    Spacer(modifier = Modifier.height(6.dp))
 
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Text(
-                                    text = program.title_bn ?: "প্রোগ্রাম",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-
-                                if (!program.subjects.isNullOrEmpty()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
+                                    // Course Title (Bangla)
                                     Text(
-                                        text = "${program.subjects.size}টি বিষয় অন্তর্ভুক্ত",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                                        text = program.title_bn ?: "একাডেমিক প্রোগ্রাম",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                            }
 
-                            // Radio Selection indicator
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .border(
-                                        width = 2.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                                        shape = CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                // Selection Indicator / Checkmark
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                        )
+                                        .border(
+                                            width = 2.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                            shape = CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
