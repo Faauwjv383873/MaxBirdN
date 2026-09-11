@@ -42,7 +42,13 @@ interface ShikhoApiService {
     suspend fun getAcademicProgram(@Body query: GraphQlQuery): AcademicProgramResponse
 
     @POST("/graphql")
+    suspend fun getAcademicSubjects(@Body query: GraphQlQuery): AcademicSubjectsResponse
+
+    @POST("/graphql")
     suspend fun getProgramPhases(@Body query: GraphQlQuery): ProgramPhasesResponse
+
+    @POST("/graphql")
+    suspend fun getPhaseWiseChapters(@Body query: GraphQlQuery): AcademicChaptersResponse
 
     @POST("/graphql")
     suspend fun getStudentLessons(@Body query: GraphQlQuery): StudentSpecificLessonsResponse

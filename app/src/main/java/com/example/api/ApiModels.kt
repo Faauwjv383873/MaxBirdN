@@ -302,15 +302,15 @@ data class StudentLessonsInnerData(
 data class StudentLessonItem(
     val id: String,
     val title: String?,
-    val content_id: String?,
+    val content_id: String? = null,
     val content_type: String?, // "LiveClass", "LiveExam", "RecordedClass"
-    val access_level: String?,
-    val start_time: String?,
-    val end_time: String?,
-    val subject_id: String?,
-    val subject_name: String?,
-    val color_code: String?,
-    val icon: String?,
+    val access_level: String? = null,
+    val start_time: String? = null,
+    val end_time: String? = null,
+    val subject_id: String? = null,
+    val subject_name: String? = null,
+    val color_code: String? = null,
+    val icon: String? = null,
     val user_activity_state: String?, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
     val live_class: LiveClassDetails? = null,
     val model_test: ModelTestDetails? = null
@@ -318,11 +318,13 @@ data class StudentLessonItem(
 
 @JsonClass(generateAdapter = true)
 data class LiveClassDetails(
-    val chapter_name: String?,
+    val id: String? = null,
+    val recording_url: String? = null,
+    val chapter_name: String? = null,
     val is_on_going: Boolean? = false,
-    val start_time: String?,
-    val end_time: String?,
-    val type: String?
+    val start_time: String? = null,
+    val end_time: String? = null,
+    val type: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -330,6 +332,83 @@ data class ModelTestDetails(
     val exam_category: String?,
     val type: String?
 )
+
+// ==========================================
+// 3.5. Academic Subjects & Progress (Tier 1)
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class AcademicSubjectsResponse(
+    val data: AcademicSubjectsData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicSubjectsData(
+    val academicProgram: AcademicProgramDetail? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicProgramDetail(
+    val id: String? = null,
+    val subjects: List<AcademicSubjectItem>? = emptyList(),
+    val subjects_progress_bar: List<SubjectProgressBarItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicSubjectItem(
+    val code: String? = null,
+    val color_code: String? = null,
+    val display_bn: String? = null,
+    val icon: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubjectProgressBarItem(
+    val code: String? = null,
+    val percentage: Double? = null,
+    val total_chapters: Int? = null,
+    val completed_chapters: Int? = null
+)
+
+// ==========================================
+// 3.6. Academic Program Chapters (Tier 2)
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class AcademicChaptersResponse(
+    val data: AcademicChaptersData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicChaptersData(
+    val listAcademicProgramChapters: ListAcademicProgramChaptersPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ListAcademicProgramChaptersPayload(
+    val data: List<AcademicChapterItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicChapterItem(
+    val id: String = "",
+    val chapter_id: String? = null,
+    val chapter_name: String? = null,
+    val chapter_no: Any? = null,
+    val status: String? = null, // e.g. "IN_PROGRESS", "COMPLETED", "ON_GOING", "UPCOMING"
+    val class_counter: Int? = null,
+    val exam_counter: Int? = null,
+    val chapters_progress_percentage: Double? = null
+) {
+    val displayProgress: Int
+        get() = chapters_progress_percentage?.toInt() ?: 0
+
+    val isCompleted: Boolean
+        get() = status?.equals("COMPLETED", ignoreCase = true) == true || displayProgress >= 100
+
+    val isInProgress: Boolean
+        get() = status?.equals("IN_PROGRESS", ignoreCase = true) == true ||
+                status?.equals("ON_GOING", ignoreCase = true) == true ||
+                (displayProgress in 1..99)
+}
 
 // ==========================================
 // 4. Program Phases / Course Progress Quarters

@@ -16,6 +16,8 @@ import com.example.api.ShikhoApiService
 import com.example.auth.AuthViewModel
 import com.example.auth.AuthViewModelFactory
 import com.example.auth.SessionManager
+import com.example.course.CourseViewModel
+import com.example.course.CourseViewModelFactory
 import com.example.home.HomeViewModel
 import com.example.home.HomeViewModelFactory
 import com.example.profile.EditProfileViewModel
@@ -36,6 +38,8 @@ object Routes {
     const val PROFILE = "profile"
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_SYLLABUS = "change_syllabus"
+    const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
+    const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
 }
 
@@ -53,6 +57,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
     
     val homeViewModel: HomeViewModel = viewModel(
         factory = HomeViewModelFactory(apiService, sessionManager)
+    )
+
+    val courseViewModel: CourseViewModel = viewModel(
+        factory = CourseViewModelFactory(apiService, sessionManager)
     )
     
     val authState by authViewModel.authState.collectAsState()
@@ -89,6 +97,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 authState = authState,
                 onLoginSuccess = {
                     homeViewModel.loadData()
+                    courseViewModel.loadSubjects(forceRefresh = true)
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
@@ -153,7 +162,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         composable(Routes.HOME) {
             MainContainerScreen(
                 homeViewModel = homeViewModel,
+                courseViewModel = courseViewModel,
                 sessionManager = sessionManager,
+                onNavigateToSubjectChapters = { subjectCode, subjectTitle, subjectColor ->
+                    val encodedTitle = URLEncoder.encode(subjectTitle, "UTF-8")
+                    val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
+                    navController.navigate("subject_chapters/$subjectCode?title=$encodedTitle&color=$encodedColor")
+                },
                 onNavigateToEditProfile = {
                     navController.navigate(Routes.EDIT_PROFILE)
                 },
@@ -192,6 +207,64 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 viewModel = changeSyllabusViewModel,
                 onBack = {
                     navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            route = Routes.SUBJECT_CHAPTERS,
+            arguments = listOf(
+                navArgument("subjectCode") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("color") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
+            val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val color = backStackEntry.arguments?.getString("color")?.let { URLDecoder.decode(it, "UTF-8") }
+
+            SubjectChaptersScreen(
+                subjectCode = subjectCode,
+                subjectTitle = title,
+                subjectColorHex = color,
+                viewModel = courseViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onChapterClick = { chapterId, chapterName, chapterStatus ->
+                    val encodedName = URLEncoder.encode(chapterName, "UTF-8")
+                    val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
+                    navController.navigate("chapter_lessons/$chapterId?name=$encodedName&status=$encodedStatus")
+                }
+            )
+        }
+
+        composable(
+            route = Routes.CHAPTER_LESSONS,
+            arguments = listOf(
+                navArgument("chapterId") { type = NavType.StringType },
+                navArgument("name") { type = NavType.StringType; defaultValue = "" },
+                navArgument("status") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
+            val name = backStackEntry.arguments?.getString("name")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val status = backStackEntry.arguments?.getString("status")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+
+            ChapterLessonsScreen(
+                chapterId = chapterId,
+                chapterName = name,
+                chapterStatus = status,
+                viewModel = courseViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
+                    val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
+                    navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
                 }
             )
         }

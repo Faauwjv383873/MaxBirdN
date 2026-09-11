@@ -16,13 +16,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.auth.SessionManager
+import com.example.course.CourseViewModel
 import com.example.home.HomeViewModel
 import com.example.ui.navigation.NavigationItem
 
 @Composable
 fun MainContainerScreen(
     homeViewModel: HomeViewModel,
+    courseViewModel: CourseViewModel,
     sessionManager: SessionManager,
+    onNavigateToSubjectChapters: (subjectCode: String, subjectTitle: String, subjectColor: String) -> Unit = { _, _, _ -> },
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToChangeSyllabus: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
@@ -54,7 +57,12 @@ fun MainContainerScreen(
                         val isSelected = selectedIndex == index
                         NavigationBarItem(
                             selected = isSelected,
-                            onClick = { selectedIndex = index },
+                            onClick = {
+                                selectedIndex = index
+                                if (index == 1) {
+                                    courseViewModel.loadSubjects()
+                                }
+                            },
                             icon = {
                                 Icon(
                                     imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
@@ -100,6 +108,12 @@ fun MainContainerScreen(
                             viewModel = homeViewModel,
                             onNavigateToProfile = { selectedIndex = 3 },
                             onNavigateToChangeSyllabus = onNavigateToChangeSyllabus
+                        )
+                    }
+                    1 -> {
+                        CourseSubjectsScreen(
+                            viewModel = courseViewModel,
+                            onSubjectClick = onNavigateToSubjectChapters
                         )
                     }
                     3 -> {
