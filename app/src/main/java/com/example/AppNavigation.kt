@@ -145,18 +145,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         }
 
         composable(Routes.HOME) {
-            HomeScreen(
-                viewModel = homeViewModel,
-                onNavigateToProfile = {
-                    homeViewModel.selectTab(3)
-                },
-                onNavigateToVideoPlayer = { url, title, subject, color, isLive ->
-                    val encodedUrl = URLEncoder.encode(url, "UTF-8")
-                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
-                    val encodedSub = URLEncoder.encode(subject ?: "", "UTF-8")
-                    val encodedColor = URLEncoder.encode(color ?: "", "UTF-8")
-                    navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSub&color=$encodedColor&isLive=$isLive")
-                },
+            MainContainerScreen(
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
