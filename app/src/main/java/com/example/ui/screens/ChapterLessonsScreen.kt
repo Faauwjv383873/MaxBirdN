@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import com.example.api.StudentLessonItem
 import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
+import com.example.ui.components.DebugTerminalManager
+import com.example.ui.components.DebugTerminalOverlay
+import com.example.ui.components.LogType
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -88,8 +91,11 @@ fun ChapterLessonsScreen(
     }
 
     LaunchedEffect(chapterId) {
+        val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+        val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
         viewModel.loadLessonsForChapter(
             chapterId = chapterId,
+            altChapterId = altId,
             chapterName = chapterName,
             chapterStatus = chapterStatus
         )
@@ -195,11 +201,11 @@ fun ChapterLessonsScreen(
                     }
                 }
 
-                uiState.lessonsErrorMessage != null && uiState.lessons.isEmpty() -> {
+                uiState.lessons.isEmpty() -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(32.dp),
+                            .padding(24.dp),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -219,17 +225,44 @@ fun ChapterLessonsScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = uiState.lessonsErrorMessage ?: "কোনো ক্লাস পাওয়া যায়নি",
+                            text = uiState.lessonsErrorMessage ?: "এই অধ্যায়ে কোনো ক্লাস বা লেকচার পাওয়া যায়নি",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center
                         )
+                        if (!uiState.lessonsDiagnosticInfo.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "সার্ভার অনুসন্ধান তথ্য:",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = uiState.lessonsDiagnosticInfo ?: "",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = {
+                                val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+                                val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
                                 viewModel.loadLessonsForChapter(
                                     chapterId = chapterId,
+                                    altChapterId = altId,
                                     chapterName = chapterName,
                                     chapterStatus = chapterStatus
                                 )

@@ -54,7 +54,12 @@ class HomeViewModel(
     }
 
     fun switchActiveCourse(program: EnrolledProgram) {
-        sessionManager.saveActiveProgram(program.id, program.title_bn)
+        sessionManager.saveActiveProgram(
+            programId = program.id,
+            titleBn = program.title_bn,
+            batchId = program.enrollment_details?.batch_id,
+            classCode = program.classes?.firstOrNull()
+        )
         _uiState.value = _uiState.value.copy(
             activeProgram = program,
             showCourseSwitcher = false
@@ -147,8 +152,8 @@ class HomeViewModel(
     }
 
     private suspend fun fetchAcademicPrograms() {
-        val batchId = sessionManager.getUserBatchId()
-        val className = sessionManager.getUserClassName() ?: "C11"
+        val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+        val className = sessionManager.getActiveProgramClassCode() ?: sessionManager.getUserClassName() ?: "C11"
         val group = sessionManager.getUserGroup() ?: "Humanities"
         val vendor = sessionManager.getUserVendor() ?: "BD"
 
@@ -162,8 +167,48 @@ class HomeViewModel(
 
         var programs: List<EnrolledProgram> = emptyList()
 
-        // 1. Try querying with batch_id if available
-        if (!batchId.isNullOrBlank()) {
+        // 0. Primary query: List all user enrollments directly without narrow restrictive filters
+        try {
+            val allEnrollmentsQuery = GraphQlQuery(
+                operationName = "GetAcademicProgram",
+                query = """
+                    query GetAcademicProgram {
+                      listAcademicProgramByEnrollment {
+                        enrolled_programs {
+                          id
+                          classes
+                          title_bn
+                          banner_url
+                          color
+                          is_free
+                          trial_enabled
+                          enrollment_details {
+                            batch_id
+                            is_active
+                            trial_end_date
+                            type
+                            expiry_date
+                          }
+                          subjects {
+                            code
+                            display_bn
+                            color_code
+                            icon
+                          }
+                        }
+                      }
+                    }
+                """.trimIndent()
+            )
+            val response = apiService.getAcademicProgram(allEnrollmentsQuery)
+            val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs
+            if (!list.isNullOrEmpty()) {
+                programs = list
+            }
+        } catch (_: Exception) {}
+
+        // 1. Try querying with batch_id if available and no programs found yet
+        if (programs.isEmpty() && !batchId.isNullOrBlank()) {
             try {
                 val queryWithBatch = GraphQlQuery(
                     operationName = "GetAcademicProgram",
@@ -172,6 +217,7 @@ class HomeViewModel(
                           listAcademicProgramByEnrollment(batch_id: ${'$'}batch_id, class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
                             enrolled_programs {
                               id
+                              classes
                               title_bn
                               banner_url
                               color
@@ -183,6 +229,12 @@ class HomeViewModel(
                                 trial_end_date
                                 type
                                 expiry_date
+                              }
+                              subjects {
+                                code
+                                display_bn
+                                color_code
+                                icon
                               }
                             }
                           }
@@ -212,6 +264,7 @@ class HomeViewModel(
                           listAcademicProgramByEnrollment(class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
                             enrolled_programs {
                               id
+                              classes
                               title_bn
                               banner_url
                               color
@@ -223,6 +276,12 @@ class HomeViewModel(
                                 trial_end_date
                                 type
                                 expiry_date
+                              }
+                              subjects {
+                                code
+                                display_bn
+                                color_code
+                                icon
                               }
                             }
                           }
@@ -251,6 +310,7 @@ class HomeViewModel(
                           listAcademicProgramByEnrollment(class: ${'$'}className, vendor: ${'$'}vendor) {
                             enrolled_programs {
                               id
+                              classes
                               title_bn
                               banner_url
                               color
@@ -279,13 +339,19 @@ class HomeViewModel(
             }
         }
 
-        // Determine active program
+        // Determine active program: prioritize saved program, then actively enrolled program (is_active == true), then first
         val savedProgramId = sessionManager.getActiveProgramId()
         val active = programs.firstOrNull { it.id == savedProgramId }
+            ?: programs.firstOrNull { it.enrollment_details?.is_active == true }
             ?: programs.firstOrNull()
 
         if (active != null) {
-            sessionManager.saveActiveProgram(active.id, active.title_bn)
+            sessionManager.saveActiveProgram(
+                programId = active.id,
+                titleBn = active.title_bn,
+                batchId = active.enrollment_details?.batch_id,
+                classCode = active.classes?.firstOrNull()
+            )
         }
 
         val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||

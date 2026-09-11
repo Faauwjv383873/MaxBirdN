@@ -353,11 +353,18 @@ fun SubjectChaptersScreen(
                                     chapter = chapter,
                                     subjectColor = subjectColor,
                                     onClick = {
-                                        val targetId = chapter.chapter_id ?: chapter.id
+                                        val primaryId = chapter.id.ifBlank { chapter.chapter_id ?: "" }
+                                        val altId = chapter.chapter_id?.takeIf { it != primaryId }
                                         val targetName = chapter.chapter_name ?: "অধ্যায়"
                                         val targetStatus = chapter.status ?: ""
-                                        viewModel.selectChapter(targetId, targetName, targetStatus)
-                                        onChapterClick(targetId, targetName, targetStatus)
+                                        viewModel.selectChapter(primaryId, targetName, targetStatus)
+                                        viewModel.loadLessonsForChapter(
+                                            chapterId = primaryId,
+                                            altChapterId = altId,
+                                            chapterName = targetName,
+                                            chapterStatus = targetStatus
+                                        )
+                                        onChapterClick(primaryId, targetName, targetStatus)
                                     }
                                 )
                             }

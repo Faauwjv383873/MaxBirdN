@@ -318,8 +318,15 @@ data class StudentLessonItem(
     val attachments: List<LessonAttachmentItem>? = null,
     val video_url: String? = null,
     val stream_url: String? = null,
-    val recording_url: String? = null
+    val recording_url: String? = null,
+    val is_free: Boolean? = false,
+    val is_locked: Boolean? = false
 ) {
+    val isFree: Boolean
+        get() = is_free == true || access_level.equals("FREE", ignoreCase = true) || live_class?.is_free == true
+
+    val isLocked: Boolean
+        get() = is_locked == true || access_level.equals("LOCKED", ignoreCase = true)
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()
@@ -332,17 +339,14 @@ data class StudentLessonItem(
             }
             live_class?.candidateStreamUrls?.let { list.addAll(it) }
 
-            val candidateIds = listOfNotNull(
-                live_class?.id?.takeIf { it.isNotBlank() && it != "null" },
-                content_id?.takeIf { it.isNotBlank() && it != "null" },
-                id.takeIf { it.isNotBlank() && it != "null" }
-            ).distinct()
-
-            for (cid in candidateIds) {
-                list.add("https://shikho-stream2.tenbytecdn.com/$cid/index.m3u8")
-                list.add("https://shikho-stream2.tenbytecdn.com/$cid/720p/index.m3u8")
-                list.add("https://shikho-stream.tenbytecdn.com/$cid/index.m3u8")
+            val lcId = live_class?.id ?: id
+            if (!lcId.isNullOrBlank()) {
+                list.add("https://shikho-stream2.tenbytecdn.com/$lcId/playlist.m3u8")
             }
+            if (!content_id.isNullOrBlank()) {
+                list.add("https://shikho-stream2.tenbytecdn.com/$content_id/playlist.m3u8")
+            }
+
             return list.distinct()
         }
 
@@ -436,7 +440,9 @@ data class LiveClassDetails(
     val instructor: TeacherItem? = null,
     val attachments: List<LessonAttachmentItem>? = emptyList(),
     val attachment_list: List<LessonAttachmentItem>? = emptyList(),
-    val slide_url: String? = null
+    val slide_url: String? = null,
+    val is_free: Boolean? = false,
+    val is_locked: Boolean? = false
 ) {
     val candidateStreamUrls: List<String>
         get() {
@@ -449,12 +455,10 @@ data class LiveClassDetails(
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
 
-            val classId = id?.takeIf { it.isNotBlank() && it != "null" }
-            if (!classId.isNullOrBlank()) {
-                list.add("https://shikho-stream2.tenbytecdn.com/$classId/index.m3u8")
-                list.add("https://shikho-stream2.tenbytecdn.com/$classId/720p/index.m3u8")
-                list.add("https://shikho-stream.tenbytecdn.com/$classId/index.m3u8")
+            if (!id.isNullOrBlank()) {
+                list.add("https://shikho-stream2.tenbytecdn.com/$id/playlist.m3u8")
             }
+
             return list.distinct()
         }
 

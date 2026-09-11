@@ -103,46 +103,20 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    // Candidate streams resolution with Shikho CDN & Direct URLs
     val candidateStreams = remember(lesson) {
-        val list = mutableListOf<String>()
-        val direct = lesson?.resolvedVideoUrl
-            ?: lesson?.live_class?.resolvedVideoUrl
-            ?: lesson?.live_class?.recording_url
-        if (!direct.isNullOrBlank() && direct != "null") {
-            list.add(direct)
-        }
-        lesson?.candidateStreamUrls?.let { list.addAll(it) }
-        lesson?.live_class?.candidateStreamUrls?.let { list.addAll(it) }
-
-        val candidateIds = listOfNotNull(
-            lesson?.live_class?.id?.takeIf { it.isNotBlank() && it != "null" },
-            lesson?.content_id?.takeIf { it.isNotBlank() && it != "null" },
-            lesson?.id?.takeIf { it.isNotBlank() && it != "null" }
-        ).distinct()
-
-        for (cid in candidateIds) {
-            val s1 = "https://shikho-stream2.tenbytecdn.com/$cid/index.m3u8"
-            val s2 = "https://shikho-stream2.tenbytecdn.com/$cid/720p/index.m3u8"
-            val s3 = "https://shikho-stream.tenbytecdn.com/$cid/index.m3u8"
-            if (!list.contains(s1)) list.add(s1)
-            if (!list.contains(s2)) list.add(s2)
-            if (!list.contains(s3)) list.add(s3)
-        }
-        list.filter { it.isNotBlank() && it != "null" }.distinct()
+        lesson?.candidateStreamUrls ?: emptyList()
     }
-
     var currentStreamIndex by remember(lesson) { mutableIntStateOf(0) }
-    var activeStreamUrl by remember(lesson, candidateStreams) {
-        mutableStateOf(candidateStreams.firstOrNull() ?: "")
+    var activeStreamUrl by remember(candidateStreams, currentStreamIndex) {
+        mutableStateOf(candidateStreams.getOrNull(currentStreamIndex) ?: lesson?.resolvedVideoUrl ?: "")
     }
 
     // Diagnostics & Dialog States
     var playbackError by remember { mutableStateOf<String?>(null) }
     var playbackErrorDetails by remember { mutableStateOf<String?>(null) }
     var showDiagnosticDialog by remember { mutableStateOf(false) }
-    var showCustomUrlDialog by remember { mutableStateOf(false) }
-    var customUrlInput by remember { mutableStateOf("") }
+
+    var showCustomUrlDialog = false
 
     // Player States
     var isPlaying by remember { mutableStateOf(true) }
@@ -219,6 +193,12 @@ fun LessonDetailPlayerScreen(
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                if (currentStreamIndex + 1 < candidateStreams.size) {
+                    currentStreamIndex += 1
+                    activeStreamUrl = candidateStreams[currentStreamIndex]
+                    return
+                }
+
                 isBuffering = false
                 isPlaying = false
                 val cause = error.cause
@@ -227,7 +207,7 @@ fun LessonDetailPlayerScreen(
                 val httpCode = httpEx?.responseCode
 
                 val detail = when {
-                    httpCode == 404 -> "CDN সার্ভারে এই স্ট্রিমটি পাওয়া যায়নি (HTTP 404 Not Found)"
+                    httpCode == 404 -> "এই কোর্সটিতে সরাসরি ভিডিও অ্যাক্সেস নেই (ভর্তি প্রয়োজন বা রেকর্ডিং নেই)"
                     httpCode == 403 -> "CDN সার্ভারে অ্যাক্সেস অনুমোদিত নয় (HTTP 403 Forbidden)"
                     httpCode != null -> "CDN নেটওয়ার্ক রেসপন্স ত্রুটি (HTTP $httpCode)"
                     cause is java.net.UnknownHostException -> "ইন্টারনেট সংযোগ নেই বা CDN সার্ভারে পৌঁছানো যাচ্ছে না"
@@ -236,15 +216,6 @@ fun LessonDetailPlayerScreen(
                 }
                 playbackError = "ভিডিও লোড হয়নি"
                 playbackErrorDetails = detail
-
-                // Proactively try next candidate stream if available
-                if (currentStreamIndex < candidateStreams.size - 1) {
-                    coroutineScope.launch {
-                        delay(1200)
-                        currentStreamIndex++
-                        activeStreamUrl = candidateStreams[currentStreamIndex]
-                    }
-                }
             }
         }
         exoPlayer.addListener(listener)
@@ -466,36 +437,11 @@ fun LessonDetailPlayerScreen(
                                         textAlign = TextAlign.Center,
                                         modifier = Modifier.padding(horizontal = 8.dp)
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "বর্তমান ট্রাই: CDN #${currentStreamIndex + 1}/${candidateStreams.size}",
-                                        color = Color(0xFF93C5FD),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        if (candidateStreams.size > 1) {
-                                            Button(
-                                                onClick = {
-                                                    val nextIdx = (currentStreamIndex + 1) % candidateStreams.size
-                                                    currentStreamIndex = nextIdx
-                                                    activeStreamUrl = candidateStreams[nextIdx]
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF2563EB)
-                                                ),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("পরবর্তী CDN", fontSize = 12.sp)
-                                            }
-                                        }
 
                                         OutlinedButton(
                                             onClick = {
@@ -531,6 +477,28 @@ fun LessonDetailPlayerScreen(
                                                 tint = Color.White,
                                                 modifier = Modifier.size(18.dp)
                                             )
+                                        }
+
+
+                                    }
+
+                                    val slideUrlForError = lesson?.resolvedSlideUrl
+                                        ?: lesson?.live_class?.lectureSlideUrl
+                                    if (!slideUrlForError.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        TextButton(
+                                            onClick = {
+                                                viewingSlideItem = LessonAttachmentItem(
+                                                    title = "লেকচার স্লাইড ও নোটস",
+                                                    url = slideUrlForError,
+                                                    file_type = "pdf"
+                                                )
+                                            },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF93C5FD))
+                                        ) {
+                                            Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("লেকচার স্লাইড ও ক্লাস নোটস পড়ুন", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
                                 }
@@ -659,6 +627,38 @@ fun LessonDetailPlayerScreen(
                                         Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("কারণ ও ডায়াগনস্টিক", fontSize = 12.sp)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { showCustomUrlDialog = true },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("কাস্টম লিংক", fontSize = 12.sp)
+                                    }
+                                }
+
+                                val slideUrlForEmpty = lesson?.resolvedSlideUrl
+                                    ?: lesson?.live_class?.lectureSlideUrl
+                                if (!slideUrlForEmpty.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    TextButton(
+                                        onClick = {
+                                            viewingSlideItem = LessonAttachmentItem(
+                                                title = "লেকচার স্লাইড ও নোটস",
+                                                url = slideUrlForEmpty,
+                                                file_type = "pdf"
+                                            )
+                                        },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF93C5FD))
+                                    ) {
+                                        Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("লেকচার স্লাইড ও ক্লাস নোটস পড়ুন", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }
@@ -862,21 +862,6 @@ fun LessonDetailPlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (candidateStreams.size > 1) {
-                                    TextButton(
-                                        onClick = {
-                                            val nextIdx = (currentStreamIndex + 1) % candidateStreams.size
-                                            currentStreamIndex = nextIdx
-                                            activeStreamUrl = candidateStreams[nextIdx]
-                                            Toast.makeText(context, "CDN #${nextIdx + 1} পরিবর্তন করা হয়েছে", Toast.LENGTH_SHORT).show()
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                    ) {
-                                        Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("বিকল্প CDN", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
 
                                 IconButton(
                                     onClick = { showDiagnosticDialog = true },
@@ -1527,8 +1512,7 @@ fun LessonDetailPlayerScreen(
                         "লেসন আইডি" to (lesson?.id ?: "নেই"),
                         "লাইভ ক্লাস আইডি" to (lesson?.live_class?.id ?: "নেই"),
                         "কনটেন্ট আইডি" to (lesson?.content_id ?: "নেই"),
-                        "বর্তমান CDN স্ট্রিম" to activeStreamUrl.ifBlank { "কোনো স্ট্রিম লিংক পাওয়া যায়নি" },
-                        "CDN অপশন সংখ্যা" to "${candidateStreams.size}টি",
+                        "সরাসরি স্ট্রিম" to activeStreamUrl.ifBlank { "কোনো স্ট্রিম লিংক পাওয়া যায়নি" },
                         "প্লেব্যাক স্ট্যাটাস" to when {
                             playbackError != null -> "ব্যর্থ (${playbackErrorDetails ?: "এরর"})"
                             isBuffering -> "বাফারিং হচ্ছে"
@@ -1558,91 +1542,18 @@ fun LessonDetailPlayerScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         OutlinedButton(
                             onClick = {
                                 copyToClipboard(context, "Lesson: ${lesson?.id}\nClass: ${lesson?.live_class?.id}\nContent: ${lesson?.content_id}\nURL: $activeStreamUrl\nError: $playbackErrorDetails")
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("তথ্য কপি", fontSize = 12.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                showDiagnosticDialog = false
-                                showCustomUrlDialog = true
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("কাস্টম লিংক", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Custom URL Player Dialog
-    if (showCustomUrlDialog) {
-        Dialog(
-            onDismissRequest = { showCustomUrlDialog = false }
-        ) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text(
-                        text = "কাস্টম স্ট্রিমিং লিঙ্ক প্রবেশ করান",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "আপনার কাছে অন্য কোনো .m3u8 বা ভিডিও লিংক থাকলে তা সরাসরি দিয়ে প্লে করতে পারেন।",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = customUrlInput,
-                        onValueChange = { customUrlInput = it },
-                        placeholder = { Text("https://...", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 3,
-                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { showCustomUrlDialog = false }) {
-                            Text("বাতিল")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (customUrlInput.isNotBlank()) {
-                                    activeStreamUrl = customUrlInput.trim()
-                                    showCustomUrlDialog = false
-                                    Toast.makeText(context, "কাস্টম লিংক লোড হচ্ছে...", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            enabled = customUrlInput.isNotBlank()
-                        ) {
-                            Text("প্লে করুন")
+                            Text("ডায়াগনস্টিক তথ্য কপি", fontSize = 12.sp)
                         }
                     }
                 }

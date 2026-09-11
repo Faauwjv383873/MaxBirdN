@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.api.*
 import com.example.auth.SessionManager
+import com.example.ui.components.DebugTerminalManager
+import com.example.ui.components.LogType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +56,7 @@ data class CourseUiState(
     val lessons: List<StudentLessonItem> = emptyList(),
     val isLessonsLoading: Boolean = false,
     val lessonsErrorMessage: String? = null,
+    val lessonsDiagnosticInfo: String? = null,
 
     // Tier 4: Selected Lesson Detail
     val selectedLesson: StudentLessonItem? = null
@@ -72,6 +75,13 @@ class CourseViewModel(
     }
 
     fun selectLesson(lesson: StudentLessonItem) {
+        val recUrl = lesson.resolvedVideoUrl ?: lesson.live_class?.resolvedVideoUrl ?: lesson.live_class?.recording_url ?: ""
+        val isEnrolled = recUrl.isNotBlank()
+        DebugTerminalManager.log(
+            "SELECT_LESSON",
+            "ক্লাস সিলেক্ট করা হয়েছে: '${lesson.title}' (ID: ${lesson.id})\n- স্ট্রিমিং URL: ${if (isEnrolled) recUrl else "নেই (ফ্রি বা আনএনরোল্ড কোর্স, ভিডিও প্লে হবে না)"}",
+            if (isEnrolled) LogType.SUCCESS else LogType.ERROR
+        )
         _uiState.update {
             it.copy(selectedLesson = lesson)
         }
@@ -80,9 +90,14 @@ class CourseViewModel(
     /**
      * Switches the active program, clears stale cached data, and reloads subjects fresh.
      */
-    fun switchProgram(newProgramId: String, newProgramTitle: String? = null) {
+    fun switchProgram(
+        newProgramId: String,
+        newProgramTitle: String? = null,
+        batchId: String? = null,
+        classCode: String? = null
+    ) {
         val title = if (!newProgramTitle.isNullOrBlank()) newProgramTitle else "এইচএসসি কোর্স"
-        sessionManager.saveActiveProgram(newProgramId, title)
+        sessionManager.saveActiveProgram(newProgramId, title, batchId, classCode)
         _uiState.update {
             it.copy(
                 programId = newProgramId,
@@ -102,7 +117,8 @@ class CourseViewModel(
                 lessons = emptyList(),
                 selectedLesson = null,
                 isSubjectsLoading = true,
-                subjectsErrorMessage = null
+                subjectsErrorMessage = null,
+                lessonsDiagnosticInfo = null
             )
         }
         loadSubjects(forceRefresh = true)
@@ -174,9 +190,10 @@ class CourseViewModel(
                         val phaseRes = apiService.getProgramPhases(phaseQuery)
                         val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
                         phasesList = fetchedPhases
-                        val activePhase = fetchedPhases.firstOrNull { it.is_current == true }
+                        val activePhase = fetchedPhases.firstOrNull { it.has_enrolment == true }
+                            ?: fetchedPhases.firstOrNull { it.has_free_trial_enrolment == true }
+                            ?: fetchedPhases.firstOrNull { it.is_current == true }
                             ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
-                            ?: fetchedPhases.firstOrNull { it.has_enrolment == true || it.has_free_trial_enrolment == true }
                             ?: fetchedPhases.firstOrNull()
 
                         currentPhaseId = activePhase?.id ?: ""
@@ -539,67 +556,106 @@ class CourseViewModel(
 
     fun loadLessonsForChapter(
         chapterId: String,
+        altChapterId: String? = null,
         chapterName: String? = null,
         chapterStatus: String? = null
     ) {
-        val progId = sessionManager.getActiveProgramId() ?: _uiState.value.programId
-        val phaseId = _uiState.value.activePhaseId
+        val sessionProgId = sessionManager.getActiveProgramId()
+        val stateProgId = _uiState.value.programId
+        val phaseProgId = _uiState.value.selectedPhase?.academic_program_id
+        val candidateProgramIds = listOfNotNull(phaseProgId, sessionProgId, stateProgId).filter { it.isNotBlank() }.distinct()
+
+        val matchingChapter = _uiState.value.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+        val primaryChapterId = chapterId.ifBlank { matchingChapter?.id ?: matchingChapter?.chapter_id ?: "" }
+        val secondaryChapterId = altChapterId ?: matchingChapter?.chapter_id?.takeIf { it != primaryChapterId } ?: matchingChapter?.id?.takeIf { it != primaryChapterId }
+
+        val candidateChapterIds = listOfNotNull(primaryChapterId, secondaryChapterId).filter { it.isNotBlank() }.distinct()
+
+        val currentPhaseId = _uiState.value.activePhaseId
+        val enrolledPhaseId = _uiState.value.phases.firstOrNull { it.has_enrolment == true }?.id
+
+        val candidatePhaseIds = listOfNotNull(
+            enrolledPhaseId,
+            currentPhaseId,
+            *_uiState.value.phases.map { it.id }.toTypedArray()
+        ).filter { it.isNotBlank() }.distinct()
 
         _uiState.update {
             it.copy(
-                selectedChapterId = chapterId,
-                selectedChapterName = chapterName ?: it.selectedChapterName,
-                selectedChapterStatus = chapterStatus ?: it.selectedChapterStatus,
+                selectedChapterId = primaryChapterId,
+                selectedChapterName = chapterName ?: matchingChapter?.chapter_name ?: it.selectedChapterName,
+                selectedChapterStatus = chapterStatus ?: matchingChapter?.status ?: it.selectedChapterStatus,
                 isLessonsLoading = true,
-                lessonsErrorMessage = null
+                lessonsErrorMessage = null,
+                lessonsDiagnosticInfo = null
             )
         }
 
         viewModelScope.launch {
+            DebugTerminalManager.log(
+                "LOAD_LESSONS",
+                "চ্যাপ্টার লেকচার লোড হচ্ছে: '${chapterName ?: matchingChapter?.chapter_name}' (ID: $primaryChapterId)\n- Candidate Chapter IDs: $candidateChapterIds\n- Candidate Program IDs: $candidateProgramIds",
+                LogType.INFO
+            )
             try {
                 var lessonList = emptyList<StudentLessonItem>()
+                val queryAttempts = mutableListOf<String>()
 
-                // 1. If phaseId is non-blank, try phase-wise lessons query with rich slide & attachment fields
-                if (phaseId.isNotBlank()) {
-                    lessonList = fetchLessonsWithPhase(chapterId, progId, phaseId)
-                }
-
-                // 2. If phase-wise query was not used or failed/returned empty, query without phase_id
-                if (lessonList.isEmpty()) {
-                    lessonList = fetchLessonsStandard(chapterId, progId)
-                }
-
-                // 3. If still empty, check other phases in the program (essential for expired trial / multiple phases)
-                if (lessonList.isEmpty() && _uiState.value.phases.isNotEmpty()) {
-                    for (p in _uiState.value.phases) {
-                        if (p.id != phaseId && p.id.isNotBlank()) {
-                            val altLessons = fetchLessonsWithPhase(chapterId, progId, p.id)
-                            if (altLessons.isNotEmpty()) {
-                                lessonList = altLessons
+                // Try each candidate chapter ID across candidate program IDs and phases
+                searchLoop@ for (cid in candidateChapterIds) {
+                    for (pid in candidateProgramIds) {
+                        // 1. Try with phase IDs
+                        for (phId in candidatePhaseIds) {
+                            val attemptKey = "Phase(cid=$cid, pid=$pid, phId=$phId)"
+                            queryAttempts.add(attemptKey)
+                            val lessons = fetchLessonsWithPhase(cid, pid, phId)
+                            if (lessons.isNotEmpty()) {
+                                lessonList = lessons
                                 _uiState.update {
                                     it.copy(
-                                        activePhaseId = p.id,
-                                        activePhaseTitle = p.title ?: ""
+                                        activePhaseId = phId,
+                                        activePhaseTitle = _uiState.value.phases.firstOrNull { p -> p.id == phId }?.title ?: it.activePhaseTitle
                                     )
                                 }
-                                break
+                                break@searchLoop
                             }
+                        }
+
+                        // 2. Try standard query without phase ID
+                        val standardKey = "Standard(cid=$cid, pid=$pid)"
+                        queryAttempts.add(standardKey)
+                        val lessons = fetchLessonsStandard(cid, pid)
+                        if (lessons.isNotEmpty()) {
+                            lessonList = lessons
+                            break@searchLoop
                         }
                     }
                 }
+
+                val diagInfo = if (lessonList.isEmpty()) {
+                    "কোর্স আইডি: ${candidateProgramIds.joinToString(", ")}\nঅধ্যায় আইডি: ${candidateChapterIds.joinToString(", ")}\nকোয়ার্টার আইডি: ${candidatePhaseIds.joinToString(", ")}\nঅনুসন্ধান সংখ্যা: ${queryAttempts.size}টি কোয়েরি"
+                } else null
+
+                DebugTerminalManager.log(
+                    "LOAD_LESSONS_RESULT",
+                    "লোড সম্পন্ন: ${lessonList.size}টি ক্লাস পাওয়া গেছে।\n- চেষ্টা করা কোয়েরি: ${queryAttempts.size}টি\n- স্ট্যাটাস: ${if (lessonList.isNotEmpty()) "সফল (Lessons Loaded)" else "ফাঁকা (No lessons found, possible enrollment restriction)"}",
+                    if (lessonList.isNotEmpty()) LogType.SUCCESS else LogType.WARNING
+                )
 
                 _uiState.update {
                     it.copy(
                         lessons = lessonList,
                         isLessonsLoading = false,
-                        lessonsErrorMessage = if (lessonList.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস বা লেকচার পাওয়া যায়নি" else null
+                        lessonsErrorMessage = if (lessonList.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস বা লেকচার পাওয়া যায়নি" else null,
+                        lessonsDiagnosticInfo = diagInfo
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isLessonsLoading = false,
-                        lessonsErrorMessage = "ক্লাস লোড করা যায়নি: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}"
+                        lessonsErrorMessage = "ক্লাস লোড করা যায়নি: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}",
+                        lessonsDiagnosticInfo = "এরর: ${e.javaClass.simpleName} - ${e.localizedMessage}"
                     )
                 }
             }

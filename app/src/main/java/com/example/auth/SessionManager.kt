@@ -56,25 +56,40 @@ class SessionManager(context: Context) {
         editor.apply()
     }
 
-    fun clearActiveProgram() {
-        sharedPreferences.edit()
-            .remove("active_program_id")
-            .remove("active_program_title_bn")
-            .apply()
-    }
-
     fun getAccessToken(): String? = sharedPreferences.getString("access_token", null)
     fun getUserId(): String? = sharedPreferences.getString("user_id", null)
 
-    fun saveActiveProgram(programId: String, titleBn: String?) {
-        sharedPreferences.edit()
+    fun saveActiveProgram(
+        programId: String,
+        titleBn: String?,
+        batchId: String? = null,
+        classCode: String? = null
+    ) {
+        val editor = sharedPreferences.edit()
             .putString("active_program_id", programId)
             .putString("active_program_title_bn", titleBn)
-            .apply()
+        if (!batchId.isNullOrBlank()) {
+            editor.putString("active_program_batch_id", batchId)
+        }
+        if (!classCode.isNullOrBlank()) {
+            editor.putString("active_program_class_code", classCode)
+        }
+        editor.apply()
     }
 
     fun getActiveProgramId(): String? = sharedPreferences.getString("active_program_id", null)
     fun getActiveProgramTitleBn(): String? = sharedPreferences.getString("active_program_title_bn", null)
+    fun getActiveProgramBatchId(): String? = sharedPreferences.getString("active_program_batch_id", null)
+    fun getActiveProgramClassCode(): String? = sharedPreferences.getString("active_program_class_code", null)
+
+    fun clearActiveProgram() {
+        sharedPreferences.edit()
+            .remove("active_program_id")
+            .remove("active_program_title_bn")
+            .remove("active_program_batch_id")
+            .remove("active_program_class_code")
+            .apply()
+    }
 
     fun saveUserAcademicInfo(batchId: String?, className: String?, group: String?, vendor: String? = "BD") {
         sharedPreferences.edit()
