@@ -10,8 +10,8 @@ data class UserCheckRequest(
 
 @JsonClass(generateAdapter = true)
 data class UserCheckResponse(
-    val code: Int,
-    val message: String,
+    val code: Int? = null,
+    val message: String? = null,
     val pin_exist: Boolean? = false
 )
 
@@ -26,8 +26,9 @@ data class SendSmsRequest(
 
 @JsonClass(generateAdapter = true)
 data class SendSmsResponse(
-    val message: String,
-    val code: Int
+    val code: Int? = null,
+    val message: String? = null,
+    val error: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -39,8 +40,8 @@ data class VerifyOtpRequest(
 
 @JsonClass(generateAdapter = true)
 data class VerifyOtpResponse(
-    val message: String,
-    val code: Int
+    val code: Int? = null,
+    val message: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -69,7 +70,6 @@ data class LoginResponse(
     val tokens: LoginTokens
 )
 
-// GraphQL request payload
 @JsonClass(generateAdapter = true)
 data class GraphQlQuery(
     val operationName: String,

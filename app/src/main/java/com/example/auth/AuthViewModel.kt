@@ -50,7 +50,6 @@ class AuthViewModel(
                 if (response.code == 200 && response.pin_exist == true) {
                     _authState.value = AuthState.NavigateToPin(phone)
                 } else {
-                    // Profile exists but no pin, or treated as signup
                     sendSmsInternal(phone, "signup")
                 }
             } catch (e: HttpException) {
@@ -81,12 +80,12 @@ class AuthViewModel(
                 val req = SendSmsRequest(phone = phone, auth_type = authType, google_ads_id = adsId)
                 val response = apiService.sendSms(req)
                 if (response.code == 200) {
-                    _authState.value = AuthState.Idle // keep it on same screen naturally
+                    _authState.value = AuthState.Idle 
                 } else {
-                    _authState.value = AuthState.Error(response.message)
+                    _authState.value = AuthState.Error(response.message ?: response.error ?: "Failed to resend OTP")
                 }
             } catch (e: Exception) {
-                _authState.value = AuthState.Error("Failed to resend OTP")
+                _authState.value = AuthState.Error("Failed to resend OTP: ${e.localizedMessage}")
             }
         }
     }
@@ -99,7 +98,7 @@ class AuthViewModel(
             if (response.code == 200) {
                 _authState.value = AuthState.NavigateToOtp(phone, authType)
             } else {
-                _authState.value = AuthState.Error(response.message)
+                _authState.value = AuthState.Error(response.message ?: response.error ?: "Failed to send SMS")
             }
         } catch (e: Exception) {
             _authState.value = AuthState.Error("Failed to send SMS: ${e.localizedMessage}")
@@ -114,7 +113,7 @@ class AuthViewModel(
                 if (response.code == 200 || response.code == 201) {
                     loginInternal(phone, otp)
                 } else {
-                    _authState.value = AuthState.Error(response.message)
+                    _authState.value = AuthState.Error(response.message ?: "Invalid OTP")
                 }
             } catch (e: Exception) {
                 _authState.value = AuthState.Error("Invalid OTP. Verification failed.")
@@ -178,7 +177,8 @@ class AuthViewModel(
                     )
                 )
                 
-                val response = apiService.getProfile("Bearer $accessToken", queryBody)
+                // Authorization header is auto-injected by ShikhoApiService Interceptor
+                val response = apiService.getProfile(queryBody)
                 val profile = response.data?.profile
                 if (profile != null) {
                     _authState.value = AuthState.ProfileLoaded(profile)

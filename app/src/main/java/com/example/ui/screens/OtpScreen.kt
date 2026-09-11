@@ -62,7 +62,7 @@ fun OtpScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        val title = if (authType == "login") "পাসওয়ার্ড রিসেট করতে নম্বর ভেরিফাই করুন" else "Verify OTP"
+        val title = if (authType == "login") "পাসওয়ার্ড রিসেট করতে নম্বর ভেরিফাই করুন" else "মোবাইল নম্বর ভেরিফাই করুন"
         
         Text(
             text = title,

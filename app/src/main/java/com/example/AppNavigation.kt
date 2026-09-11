@@ -33,8 +33,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
     val context = LocalContext.current
     
-    val apiService = remember { ShikhoApiService.create() }
     val sessionManager = remember { SessionManager(context) }
+    val apiService = remember { ShikhoApiService.create(sessionManager) }
     
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModelFactory(apiService, sessionManager)
