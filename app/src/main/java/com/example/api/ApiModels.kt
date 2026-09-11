@@ -313,8 +313,61 @@ data class StudentLessonItem(
     val icon: String? = null,
     val user_activity_state: String?, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
     val live_class: LiveClassDetails? = null,
-    val model_test: ModelTestDetails? = null
-)
+    val model_test: ModelTestDetails? = null,
+    val slide_url: String? = null,
+    val attachments: List<LessonAttachmentItem>? = null,
+    val video_url: String? = null,
+    val stream_url: String? = null,
+    val recording_url: String? = null
+) {
+    val candidateStreamUrls: List<String>
+        get() {
+            val list = mutableListOf<String>()
+            val direct = live_class?.resolvedVideoUrl
+                ?: recording_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: video_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: stream_url?.takeIf { it.isNotBlank() && it != "null" }
+            if (!direct.isNullOrBlank()) {
+                list.add(direct)
+            }
+            live_class?.candidateStreamUrls?.let { list.addAll(it) }
+
+            val candidateIds = listOfNotNull(
+                live_class?.id?.takeIf { it.isNotBlank() && it != "null" },
+                content_id?.takeIf { it.isNotBlank() && it != "null" },
+                id.takeIf { it.isNotBlank() && it != "null" }
+            ).distinct()
+
+            for (cid in candidateIds) {
+                list.add("https://shikho-stream2.tenbytecdn.com/$cid/index.m3u8")
+                list.add("https://shikho-stream2.tenbytecdn.com/$cid/720p/index.m3u8")
+                list.add("https://shikho-stream.tenbytecdn.com/$cid/index.m3u8")
+            }
+            return list.distinct()
+        }
+
+    val resolvedVideoUrl: String?
+        get() = candidateStreamUrls.firstOrNull()
+
+    val resolvedSlideUrl: String?
+        get() = live_class?.lectureSlideUrl
+            ?: slide_url
+            ?: attachments?.firstOrNull { it.file_type.equals("pdf", ignoreCase = true) || it.downloadUrl?.contains(".pdf", ignoreCase = true) == true }?.downloadUrl
+            ?: attachments?.firstOrNull()?.downloadUrl
+
+    val allAttachments: List<LessonAttachmentItem>
+        get() {
+            val list = mutableListOf<LessonAttachmentItem>()
+            live_class?.attachments?.let { list.addAll(it) }
+            live_class?.attachment_list?.let { list.addAll(it) }
+            attachments?.let { list.addAll(it) }
+            val directSlide = live_class?.slide_url ?: slide_url
+            if (!directSlide.isNullOrBlank() && list.none { it.downloadUrl == directSlide }) {
+                list.add(0, LessonAttachmentItem(title = "লেকচার স্লাইড (PDF)", url = directSlide, file_type = "pdf"))
+            }
+            return list.distinctBy { it.downloadUrl }
+        }
+}
 
 @JsonClass(generateAdapter = true)
 data class TopicItem(
@@ -352,20 +405,27 @@ data class LessonAttachmentItem(
     val name: String? = null,
     val url: String? = null,
     val link: String? = null,
+    val file_url: String? = null,
+    val path: String? = null,
     val file_type: String? = null,
     val is_solution_sheet: Boolean? = null
 ) {
     val downloadUrl: String?
-        get() = url ?: link
+        get() = url ?: link ?: file_url ?: path
 
     val displayTitle: String
-        get() = title ?: name ?: "লেকচার স্লাইড"
+        get() = title ?: name ?: if (is_solution_sheet == true) "সমাধান শিট" else "লেকচার স্লাইড"
 }
 
 @JsonClass(generateAdapter = true)
 data class LiveClassDetails(
     val id: String? = null,
     val recording_url: String? = null,
+    val stream_url: String? = null,
+    val video_url: String? = null,
+    val url: String? = null,
+    val playback_url: String? = null,
+    val hls_url: String? = null,
     val chapter_name: String? = null,
     val is_on_going: Boolean? = false,
     val start_time: String? = null,
@@ -378,6 +438,29 @@ data class LiveClassDetails(
     val attachment_list: List<LessonAttachmentItem>? = emptyList(),
     val slide_url: String? = null
 ) {
+    val candidateStreamUrls: List<String>
+        get() {
+            val list = mutableListOf<String>()
+            val direct = recording_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: stream_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: video_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: playback_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: hls_url?.takeIf { it.isNotBlank() && it != "null" }
+                ?: url?.takeIf { it.isNotBlank() && it != "null" }
+            if (!direct.isNullOrBlank()) list.add(direct)
+
+            val classId = id?.takeIf { it.isNotBlank() && it != "null" }
+            if (!classId.isNullOrBlank()) {
+                list.add("https://shikho-stream2.tenbytecdn.com/$classId/index.m3u8")
+                list.add("https://shikho-stream2.tenbytecdn.com/$classId/720p/index.m3u8")
+                list.add("https://shikho-stream.tenbytecdn.com/$classId/index.m3u8")
+            }
+            return list.distinct()
+        }
+
+    val resolvedVideoUrl: String?
+        get() = candidateStreamUrls.firstOrNull()
+
     val teacherName: String?
         get() = teacher?.displayName ?: instructor?.displayName
 

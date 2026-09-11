@@ -107,7 +107,20 @@ fun MainContainerScreen(
                         HomeScreen(
                             viewModel = homeViewModel,
                             onNavigateToProfile = { selectedIndex = 3 },
-                            onNavigateToChangeSyllabus = onNavigateToChangeSyllabus
+                            onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
+                            onCourseSelected = { program ->
+                                courseViewModel.switchProgram(program.id, program.title_bn ?: "")
+                                selectedIndex = 1
+                            },
+                            onOpenCourse = {
+                                val activeProg = homeViewModel.uiState.value.activeProgram
+                                if (activeProg != null) {
+                                    courseViewModel.switchProgram(activeProg.id, activeProg.title_bn ?: "")
+                                } else {
+                                    courseViewModel.loadSubjects()
+                                }
+                                selectedIndex = 1
+                            }
                         )
                     }
                     1 -> {

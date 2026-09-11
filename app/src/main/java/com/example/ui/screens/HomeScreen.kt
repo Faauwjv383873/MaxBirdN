@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.api.EnrolledProgram
 import com.example.home.HomeViewModel
 import com.example.ui.components.CourseSwitcherBottomSheet
 import com.example.ui.components.HomeHeader
@@ -32,6 +34,8 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToProfile: () -> Unit = {},
     onNavigateToChangeSyllabus: () -> Unit = {},
+    onCourseSelected: (EnrolledProgram) -> Unit = {},
+    onOpenCourse: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -43,6 +47,7 @@ fun HomeScreen(
             activeProgram = uiState.activeProgram,
             onSelectProgram = { program ->
                 viewModel.switchActiveCourse(program)
+                onCourseSelected(program)
             },
             onDismiss = {
                 viewModel.setCourseSwitcherVisible(false)
@@ -186,6 +191,7 @@ fun HomeScreen(
                 else -> {
                     ActiveCourseCard(
                         activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোনো সক্রিয় কোর্স নেই",
+                        onOpenCourse = onOpenCourse,
                         onOpenCourseSwitcher = {
                             viewModel.setCourseSwitcherVisible(true)
                         }
@@ -199,6 +205,7 @@ fun HomeScreen(
 @Composable
 private fun ActiveCourseCard(
     activeCourseTitle: String,
+    onOpenCourse: () -> Unit,
     onOpenCourseSwitcher: () -> Unit
 ) {
     AnimatedVisibility(
@@ -276,25 +283,50 @@ private fun ActiveCourseCard(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Subtitle
                 Text(
-                    text = "কোর্স সফলভাবে সক্রিয় করা হয়েছে। পরবর্তী ফিচারসমূহ পর্যায়ক্রমে যুক্ত হবে।",
+                    text = "সব বিষয়ের লেকচার ক্লাস, রেকর্ডিং ও স্লাইড দেখতে নিচে ট্যাপ করো।",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     lineHeight = 19.sp
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
-                // Action Button: Switch Course
+                // Primary Button: View Course Classes
                 Button(
-                    onClick = onOpenCourseSwitcher,
+                    onClick = onOpenCourse,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "কোর্সের ক্লাসগুলো দেখো",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Secondary Action Button: Switch Course
+                OutlinedButton(
+                    onClick = onOpenCourseSwitcher,
+                    shape = RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {

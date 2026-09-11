@@ -279,6 +279,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 lesson = courseUiState.selectedLesson,
                 subjectName = courseUiState.selectedSubjectTitle,
                 subjectColorHex = courseUiState.selectedSubjectColor,
+                onRefreshLesson = {
+                    courseViewModel.reloadSelectedLesson()
+                },
                 onBack = {
                     navController.popBackStack()
                 }

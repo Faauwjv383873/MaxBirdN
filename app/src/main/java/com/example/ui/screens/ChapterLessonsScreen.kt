@@ -353,7 +353,10 @@ fun ChapterLessonsScreen(
                                         if (onOpenLessonDetail != null) {
                                             onOpenLessonDetail(lesson)
                                         } else {
-                                            val videoUrl = lesson.live_class?.recording_url ?: ""
+                                            val videoUrl = lesson.resolvedVideoUrl
+                                                ?: lesson.live_class?.resolvedVideoUrl
+                                                ?: lesson.live_class?.recording_url
+                                                ?: ""
                                             val title = lesson.title ?: "ক্লাস লেকচার"
                                             val isLive = lesson.live_class?.is_on_going == true ||
                                                     lesson.content_type?.contains("LIVE", ignoreCase = true) == true
@@ -387,8 +390,8 @@ fun LessonCard(
 ) {
     val isLive = lesson.live_class?.is_on_going == true ||
             lesson.content_type?.contains("LIVE", ignoreCase = true) == true
-    val recordingUrl = lesson.live_class?.recording_url
-    val hasPlayableVideo = !recordingUrl.isNullOrBlank() || isLive
+    val recordingUrl = lesson.resolvedVideoUrl ?: lesson.live_class?.resolvedVideoUrl ?: lesson.live_class?.recording_url
+    val hasPlayableVideo = !recordingUrl.isNullOrBlank() || isLive || !lesson.id.isNullOrBlank()
 
     val state = lesson.user_activity_state?.uppercase() ?: ""
     val (statusText, statusBgColor, statusTextColor) = when (state) {
@@ -529,14 +532,14 @@ fun LessonCard(
             // Play Icon Button
             Surface(
                 shape = CircleShape,
-                color = if (hasPlayableVideo) subjectColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = subjectColor,
                 modifier = Modifier.size(34.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Play",
-                        tint = if (hasPlayableVideo) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )
                 }

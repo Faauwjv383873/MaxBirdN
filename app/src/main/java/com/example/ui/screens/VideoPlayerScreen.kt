@@ -46,6 +46,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.player.ShikhoPlayerManager
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -117,18 +118,14 @@ fun VideoPlayerScreen(
         }
     }
 
-    // ExoPlayer instance
+    // ExoPlayer instance configured with Shikho CDN headers
     val exoPlayer = remember(context) {
-        ExoPlayer.Builder(context)
-            .setSeekBackIncrementMs(10000)
-            .setSeekForwardIncrementMs(10000)
-            .build()
-            .apply {
-                val mediaItem = MediaItem.fromUri(resolvedUrl)
-                setMediaItem(mediaItem)
-                prepare()
-                playWhenReady = true
-            }
+        ShikhoPlayerManager.buildExoPlayer(context).apply {
+            val mediaSource = ShikhoPlayerManager.createMediaSource(resolvedUrl)
+            setMediaSource(mediaSource)
+            prepare()
+            playWhenReady = true
+        }
     }
 
     // Handle Fullscreen system bars & orientation
