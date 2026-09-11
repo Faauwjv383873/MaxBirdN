@@ -15,6 +15,8 @@ sealed class AuthState {
     object Loading : AuthState()
     data class NavigateToPin(val phone: String) : AuthState()
     data class NavigateToOtp(val phone: String, val authType: String) : AuthState()
+    data class NavigateToSetPin(val phone: String) : AuthState()
+    data class PinSetSuccess(val phone: String) : AuthState()
     object LoginSuccess : AuthState()
     data class ProfileLoaded(val profile: UserProfile) : AuthState()
     data class Error(val message: String) : AuthState()
@@ -105,15 +107,32 @@ class AuthViewModel(
         }
     }
 
-    fun submitOtp(phone: String, otp: String) {
+    fun submitOtp(phone: String, otp: String, authType: String) {
         _authState.value = AuthState.Loading
         viewModelScope.launch {
             try {
-                val response = apiService.verifyOtp(VerifyOtpRequest(phone = phone, otp = otp))
-                if (response.code == 200 || response.code == 201) {
-                    loginInternal(phone, otp)
+                val verifyRes = apiService.verifyOtp(VerifyOtpRequest(phone = phone, otp = otp))
+                if (verifyRes.code == 200 || verifyRes.code == 201) {
+                    // Login to receive temporary access token
+                    val deviceId = sessionManager.getDeviceId()
+                    val adsId = sessionManager.getGoogleAdsId()
+                    val loginReq = LoginRequest(
+                        phone = phone,
+                        otp = otp,
+                        profile = ProfileDevice(device_id = deviceId),
+                        google_ads_id = adsId
+                    )
+                    val loginRes = apiService.login(loginReq)
+                    sessionManager.saveTokens(
+                        accessToken = loginRes.tokens.access_token,
+                        refreshToken = loginRes.tokens.refresh_token,
+                        userId = loginRes.tokens.user_id
+                    )
+                    
+                    // Route to SetPinScreen for both Signup & Forgot Password Reset
+                    _authState.value = AuthState.NavigateToSetPin(phone)
                 } else {
-                    _authState.value = AuthState.Error(response.message ?: "Invalid OTP")
+                    _authState.value = AuthState.Error(verifyRes.message ?: "Invalid OTP")
                 }
             } catch (e: Exception) {
                 _authState.value = AuthState.Error("Invalid OTP. Verification failed.")
@@ -121,39 +140,64 @@ class AuthViewModel(
         }
     }
 
-    fun submitPin(phone: String, pin: String) {
+    fun setPin(phone: String, pin: String) {
         _authState.value = AuthState.Loading
         viewModelScope.launch {
-            loginInternal(phone, pin)
+            try {
+                val queryBody = GraphQlQuery(
+                    operationName = "SetPin",
+                    query = "mutation SetPin(\$pin: String!) { setUserPin(pin:\$pin) { message } }",
+                    variables = mapOf("pin" to pin)
+                )
+                
+                val response = apiService.setPin(queryBody)
+                val msg = response.data?.setUserPin?.message
+                if (msg != null && msg.contains("successfully", ignoreCase = true)) {
+                    // Auto-logout & Clear session
+                    try {
+                        apiService.logout()
+                    } catch (_: Exception) { }
+                    sessionManager.clearSession()
+                    
+                    _authState.value = AuthState.PinSetSuccess(phone)
+                } else {
+                    _authState.value = AuthState.Error(msg ?: "Failed to set PIN. Please try again.")
+                }
+            } catch (e: Exception) {
+                _authState.value = AuthState.Error(e.localizedMessage ?: "Failed to set PIN")
+            }
         }
     }
 
-    private suspend fun loginInternal(phone: String, otpOrPin: String) {
-        try {
-            val deviceId = sessionManager.getDeviceId()
-            val adsId = sessionManager.getGoogleAdsId()
-            
-            val request = LoginRequest(
-                phone = phone,
-                otp = otpOrPin,
-                profile = ProfileDevice(device_id = deviceId),
-                google_ads_id = adsId
-            )
-            
-            val response = apiService.login(request)
-            
-            sessionManager.saveTokens(
-                accessToken = response.tokens.access_token,
-                refreshToken = response.tokens.refresh_token,
-                userId = response.tokens.user_id
-            )
-            
-            _authState.value = AuthState.LoginSuccess
-            fetchProfile()
-        } catch (e: HttpException) {
-            _authState.value = AuthState.Error("Incorrect PIN or OTP.")
-        } catch (e: Exception) {
-            _authState.value = AuthState.Error(e.localizedMessage ?: "Failed to login")
+    fun submitPin(phone: String, pin: String) {
+        _authState.value = AuthState.Loading
+        viewModelScope.launch {
+            try {
+                val deviceId = sessionManager.getDeviceId()
+                val adsId = sessionManager.getGoogleAdsId()
+                
+                val request = LoginRequest(
+                    phone = phone,
+                    otp = pin,
+                    profile = ProfileDevice(device_id = deviceId),
+                    google_ads_id = adsId
+                )
+                
+                val response = apiService.login(request)
+                
+                sessionManager.saveTokens(
+                    accessToken = response.tokens.access_token,
+                    refreshToken = response.tokens.refresh_token,
+                    userId = response.tokens.user_id
+                )
+                
+                _authState.value = AuthState.LoginSuccess
+                fetchProfile()
+            } catch (e: HttpException) {
+                _authState.value = AuthState.Error("Incorrect PIN or OTP.")
+            } catch (e: Exception) {
+                _authState.value = AuthState.Error(e.localizedMessage ?: "Failed to login")
+            }
         }
     }
 
@@ -177,7 +221,6 @@ class AuthViewModel(
                     )
                 )
                 
-                // Authorization header is auto-injected by ShikhoApiService Interceptor
                 val response = apiService.getProfile(queryBody)
                 val profile = response.data?.profile
                 if (profile != null) {
@@ -196,8 +239,13 @@ class AuthViewModel(
     }
 
     fun logout() {
-        sessionManager.clearSession()
-        _authState.value = AuthState.Idle
+        viewModelScope.launch {
+            try {
+                apiService.logout()
+            } catch (_: Exception) { }
+            sessionManager.clearSession()
+            _authState.value = AuthState.Idle
+        }
     }
 }
 

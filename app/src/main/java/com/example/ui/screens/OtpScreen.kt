@@ -27,7 +27,7 @@ fun OtpScreen(
     authType: String,
     viewModel: AuthViewModel,
     authState: AuthState,
-    onLoginSuccess: () -> Unit,
+    onNavigateToSetPin: (String) -> Unit,
     onBack: () -> Unit
 ) {
     var otpValue by remember { mutableStateOf("") }
@@ -43,8 +43,8 @@ fun OtpScreen(
 
     LaunchedEffect(authState) {
         when (authState) {
-            is AuthState.LoginSuccess -> {
-                onLoginSuccess()
+            is AuthState.NavigateToSetPin -> {
+                onNavigateToSetPin(authState.phone)
                 viewModel.resetState()
             }
             is AuthState.Error -> {
@@ -66,7 +66,7 @@ fun OtpScreen(
         
         Text(
             text = title,
-            fontSize = 24.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
@@ -89,7 +89,7 @@ fun OtpScreen(
                     otpValue = it
                     errorMessage = null
                     if (it.length == 4) {
-                        viewModel.submitOtp(phone, it)
+                        viewModel.submitOtp(phone, it, authType)
                     }
                 }
             }
@@ -99,7 +99,8 @@ fun OtpScreen(
             Text(
                 text = errorMessage!!,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
+                textAlign = TextAlign.Center
             )
         }
 

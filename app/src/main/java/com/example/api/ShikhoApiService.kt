@@ -24,8 +24,26 @@ interface ShikhoApiService {
     @POST("/auth/v2/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
 
+    @POST("/auth/v2/logout")
+    suspend fun logout(): LogoutResponse
+
     @POST("/graphql")
     suspend fun getProfile(@Body query: GraphQlQuery): ProfileResponse
+
+    @POST("/graphql")
+    suspend fun setPin(@Body query: GraphQlQuery): SetPinResponse
+
+    @POST("/graphql")
+    suspend fun getAcademicProgram(@Body query: GraphQlQuery): AcademicProgramResponse
+
+    @POST("/graphql")
+    suspend fun getProgramPhases(@Body query: GraphQlQuery): ProgramPhasesResponse
+
+    @POST("/graphql")
+    suspend fun getStudentLessons(@Body query: GraphQlQuery): StudentLessonsResponse
+
+    @POST("/graphql")
+    suspend fun getVideoList(@Body query: GraphQlQuery): VideoListResponse
 
     companion object {
         private const val BASE_URL = "https://api.shikho.com"
