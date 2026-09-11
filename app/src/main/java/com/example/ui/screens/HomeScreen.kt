@@ -19,28 +19,51 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.example.api.LessonItem
-import com.example.api.ProgramPhase
-import com.example.api.SubjectInfo
+import com.example.api.ProgramSubject
 import com.example.api.VideoItem
 import com.example.home.HomeUiState
 import com.example.home.HomeViewModel
+import com.example.ui.components.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToProfile: () -> Unit,
+    onNavigateToVideoPlayer: (url: String, title: String, subject: String?, color: String?, isLive: Boolean) -> Unit = { _, _, _, _, _ -> },
     onLogout: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // Modals
+    if (uiState.showCourseSwitcher) {
+        CourseSwitcherBottomSheet(
+            enrolledPrograms = uiState.enrolledPrograms,
+            activeProgram = uiState.activeProgram,
+            onSelectProgram = { program ->
+                viewModel.switchActiveCourse(program)
+            },
+            onDismiss = {
+                viewModel.setCourseSwitcherVisible(false)
+            }
+        )
+    }
+
+    if (uiState.showProfileDrawer) {
+        ProfileDrawerSheet(
+            profile = uiState.userProfile,
+            onDismiss = {
+                viewModel.setProfileDrawerVisible(false)
+            },
+            onLogout = onLogout
+        )
+    }
 
     Scaffold(
         bottomBar = {
@@ -48,48 +71,55 @@ fun HomeScreen(
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp
             ) {
+                // Tab 0: হোম
                 NavigationBarItem(
                     selected = uiState.selectedTab == 0,
                     onClick = { viewModel.selectTab(0) },
                     icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    label = { Text("হোম", fontWeight = FontWeight.Medium) },
+                    label = { Text("হোম", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
                         indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+
+                // Tab 1: এক্সপ্লোর
                 NavigationBarItem(
                     selected = uiState.selectedTab == 1,
                     onClick = { viewModel.selectTab(1) },
-                    icon = { Icon(Icons.Default.DateRange, contentDescription = "Routine") },
-                    label = { Text("রুটিন", fontWeight = FontWeight.Medium) },
+                    icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
+                    label = { Text("এক্সপ্লোর", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
                         indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+
+                // Tab 2: কোর্স
                 NavigationBarItem(
                     selected = uiState.selectedTab == 2,
                     onClick = { viewModel.selectTab(2) },
                     icon = { Icon(Icons.Default.Book, contentDescription = "Courses") },
-                    label = { Text("কোর্স", fontWeight = FontWeight.Medium) },
+                    label = { Text("কোর্স", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
                         indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 )
+
+                // Tab 3: শিখো AI
                 NavigationBarItem(
                     selected = uiState.selectedTab == 3,
                     onClick = { viewModel.selectTab(3) },
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-                    label = { Text("প্রোফাইল", fontWeight = FontWeight.Medium) },
+                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Shikho AI") },
+                    label = { Text("শিখো AI", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        selectedIconColor = Color(0xFF7C4DFF),
+                        selectedTextColor = Color(0xFF7C4DFF),
+                        indicatorColor = Color(0xFF7C4DFF).copy(alpha = 0.12f)
                     )
                 )
             }
@@ -102,255 +132,258 @@ fun HomeScreen(
                 .padding(paddingValues)
         ) {
             when (uiState.selectedTab) {
-                0 -> HomeDashboardContent(
+                0 -> HomeProductionDashboard(
                     uiState = uiState,
+                    onOpenCourseSwitcher = { viewModel.setCourseSwitcherVisible(true) },
+                    onOpenProfileDrawer = { viewModel.setProfileDrawerVisible(true) },
+                    onSelectCalendarDate = { viewModel.selectCalendarDate(it) },
                     onSelectPhase = { viewModel.selectPhase(it) },
-                    onSelectSubject = { viewModel.selectSubject(it) },
-                    onRefresh = { viewModel.loadDashboardData() },
-                    onNavigateToProfile = { viewModel.selectTab(3) }
+                    onRefresh = { viewModel.loadDashboardData(isRefresh = true) },
+                    onOpenShikhoAi = { viewModel.selectTab(3) },
+                    onOpenLesson = { lesson ->
+                        val isLive = lesson.live_class?.is_on_going == true || lesson.user_activity_state == "LIVE"
+                        onNavigateToVideoPlayer(
+                            "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8",
+                            lesson.title ?: "ক্লাস লেকচার",
+                            lesson.subject_name,
+                            lesson.color_code,
+                            isLive
+                        )
+                    },
+                    onOpenVideo = { video ->
+                        onNavigateToVideoPlayer(
+                            video.stream_url ?: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8",
+                            video.title ?: "ভিডিও লেকচার",
+                            video.subject,
+                            "#0072EC",
+                            false
+                        )
+                    }
                 )
-                1 -> RoutineTabScreen(uiState = uiState, onSelectPhase = { viewModel.selectPhase(it) })
-                2 -> CoursesTabScreen(uiState = uiState, onSelectSubject = { viewModel.selectSubject(it) })
-                3 -> ProfileTabScreen(uiState = uiState, onLogout = onLogout)
+                1 -> ExploreTabScreen(
+                    uiState = uiState,
+                    onOpenVideo = { video ->
+                        onNavigateToVideoPlayer(
+                            video.stream_url ?: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8",
+                            video.title ?: "ভিডিও লেকচার",
+                            video.subject,
+                            "#0072EC",
+                            false
+                        )
+                    }
+                )
+                2 -> CoursesDetailTabScreen(uiState = uiState)
+                3 -> ShikhoAiTabScreen()
+            }
+
+            // Bottom Sticky Trial Expiry Banner
+            if (uiState.isTrialExpired && uiState.selectedTab == 0) {
+                TrialExpiryBanner(
+                    onEnrollClick = { viewModel.setCourseSwitcherVisible(true) },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
         }
     }
 }
 
 @Composable
-fun HomeDashboardContent(
+fun HomeProductionDashboard(
     uiState: HomeUiState,
-    onSelectPhase: (ProgramPhase) -> Unit,
-    onSelectSubject: (SubjectInfo) -> Unit,
+    onOpenCourseSwitcher: () -> Unit,
+    onOpenProfileDrawer: () -> Unit,
+    onSelectCalendarDate: (String) -> Unit,
+    onSelectPhase: (com.example.api.PhaseItem) -> Unit,
     onRefresh: () -> Unit,
-    onNavigateToProfile: () -> Unit
+    onOpenShikhoAi: () -> Unit,
+    onOpenLesson: (com.example.api.StudentLessonItem) -> Unit = {},
+    onOpenVideo: (VideoItem) -> Unit = {}
 ) {
     if (uiState.isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
         }
         return
     }
 
     val profile = uiState.userProfile
-    val program = uiState.academicProgram
+    val activeProgram = uiState.activeProgram
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        contentPadding = PaddingValues(bottom = if (uiState.isTrialExpired) 90.dp else 30.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
-        // 1. Top Header with Greeting & Profile
+        // 1. Top Bar: Brand & Course Switcher Dropdown (Left) + Crown Avatar (Right)
         item {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
-                Column {
-                    val firstName = profile?.first_name ?: "শিক্ষার্থী"
-                    Text(
-                        text = "হ্যালো, $firstName 👋",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = "${profile?.`class`?.display ?: "HSC 2027"} • ${profile?.study_group ?: "মানবিক"}",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onRefresh,
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surface)
-                    ) {
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                            .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                            .clickable { onNavigateToProfile() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!profile?.avatar.isNullOrBlank()) {
-                            AsyncImage(
-                                model = profile?.avatar,
-                                contentDescription = "Avatar",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Text(
-                                text = (profile?.first_name?.take(1) ?: "S").uppercase(),
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 18.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Dynamic Course Selector & Progress Banner
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF0F9D58),
-                                Color(0xFF00796B)
-                            )
-                        )
-                    )
-                    .padding(20.dp)
-            ) {
-                Column {
+                    // Left: Brand Logo + Course Switcher Dropdown
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.2f)
-                        ) {
-                            Text(
-                                text = program?.code ?: "HSC 2027",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        Text(
-                            text = "লাইভ প্রোগ্রাম",
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = program?.title ?: "এইচএসসি ২০২৭ মানবিক পূর্ণাঙ্গ প্রোগ্রাম",
-                        color = Color.White,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "সামগ্রিক অগ্রগতি",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "${program?.progress ?: 38}%",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    LinearProgressIndicator(
-                        progress = { (program?.progress ?: 38) / 100f },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = Color.White,
-                        trackColor = Color.White.copy(alpha = 0.3f),
-                    )
-                }
-            }
-        }
-
-        // 3. Program Phases / Quarters
-        item {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "কোয়ার্টার ও পর্যায়",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                )
-
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(uiState.phases) { phase ->
-                        val isSelected = uiState.selectedPhase?.id == phase.id
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                            border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)),
-                            modifier = Modifier.clickable { onSelectPhase(phase) }
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                            modifier = Modifier.clickable { onOpenCourseSwitcher() }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                if (phase.is_active == true) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isSelected) Color.White else MaterialTheme.colorScheme.primary)
-                                    )
-                                }
+                                Icon(
+                                    Icons.Default.School,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
                                 Text(
-                                    text = phase.name ?: "কোয়ার্টার ${phase.phase_number}",
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 14.sp,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                    text = activeProgram?.title_bn ?: "কোর্স সিলেক্ট করো",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 180.dp)
+                                )
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = "Switch Course",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
                     }
+
+                    // Right: Circular User Avatar with Gold Crown Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Box(
+                            contentAlignment = Alignment.TopEnd,
+                            modifier = Modifier.clickable { onOpenProfileDrawer() }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                    .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!profile?.avatar.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = profile?.avatar,
+                                        contentDescription = "Avatar",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Text(
+                                        text = (profile?.first_name?.take(1) ?: "ফ").uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 17.sp
+                                    )
+                                }
+                            }
+
+                            // Gold Crown
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .offset(x = 2.dp, y = (-2).dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFFB300)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("👑", fontSize = 9.sp)
+                            }
+                        }
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Greeting & Student Info Header
+                val firstName = profile?.first_name ?: "শিক্ষার্থী"
+                Text(
+                    text = "হ্যালো, $firstName 👋",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                val classDisplay = profile?.`class`?.display ?: "HSC 2027"
+                val groupDisplay = profile?.study_group ?: "মানবিক"
+                val schoolName = profile?.school?.name ?: "ঢাকা কলেজ"
+                Text(
+                    text = "$classDisplay - $groupDisplay • $schoolName",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 
-        // 4. Subjects Chips & Breakdown
+        // 2. Weekly Routine Calendar & Class Cards
+        item {
+            RoutineSection(
+                calendarDays = uiState.calendarDays,
+                selectedDateIso = uiState.selectedCalendarDateIso,
+                lessons = uiState.filteredLessons,
+                onSelectDate = onSelectCalendarDate,
+                onViewAllRoutine = { /* Open full routine calendar */ },
+                onOpenLesson = onOpenLesson
+            )
+        }
+
+        // 3. Features Grid (2x2 Cards)
+        item {
+            FeaturesGrid(
+                overallScorePercentage = uiState.overallScorePercentage,
+                practiceLimits = uiState.practiceLimits,
+                onOpenReportCard = { /* Open full analytics scorecard */ },
+                onOpenPracticeQuiz = { /* Open practice quiz module */ },
+                onOpenAnimatedLessons = { /* Open animated videos library */ },
+                onOpenShikhoAi = onOpenShikhoAi
+            )
+        }
+
+        // 4. Subjects Chips & Breakdown from Active Program
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -362,113 +395,13 @@ fun HomeDashboardContent(
                 ) {
                     Text(
                         text = "বিষয়ভিত্তিক প্রস্তুতি",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = "${program?.subjects?.size ?: 0}টি বিষয়",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(program?.subjects ?: emptyList()) { subject ->
-                        val isSelected = uiState.selectedSubject?.id == subject.id
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
-                            ),
-                            modifier = Modifier
-                                .width(140.dp)
-                                .clickable { onSelectSubject(subject) }
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.School,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Text(
-                                    text = subject.title ?: "বিষয়",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                Text(
-                                    text = "${subject.completed_chapters ?: 4}/${subject.total_chapters ?: 10} অধ্যায়",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                LinearProgressIndicator(
-                                    progress = { (subject.progress ?: 30) / 100f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(4.dp)
-                                        .clip(RoundedCornerShape(2.dp)),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 5. "আজকের ক্লাস ও রুটিন" Live Classes
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "আজকের ক্লাস ও রুটিন",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = "লাইভ শিডিউল",
-                        fontSize = 13.sp,
+                        text = "${activeProgram?.subjects?.size ?: 0}টি বিষয়",
+                        fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -476,30 +409,28 @@ fun HomeDashboardContent(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (uiState.lessons.isEmpty()) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Text(
-                            text = "আজকের জন্য কোনো নির্ধারিত ক্লাস নেই",
-                            modifier = Modifier.padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            fontSize = 14.sp
-                        )
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        uiState.lessons.forEach { lesson ->
-                            LiveLessonCard(lesson = lesson)
-                        }
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(activeProgram?.subjects ?: emptyList()) { subject ->
+                        SubjectPillCard(subject = subject)
                     }
                 }
             }
         }
 
-        // 6. Popular Video Library Carousel
+        // 5. Course Progress / Quarters Timeline
+        item {
+            CourseProgressTimeline(
+                phases = uiState.phases,
+                activePhase = uiState.activePhase,
+                onSelectPhase = onSelectPhase,
+                onEnrollPhase = { onOpenCourseSwitcher() }
+            )
+        }
+
+        // 6. Popular Video Lectures Carousel
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -516,8 +447,8 @@ fun HomeDashboardContent(
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = "সব ভিডিও",
-                        fontSize = 13.sp,
+                        text = "সব ভিডিও >",
+                        fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -529,8 +460,11 @@ fun HomeDashboardContent(
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(uiState.videos) { video ->
-                        VideoCardItem(video = video)
+                    items(uiState.popularVideos) { video ->
+                        DashboardVideoCard(
+                            video = video,
+                            onClick = { onOpenVideo(video) }
+                        )
                     }
                 }
             }
@@ -539,163 +473,83 @@ fun HomeDashboardContent(
 }
 
 @Composable
-fun LiveLessonCard(lesson: LessonItem) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (lesson.is_live == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (lesson.is_live == true) Color(0xFFE53935).copy(alpha = 0.12f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        if (lesson.is_live == true) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFE53935))
-                            )
-                        }
-                        Text(
-                            text = if (lesson.is_live == true) "🔴 লাইভ চলছে" else (lesson.status ?: "আসন্ন"),
-                            color = if (lesson.is_live == true) Color(0xFFE53935) else MaterialTheme.colorScheme.primary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+fun SubjectPillCard(subject: ProgramSubject) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val pillColor = remember(subject.color_code, primaryColor) {
+        try {
+            if (!subject.color_code.isNullOrBlank()) {
+                Color(android.graphics.Color.parseColor(subject.color_code))
+            } else {
+                primaryColor
+            }
+        } catch (_: Exception) {
+            primaryColor
+        }
+    }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = "${lesson.start_time ?: ""} - ${lesson.end_time ?: ""}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        modifier = Modifier.width(140.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(pillColor.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.MenuBook,
+                    contentDescription = null,
+                    tint = pillColor,
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = lesson.title ?: "ক্লাস",
-                fontSize = 16.sp,
+                text = subject.display_bn ?: subject.code ?: "বিষয়",
                 fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            if (!lesson.chapter_title.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = lesson.chapter_title,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
+            Spacer(modifier = Modifier.height(4.dp))
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Column {
-                        Text(
-                            text = lesson.teacher_name ?: "শিক্ষক",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (!lesson.teacher_designation.isNullOrBlank()) {
-                            Text(
-                                text = lesson.teacher_designation,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-                }
-
-                Button(
-                    onClick = { /* Open Live Class / Stream */ },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (lesson.is_live == true) Color(0xFFE53935) else MaterialTheme.colorScheme.primary
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = if (lesson.is_live == true) "জয়েন করুন" else if (lesson.status == "Completed") "রেকর্ডিং" else "বিস্তারিত",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            Text(
+                text = "সিলেবাস ও নোট",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+            )
         }
     }
 }
 
 @Composable
-fun VideoCardItem(video: VideoItem) {
+fun DashboardVideoCard(
+    video: VideoItem,
+    onClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier
             .width(220.dp)
-            .clickable { /* Play Video */ },
+            .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp)
-                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f))
+                    .height(115.dp)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             ) {
                 if (!video.thumbnail.isNullOrBlank()) {
                     AsyncImage(
@@ -706,24 +560,22 @@ fun VideoCardItem(video: VideoItem) {
                     )
                 }
 
-                // Play icon overlay
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(36.dp)
                         .align(Alignment.Center)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.6f)),
+                        .background(Color.Black.copy(alpha = 0.65f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Default.PlayArrow,
                         contentDescription = "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
-                // Duration tag
                 if (!video.duration.isNullOrBlank()) {
                     Surface(
                         modifier = Modifier
@@ -789,12 +641,12 @@ fun VideoCardItem(video: VideoItem) {
 }
 
 // -------------------------------------------------------------
-// Routine Tab Content
+// Explore Screen
 // -------------------------------------------------------------
 @Composable
-fun RoutineTabScreen(
+fun ExploreTabScreen(
     uiState: HomeUiState,
-    onSelectPhase: (ProgramPhase) -> Unit
+    onOpenVideo: (VideoItem) -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier
@@ -805,48 +657,80 @@ fun RoutineTabScreen(
     ) {
         item {
             Text(
-                text = "ক্লাস ও পরীক্ষার রুটিন 📅",
+                text = "এক্সপ্লোর লার্নিং 🚀",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = "আপনার কোয়ার্টার ভিত্তিক সম্পূর্ণ শিডিউল",
-                fontSize = 14.sp,
+                text = "সকল বিষয়, অধ্যায়ভিত্তিক কুইজ এবং ভিডিও লেকচার",
+                fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f)
             )
         }
 
-        item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+        items(uiState.popularVideos) { video ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenVideo(video) },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             ) {
-                items(uiState.phases) { phase ->
-                    val isSelected = uiState.selectedPhase?.id == phase.id
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectPhase(phase) },
-                        label = { Text(phase.name ?: "কোয়ার্টার ${phase.phase_number}") }
-                    )
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    ) {
+                        if (!video.thumbnail.isNullOrBlank()) {
+                            AsyncImage(
+                                model = video.thumbnail,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = video.subject ?: "বিষয়",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = video.title ?: "লেকচার",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${video.teacher_name ?: "শিক্ষক"} • ${video.duration ?: ""}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
                 }
             }
-        }
-
-        items(uiState.lessons) { lesson ->
-            LiveLessonCard(lesson = lesson)
         }
     }
 }
 
 // -------------------------------------------------------------
-// Courses Tab Content
+// Courses Screen
 // -------------------------------------------------------------
 @Composable
-fun CoursesTabScreen(
-    uiState: HomeUiState,
-    onSelectSubject: (SubjectInfo) -> Unit
-) {
-    val subjects = uiState.academicProgram?.subjects ?: emptyList()
+fun CoursesDetailTabScreen(uiState: HomeUiState) {
+    val subjects = uiState.activeProgram?.subjects ?: emptyList()
 
     LazyColumn(
         modifier = Modifier
@@ -863,8 +747,8 @@ fun CoursesTabScreen(
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = "${uiState.academicProgram?.title ?: "এইচএসসি ২০২৭"} এর পাঠ্যক্রম",
-                fontSize = 14.sp,
+                text = "${uiState.activeProgram?.title_bn ?: "এইচএসসি ২০২৭"} এর বিষয়ভিত্তিক পাঠ্যক্রম",
+                fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f)
             )
         }
@@ -873,9 +757,10 @@ fun CoursesTabScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onSelectSubject(subject) },
+                    .clickable { },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
@@ -899,26 +784,16 @@ fun CoursesTabScreen(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = subject.title ?: "বিষয়",
+                            text = subject.display_bn ?: subject.code ?: "বিষয়",
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "সম্পন্ন: ${subject.completed_chapters ?: 0}/${subject.total_chapters ?: 10} অধ্যায়",
-                            fontSize = 13.sp,
+                            text = "লাইভ ক্লাস, প্র্যাকটিস ও লেকচার নোটস",
+                            fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LinearProgressIndicator(
-                            progress = { (subject.progress ?: 0) / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                         )
                     }
 
@@ -935,121 +810,125 @@ fun CoursesTabScreen(
 }
 
 // -------------------------------------------------------------
-// Profile Tab Content
+// Shikho AI Tab Screen
 // -------------------------------------------------------------
 @Composable
-fun ProfileTabScreen(
-    uiState: HomeUiState,
-    onLogout: () -> Unit
-) {
-    val profile = uiState.userProfile
+fun ShikhoAiTabScreen() {
+    var queryText by remember { mutableStateOf("") }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 20.dp, bottom = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(20.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        item {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(
                 modifier = Modifier
-                    .size(90.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!profile?.avatar.isNullOrBlank()) {
-                    AsyncImage(
-                        model = profile?.avatar,
-                        contentDescription = "Avatar",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(Color(0xFF7C4DFF), Color(0xFF536DFE))
+                        )
                     )
-                } else {
+                    .padding(20.dp)
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = "SHIKHO AI ASSISTANT",
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
-                        text = (profile?.first_name?.take(1) ?: "S").uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 32.sp
+                        text = "পড়ালেখার যেকোনো ডাউট বা প্রশ্নের সমাধান নাও মুহূর্তেই!",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 13.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             Text(
-                text = "${profile?.first_name ?: ""} ${profile?.last_name ?: ""}".trim().ifEmpty { "শিক্ষার্থী" },
-                fontSize = 20.sp,
+                text = "সচরাচর জিজ্ঞাসিত প্রশ্নসমূহ:",
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
 
-            Text(
-                text = "${profile?.`class`?.display ?: "Class 11"} • ${profile?.study_group ?: "মানবিক"}",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            val suggestedPrompts = listOf(
+                "পৌরনীতি ১ম পত্রের ৩য় অধ্যায়ের মূল পয়েন্টগুলো বলো",
+                "চাহিদা ও যোগানের স্থিতিস্থাপকতা কীভাবে নির্ণয় করে?",
+                "রবীন্দ্রনাথ ঠাকুরের 'অপরিচিতা' গল্পের মূলভাব কী?",
+                "এইচএসসি পরীক্ষার জন্য পড়ার রুটিন তৈরি করে দাও"
             )
-        }
 
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ProfileInfoRow(label = "ফোন নম্বর", value = profile?.user?.phone ?: "01700000000", icon = Icons.Default.Phone)
-                    ProfileInfoRow(label = "ইমেইল", value = profile?.user?.email ?: "student@shikho.com", icon = Icons.Default.Email)
-                    ProfileInfoRow(label = "কলেজ/স্কুল", value = profile?.school?.name ?: "ঢাকা কলেজ", icon = Icons.Default.School)
-                    ProfileInfoRow(label = "গ্রুপ", value = profile?.study_group ?: "Humanities", icon = Icons.Default.Groups)
+            suggestedPrompts.forEach { prompt ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { queryText = prompt }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = prompt,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = Color(0xFF7C4DFF),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
 
-        item {
-            Spacer(modifier = Modifier.height(10.dp))
-            Button(
-                onClick = onLogout,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Icon(Icons.Default.ExitToApp, contentDescription = "Logout", modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "লগ আউট করুন", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-        }
-    }
-}
-
-@Composable
-fun ProfileInfoRow(label: String, value: String, icon: ImageVector) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
+        // Input Box
+        OutlinedTextField(
+            value = queryText,
+            onValueChange = { queryText = it },
+            placeholder = { Text("তোমার প্রশ্ন বা ডাউট এখানে লেখো...") },
+            trailingIcon = {
+                IconButton(
+                    onClick = { /* Process AI doubt query */ },
+                    enabled = queryText.isNotBlank()
+                ) {
+                    Icon(
+                        Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = if (queryText.isNotBlank()) Color(0xFF7C4DFF) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                }
+            },
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-        }
-
-        Column {
-            Text(text = label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
-            Text(text = value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-        }
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+        )
     }
 }

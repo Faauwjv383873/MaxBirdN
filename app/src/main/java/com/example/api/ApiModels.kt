@@ -76,12 +76,12 @@ data class LogoutResponse(
     val code: Int? = null
 )
 
-// GraphQL request & generic payloads
+// GraphQL generic request payload
 @JsonClass(generateAdapter = true)
 data class GraphQlQuery(
     val operationName: String,
     val query: String,
-    val variables: Map<String, Any>
+    val variables: Map<String, Any?> = emptyMap()
 )
 
 @JsonClass(generateAdapter = true)
@@ -99,7 +99,9 @@ data class SetPinResponse(
     val data: SetPinData?
 )
 
-// Profile Models
+// ==========================================
+// 1. Profile Models
+// ==========================================
 @JsonClass(generateAdapter = true)
 data class ProfileResponse(
     val data: ProfileData?
@@ -142,7 +144,9 @@ data class UserInfo(
     val email: String?
 )
 
-// Academic Program & Enrolled Courses
+// ==========================================
+// 2. Enrolled Academic Programs & Course Switcher
+// ==========================================
 @JsonClass(generateAdapter = true)
 data class AcademicProgramResponse(
     val data: AcademicProgramData?
@@ -150,32 +154,98 @@ data class AcademicProgramResponse(
 
 @JsonClass(generateAdapter = true)
 data class AcademicProgramData(
-    val academicProgram: AcademicProgram?
+    val listAcademicProgramByEnrollment: ListAcademicProgramByEnrollment?
 )
 
 @JsonClass(generateAdapter = true)
-data class AcademicProgram(
-    val id: String? = null,
-    val title: String? = null,
-    val code: String? = null,
-    val banner_image: String? = null,
-    val icon: String? = null,
-    val progress: Int? = 0,
-    val subjects: List<SubjectInfo>? = emptyList()
+data class ListAcademicProgramByEnrollment(
+    val enrolled_programs: List<EnrolledProgram>? = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
-data class SubjectInfo(
-    val id: String? = null,
-    val title: String? = null,
-    val code: String? = null,
-    val icon: String? = null,
-    val total_chapters: Int? = 0,
-    val completed_chapters: Int? = 0,
-    val progress: Int? = 0
+data class EnrolledProgram(
+    val id: String,
+    val classes: List<String>? = emptyList(),
+    val title_bn: String?,
+    val banner_url: String?,
+    val color: String?,
+    val is_free: Boolean? = false,
+    val trial_enabled: Boolean? = false,
+    val enrollment_details: EnrollmentDetails? = null,
+    val subjects: List<ProgramSubject>? = emptyList()
 )
 
-// Program Phases / Quarters
+@JsonClass(generateAdapter = true)
+data class EnrollmentDetails(
+    val batch_id: String?,
+    val is_active: Boolean? = false,
+    val trial_end_date: String?,
+    val type: String?, // e.g. "FullApTrial", "Paid"
+    val expiry_date: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class ProgramSubject(
+    val code: String?,
+    val display_bn: String?,
+    val color_code: String?,
+    val icon: String?
+)
+
+// ==========================================
+// 3. Student Specific Lessons & Weekly Routine
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class StudentSpecificLessonsResponse(
+    val data: StudentSpecificLessonsData?
+)
+
+@JsonClass(generateAdapter = true)
+data class StudentSpecificLessonsData(
+    val studentSpecificLessons: StudentLessonsInnerData?
+)
+
+@JsonClass(generateAdapter = true)
+data class StudentLessonsInnerData(
+    val data: List<StudentLessonItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class StudentLessonItem(
+    val id: String,
+    val title: String?,
+    val content_id: String?,
+    val content_type: String?, // "LiveClass", "LiveExam", "RecordedClass"
+    val access_level: String?,
+    val start_time: String?,
+    val end_time: String?,
+    val subject_id: String?,
+    val subject_name: String?,
+    val color_code: String?,
+    val icon: String?,
+    val user_activity_state: String?, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
+    val live_class: LiveClassDetails? = null,
+    val model_test: ModelTestDetails? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveClassDetails(
+    val chapter_name: String?,
+    val is_on_going: Boolean? = false,
+    val start_time: String?,
+    val end_time: String?,
+    val type: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class ModelTestDetails(
+    val exam_category: String?,
+    val type: String?
+)
+
+// ==========================================
+// 4. Program Phases / Course Progress Quarters
+// ==========================================
 @JsonClass(generateAdapter = true)
 data class ProgramPhasesResponse(
     val data: ProgramPhasesData?
@@ -183,48 +253,68 @@ data class ProgramPhasesResponse(
 
 @JsonClass(generateAdapter = true)
 data class ProgramPhasesData(
-    val programPhasesByStudent: List<ProgramPhase>?
+    val programPhasesByStudent: ProgramPhasesInnerData?
 )
 
 @JsonClass(generateAdapter = true)
-data class ProgramPhase(
-    val id: String? = null,
-    val name: String? = null,
-    val phase_number: Int? = null,
-    val is_active: Boolean? = false,
-    val progress: Double? = 0.0,
-    val start_date: String? = null,
-    val end_date: String? = null
-)
-
-// Routine & Live Classes
-@JsonClass(generateAdapter = true)
-data class StudentLessonsResponse(
-    val data: StudentLessonsData?
+data class ProgramPhasesInnerData(
+    val data: List<PhaseItem>? = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
-data class StudentLessonsData(
-    val studentSpecificLessons: List<LessonItem>?
+data class PhaseItem(
+    val id: String,
+    val academic_program_id: String?,
+    val title: String?,
+    val status: String?, // "ACTIVE", "COMPLETED", "UPCOMING", "UNENROLLED"
+    val is_current: Boolean? = false,
+    val has_enrolment: Boolean? = false,
+    val has_free_trial_enrolment: Boolean? = false,
+    val course_progress_percentage: Double? = 0.0,
+    val start_date: String?,
+    val end_date: String?
+)
+
+// ==========================================
+// 5. Practice Quiz Limits
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class PracticeQuizAccessResponse(
+    val data: PracticeQuizAccessData?
 )
 
 @JsonClass(generateAdapter = true)
-data class LessonItem(
-    val id: String? = null,
-    val title: String? = null,
-    val subject_title: String? = null,
-    val chapter_title: String? = null,
-    val teacher_name: String? = null,
-    val teacher_designation: String? = null,
-    val start_time: String? = null,
-    val end_time: String? = null,
-    val status: String? = null, // "Upcoming", "Live", "Missed", "Completed"
-    val join_url: String? = null,
-    val is_live: Boolean? = false,
-    val date_display: String? = null
+data class PracticeQuizAccessData(
+    val getPracticeQuizAccess: PracticeQuizAccessPayload?
 )
 
-// Video Library & Recommendations
+@JsonClass(generateAdapter = true)
+data class PracticeQuizAccessPayload(
+    val custom_practice_limits: CustomPracticeLimits?
+)
+
+@JsonClass(generateAdapter = true)
+data class CustomPracticeLimits(
+    val has_limit: Boolean? = true,
+    val limit_per_day: Int? = 3,
+    val used_today: Int? = 0
+)
+
+// ==========================================
+// 6. Quarterly Results / Performance Score REST
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class QuarterlyResultResponse(
+    val status: String? = null,
+    val total_score_percentage: Double? = null,
+    val total_exams: Int? = null,
+    val attended_exams: Int? = null,
+    val message: String? = null
+)
+
+// ==========================================
+// 7. Video List Model
+// ==========================================
 @JsonClass(generateAdapter = true)
 data class VideoListResponse(
     val data: VideoListData?
@@ -232,7 +322,7 @@ data class VideoListResponse(
 
 @JsonClass(generateAdapter = true)
 data class VideoListData(
-    val userSpecificVideoList: List<VideoItem>?
+    val userSpecificVideoList: List<VideoItem>? = emptyList()
 )
 
 @JsonClass(generateAdapter = true)

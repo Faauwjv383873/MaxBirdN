@@ -1,13 +1,17 @@
 package com.example.api
 
 import com.example.auth.SessionManager
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
 interface ShikhoApiService {
@@ -40,17 +44,26 @@ interface ShikhoApiService {
     suspend fun getProgramPhases(@Body query: GraphQlQuery): ProgramPhasesResponse
 
     @POST("/graphql")
-    suspend fun getStudentLessons(@Body query: GraphQlQuery): StudentLessonsResponse
+    suspend fun getStudentLessons(@Body query: GraphQlQuery): StudentSpecificLessonsResponse
+
+    @POST("/graphql")
+    suspend fun getPracticeQuizAccess(@Body query: GraphQlQuery): PracticeQuizAccessResponse
 
     @POST("/graphql")
     suspend fun getVideoList(@Body query: GraphQlQuery): VideoListResponse
+
+    @GET("https://analytics.shikho.com/api/v1/results/quarterly/quarter/{programId}/{phaseId}")
+    suspend fun getQuarterlyResults(
+        @Path("programId") programId: String,
+        @Path("phaseId") phaseId: String
+    ): QuarterlyResultResponse
 
     companion object {
         private const val BASE_URL = "https://api.shikho.com"
 
         fun create(sessionManager: SessionManager): ShikhoApiService {
             val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY 
+                level = HttpLoggingInterceptor.Level.BODY
             }
 
             val headerInterceptor = Interceptor { chain ->
@@ -76,10 +89,14 @@ interface ShikhoApiService {
                 .readTimeout(30, TimeUnit.SECONDS)
                 .build()
 
+            val moshi = Moshi.Builder()
+                .addLast(KotlinJsonAdapterFactory())
+                .build()
+
             return Retrofit.Builder()
                 .baseUrl(BASE_URL)
                 .client(client)
-                .addConverterFactory(MoshiConverterFactory.create())
+                .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
                 .create(ShikhoApiService::class.java)
         }
