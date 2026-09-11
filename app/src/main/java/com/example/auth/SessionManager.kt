@@ -100,7 +100,7 @@ class SessionManager(context: Context) {
             .apply()
     }
 
-    fun getUserBatchId(): String? = sharedPreferences.getString("academic_batch_id", "HSC 2027")
+    fun getUserBatchId(): String? = sharedPreferences.getString("academic_batch_id", null)
     fun getUserClassName(): String? = sharedPreferences.getString("academic_class_name", "C11")
     fun getUserGroup(): String? = sharedPreferences.getString("academic_group", "Humanities")
     fun getUserVendor(): String? = sharedPreferences.getString("academic_vendor", "BD")

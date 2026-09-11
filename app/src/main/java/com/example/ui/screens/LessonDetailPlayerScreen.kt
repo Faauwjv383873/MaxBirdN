@@ -104,11 +104,22 @@ fun LessonDetailPlayerScreen(
     }
 
     val candidateStreams = remember(lesson) {
-        lesson?.candidateStreamUrls ?: emptyList()
+        lesson?.candidateStreamUrls?.filter { it.isNotBlank() && it != "null" } ?: emptyList()
     }
     var currentStreamIndex by remember(lesson) { mutableIntStateOf(0) }
     var activeStreamUrl by remember(candidateStreams, currentStreamIndex) {
-        mutableStateOf(candidateStreams.getOrNull(currentStreamIndex) ?: lesson?.resolvedVideoUrl ?: "")
+        mutableStateOf(
+            candidateStreams.getOrNull(currentStreamIndex)
+                ?: lesson?.resolvedVideoUrl
+                ?: candidateStreams.firstOrNull()
+                ?: ""
+        )
+    }
+
+    LaunchedEffect(candidateStreams) {
+        if (activeStreamUrl.isBlank() && candidateStreams.isNotEmpty()) {
+            activeStreamUrl = candidateStreams.first()
+        }
     }
 
     // Diagnostics & Dialog States
@@ -119,7 +130,7 @@ fun LessonDetailPlayerScreen(
     var showCustomUrlDialog = false
 
     // Player States
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var totalDuration by remember { mutableLongStateOf(0L) }
     var bufferedPosition by remember { mutableLongStateOf(0L) }
@@ -195,8 +206,15 @@ fun LessonDetailPlayerScreen(
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 if (currentStreamIndex + 1 < candidateStreams.size) {
                     currentStreamIndex += 1
-                    activeStreamUrl = candidateStreams[currentStreamIndex]
-                    return
+                    val nextUrl = candidateStreams[currentStreamIndex]
+                    activeStreamUrl = nextUrl
+                    try {
+                        val nextSource = ShikhoPlayerManager.createMediaSource(nextUrl)
+                        exoPlayer.setMediaSource(nextSource)
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                        return
+                    } catch (_: Exception) {}
                 }
 
                 isBuffering = false
@@ -207,14 +225,14 @@ fun LessonDetailPlayerScreen(
                 val httpCode = httpEx?.responseCode
 
                 val detail = when {
-                    httpCode == 404 -> "এই কোর্সটিতে সরাসরি ভিডিও অ্যাক্সেস নেই (ভর্তি প্রয়োজন বা রেকর্ডিং নেই)"
-                    httpCode == 403 -> "CDN সার্ভারে অ্যাক্সেস অনুমোদিত নয় (HTTP 403 Forbidden)"
+                    httpCode == 404 -> "ভিডিও ফাইলটি সার্ভারে পাওয়া যায়নি (HTTP 404)"
+                    httpCode == 403 -> "CDN অ্যাক্সেস রিজেক্টেড (HTTP 403)"
                     httpCode != null -> "CDN নেটওয়ার্ক রেসপন্স ত্রুটি (HTTP $httpCode)"
                     cause is java.net.UnknownHostException -> "ইন্টারনেট সংযোগ নেই বা CDN সার্ভারে পৌঁছানো যাচ্ছে না"
                     cause is java.net.SocketTimeoutException -> "সার্ভার সংযোগ সময়োত্তীর্ণ (Connection Timeout)"
                     else -> error.localizedMessage ?: "অজানা প্লেব্যাক ত্রুটি"
                 }
-                playbackError = "ভিডিও লোড হয়নি"
+                playbackError = "প্লেব্যাক এরর"
                 playbackErrorDetails = detail
             }
         }
@@ -385,7 +403,7 @@ fun LessonDetailPlayerScreen(
                         .aspectRatio(16f / 9f)
                         .background(Color.Black)
                 ) {
-                    if (activeStreamUrl.isNotBlank()) {
+                    if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
                         AndroidView(
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
@@ -840,6 +858,7 @@ fun LessonDetailPlayerScreen(
                                     Text(
                                         text = when {
                                             playbackError != null -> "ভিডিও লোড হয়নি (${playbackErrorDetails ?: "ত্রুটি"})"
+                                            candidateStreams.isEmpty() -> "সরাসরি রেকর্ডিং লিংক অনুপস্থিত"
                                             isBuffering -> "ভিডিও বাফারিং হচ্ছে..."
                                             isPlaying -> "ক্লাস চলছে (CDN #${currentStreamIndex + 1})"
                                             else -> "স্ট্রিমিং প্রস্তুত (সার্ভার #${currentStreamIndex + 1})"

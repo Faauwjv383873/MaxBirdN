@@ -608,26 +608,31 @@ class CourseViewModel(
                         for (phId in candidatePhaseIds) {
                             val attemptKey = "Phase(cid=$cid, pid=$pid, phId=$phId)"
                             queryAttempts.add(attemptKey)
-                            val lessons = fetchLessonsWithPhase(cid, pid, phId)
-                            if (lessons.isNotEmpty()) {
-                                lessonList = lessons
+                            val fetchedLessons = fetchLessonsWithPhase(cid, pid, phId)
+                            val hasValidStream = fetchedLessons.any { !it.resolvedVideoUrl.isNullOrBlank() }
+                            if (fetchedLessons.isNotEmpty()) {
+                                lessonList = fetchedLessons
                                 _uiState.update {
                                     it.copy(
                                         activePhaseId = phId,
                                         activePhaseTitle = _uiState.value.phases.firstOrNull { p -> p.id == phId }?.title ?: it.activePhaseTitle
                                     )
                                 }
-                                break@searchLoop
+                                if (hasValidStream) {
+                                    break@searchLoop
+                                }
                             }
                         }
 
                         // 2. Try standard query without phase ID
                         val standardKey = "Standard(cid=$cid, pid=$pid)"
                         queryAttempts.add(standardKey)
-                        val lessons = fetchLessonsStandard(cid, pid)
-                        if (lessons.isNotEmpty()) {
-                            lessonList = lessons
-                            break@searchLoop
+                        val fetchedLessons = fetchLessonsStandard(cid, pid)
+                        if (fetchedLessons.isNotEmpty()) {
+                            lessonList = fetchedLessons
+                            if (fetchedLessons.any { !it.resolvedVideoUrl.isNullOrBlank() }) {
+                                break@searchLoop
+                            }
                         }
                     }
                 }
@@ -667,7 +672,7 @@ class CourseViewModel(
         programId: String,
         phaseId: String
     ): List<StudentLessonItem> {
-        // Attempt 1: Rich query with slide_url, attachments, topics, teacher
+        // Attempt 1: Rich query
         try {
             val q1 = GraphQlQuery(
                 operationName = "GetUpcomingLessonsPhaseWise",
@@ -689,8 +694,8 @@ class CourseViewModel(
                             stream_url
                             video_url
                             playback_url
-                            hls_url
                             url
+                            hls_url
                             start_time
                             end_time
                             type
@@ -739,16 +744,12 @@ class CourseViewModel(
                         data {
                           id
                           title
+                          content_id
                           content_type
                           user_activity_state
                           live_class {
                             id
                             recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            hls_url
-                            url
                             start_time
                             type
                             slide_url
@@ -784,16 +785,12 @@ class CourseViewModel(
                         data {
                           id
                           title
+                          content_id
                           content_type
                           user_activity_state
                           live_class {
                             id
                             recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            hls_url
-                            url
                             start_time
                             type
                             slide_url
@@ -823,16 +820,12 @@ class CourseViewModel(
                         data {
                           id
                           title
+                          content_id
                           content_type
                           user_activity_state
                           live_class {
                             id
                             recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            hls_url
-                            url
                             start_time
                             type
                           }
@@ -879,8 +872,8 @@ class CourseViewModel(
                             stream_url
                             video_url
                             playback_url
-                            hls_url
                             url
+                            hls_url
                             start_time
                             end_time
                             type
@@ -928,16 +921,12 @@ class CourseViewModel(
                         data {
                           id
                           title
+                          content_id
                           content_type
                           user_activity_state
                           live_class {
                             id
                             recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            hls_url
-                            url
                             start_time
                             type
                             slide_url
@@ -972,16 +961,12 @@ class CourseViewModel(
                         data {
                           id
                           title
+                          content_id
                           content_type
                           user_activity_state
                           live_class {
                             id
                             recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            hls_url
-                            url
                             start_time
                             type
                           }

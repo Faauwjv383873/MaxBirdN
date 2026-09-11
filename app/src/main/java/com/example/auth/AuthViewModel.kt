@@ -214,7 +214,7 @@ class AuthViewModel(
             try {
                 val queryBody = GraphQlQuery(
                     operationName = "GetProfile",
-                    query = "query GetProfile(\$user_id: String,\$type: String!) { profile(user_id: \$user_id, type:\$type) { id first_name last_name avatar gender dob study_group class { code display } school { id name } user { phone email } } }",
+                    query = "query GetProfile(\$user_id: String,\$type: String!) { profile(user_id: \$user_id, type:\$type) { id first_name last_name avatar gender dob study_group passing_year class { code display } school { id name } user { phone email } } }",
                     variables = mapOf(
                         "user_id" to userId,
                         "type" to "student"
@@ -246,7 +246,7 @@ class AuthViewModel(
                         classDisplay = profile.`class`?.display ?: profile.`class`?.code
                     )
                     sessionManager.saveUserAcademicInfo(
-                        batchId = "HSC 2027",
+                        batchId = profile.passing_year ?: sessionManager.getUserBatchId(),
                         className = profile.`class`?.code ?: "C11",
                         group = profile.study_group ?: "Humanities",
                         vendor = "BD"

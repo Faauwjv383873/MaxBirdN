@@ -339,11 +339,22 @@ data class StudentLessonItem(
             }
             live_class?.candidateStreamUrls?.let { list.addAll(it) }
 
-            return list.distinct()
+            // 2. Tenbyte CDN Reconstruction
+            val targets = listOfNotNull(content_id, live_class?.id, id)
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it != "null" }
+                .distinct()
+
+            for (target in targets) {
+                // Primary Shikho CDN Endpoint
+                list.add("https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8")
+            }
+
+            return list.filter { it.isNotBlank() && it != "null" }.distinct()
         }
 
     val resolvedVideoUrl: String?
-        get() = candidateStreamUrls.firstOrNull()
+        get() = candidateStreamUrls.firstOrNull { it.isNotBlank() }
 
     val resolvedSlideUrl: String?
         get() = live_class?.lectureSlideUrl
@@ -447,11 +458,16 @@ data class LiveClassDetails(
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
 
-            return list.distinct()
+            val target = id?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+            if (target != null) {
+                list.add("https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8")
+            }
+
+            return list.filter { it.isNotBlank() && it != "null" }.distinct()
         }
 
     val resolvedVideoUrl: String?
-        get() = candidateStreamUrls.firstOrNull()
+        get() = candidateStreamUrls.firstOrNull { it.isNotBlank() }
 
     val teacherName: String?
         get() = teacher?.displayName ?: instructor?.displayName
