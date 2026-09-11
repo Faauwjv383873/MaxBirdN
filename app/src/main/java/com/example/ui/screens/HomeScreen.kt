@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.home.HomeViewModel
 import com.example.ui.components.CourseSwitcherBottomSheet
-import com.example.ui.components.HomeHeaderComponent
+import com.example.ui.components.HomeHeader
 
 @Composable
 fun HomeScreen(
@@ -49,15 +49,43 @@ fun HomeScreen(
         )
     }
 
+    // Format Subtitle
+    val subtitle = remember(uiState.userClass, uiState.userGroup, uiState.userSchool) {
+        val classDisplay = when (uiState.userClass) {
+            "C11", "Class 11" -> "একাদশ শ্রেণি"
+            "C12", "Class 12" -> "দ্বাদশ শ্রেণি"
+            "C10", "Class 10" -> "দশম শ্রেণি"
+            "C9", "Class 9" -> "নবম শ্রেণি"
+            else -> uiState.userClass.ifBlank { "একাদশ শ্রেণি" }
+        }
+
+        val groupDisplay = when (uiState.userGroup.lowercase()) {
+            "humanities", "humanities_group" -> "মানবিক"
+            "science", "science_group" -> "বিজ্ঞান"
+            "business", "business_studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            else -> uiState.userGroup.ifBlank { "" }
+        }
+
+        listOf(classDisplay, groupDisplay, uiState.userSchool)
+            .filter { it.isNotBlank() }
+            .joinToString(" • ")
+            .ifBlank { "এইচএসসি শিক্ষার্থী" }
+    }
+
+    val displayName = remember(uiState.userFirstName, uiState.userName) {
+        when {
+            uiState.userFirstName.isNotBlank() && uiState.userFirstName != "শিক্ষার্থী" -> uiState.userFirstName
+            uiState.userName.isNotBlank() && uiState.userName != "শিক্ষার্থী" -> uiState.userName
+            else -> "শিক্ষার্থী"
+        }
+    }
+
     Scaffold(
         topBar = {
-            HomeHeaderComponent(
-                userName = uiState.userName,
-                userFirstName = uiState.userFirstName,
-                userAvatar = uiState.userAvatar,
-                userClass = uiState.userClass,
-                userGroup = uiState.userGroup,
-                userSchool = uiState.userSchool,
+            com.example.ui.components.HomeHeader(
+                userName = displayName,
+                subtitle = subtitle,
+                avatarUrl = uiState.userAvatar ?: "",
                 isPremium = uiState.isPremium,
                 activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
                 onOpenCourseSwitcher = {

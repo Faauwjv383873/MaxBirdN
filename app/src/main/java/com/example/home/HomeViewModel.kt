@@ -87,43 +87,38 @@ class HomeViewModel(
 
     private suspend fun fetchUserProfile() {
         try {
+            val userId = sessionManager.getUserId() ?: ""
             val profileQuery = GraphQlQuery(
                 operationName = "GetProfile",
-                query = """
-                    query GetProfile {
-                      profile {
-                        id
-                        first_name
-                        last_name
-                        avatar
-                        gender
-                        dob
-                        study_group
-                        class {
-                          code
-                          display
-                        }
-                        school {
-                          id
-                          name
-                        }
-                        user {
-                          phone
-                          email
-                        }
-                      }
-                    }
-                """.trimIndent()
+                query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar gender dob study_group class { code display } school { id name } user { phone email } } }",
+                variables = mapOf(
+                    "user_id" to userId,
+                    "type" to "student"
+                )
             )
             val response = apiService.getProfile(profileQuery)
             val profile = response.data?.profile
             if (profile != null) {
+                val firstName = profile.first_name?.trim() ?: ""
+                val lastName = profile.last_name?.trim() ?: ""
+                val fullName = when {
+                    firstName.isNotBlank() && lastName.isNotBlank() -> "$firstName $lastName"
+                    firstName.isNotBlank() -> firstName
+                    lastName.isNotBlank() -> lastName
+                    else -> ""
+                }
+                val first = when {
+                    firstName.isNotBlank() -> firstName
+                    fullName.isNotBlank() -> fullName.split(" ").firstOrNull() ?: fullName
+                    else -> "শিক্ষার্থী"
+                }
+
                 sessionManager.saveUserProfile(
-                    firstName = profile.first_name,
-                    lastName = profile.last_name,
+                    firstName = firstName.ifBlank { first },
+                    lastName = lastName,
                     avatar = profile.avatar,
                     schoolName = profile.school?.name,
-                    classDisplay = profile.`class`?.display
+                    classDisplay = profile.`class`?.display ?: profile.`class`?.code
                 )
                 sessionManager.saveUserAcademicInfo(
                     batchId = "HSC 2027",
@@ -131,15 +126,10 @@ class HomeViewModel(
                     group = profile.study_group ?: "Humanities",
                     vendor = "BD"
                 )
-                val displayName = listOfNotNull(profile.first_name, profile.last_name)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" ")
-                    .ifBlank { "শিক্ষার্থী" }
-                val first = profile.first_name ?: displayName.split(" ").firstOrNull() ?: "শিক্ষার্থী"
 
                 _uiState.value = _uiState.value.copy(
                     userProfile = profile,
-                    userName = displayName,
+                    userName = fullName.ifBlank { first },
                     userFirstName = first,
                     userAvatar = profile.avatar,
                     userClass = profile.`class`?.display ?: profile.`class`?.code ?: "একাদশ শ্রেণি",
@@ -148,7 +138,7 @@ class HomeViewModel(
                 )
             }
         } catch (_: Exception) {
-            // Profile fetch optional; use cached data
+            // Profile fetch failed; fallback to cached session values
         }
     }
 

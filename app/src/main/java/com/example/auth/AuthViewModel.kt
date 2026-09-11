@@ -224,6 +224,34 @@ class AuthViewModel(
                 val response = apiService.getProfile(queryBody)
                 val profile = response.data?.profile
                 if (profile != null) {
+                    val firstName = profile.first_name?.trim() ?: ""
+                    val lastName = profile.last_name?.trim() ?: ""
+                    val fullName = when {
+                        firstName.isNotBlank() && lastName.isNotBlank() -> "$firstName $lastName"
+                        firstName.isNotBlank() -> firstName
+                        lastName.isNotBlank() -> lastName
+                        else -> ""
+                    }
+                    val first = when {
+                        firstName.isNotBlank() -> firstName
+                        fullName.isNotBlank() -> fullName.split(" ").firstOrNull() ?: fullName
+                        else -> "শিক্ষার্থী"
+                    }
+
+                    sessionManager.saveUserProfile(
+                        firstName = firstName.ifBlank { first },
+                        lastName = lastName,
+                        avatar = profile.avatar,
+                        schoolName = profile.school?.name,
+                        classDisplay = profile.`class`?.display ?: profile.`class`?.code
+                    )
+                    sessionManager.saveUserAcademicInfo(
+                        batchId = "HSC 2027",
+                        className = profile.`class`?.code ?: "C11",
+                        group = profile.study_group ?: "Humanities",
+                        vendor = "BD"
+                    )
+
                     _authState.value = AuthState.ProfileLoaded(profile)
                 } else {
                     _authState.value = AuthState.Error("Failed to parse profile data.")
