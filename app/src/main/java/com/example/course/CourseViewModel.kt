@@ -102,82 +102,122 @@ class CourseViewModel(
             }
 
             try {
-                // 1. Fetch Phases if not present to ensure we have a valid phase_id
+                // 1. Fetch Phases
                 var currentPhaseId = _uiState.value.activePhaseId
                 var phasesList = _uiState.value.phases
 
-                if (phasesList.isEmpty() || currentPhaseId.isBlank() || forceRefresh) {
-                    val phaseQuery = GraphQlQuery(
-                        operationName = "ProgramPhasesByStudent",
-                        query = """
-                            query ProgramPhasesByStudent(${'$'}program_id: String!) {
-                              programPhasesByStudent(program_id: ${'$'}program_id) {
-                                data {
-                                  id
-                                  academic_program_id
-                                  title
-                                  status
-                                  is_current
-                                  has_enrolment
-                                  has_free_trial_enrolment
-                                  course_progress_percentage
-                                  start_date
-                                  end_date
+                if (phasesList.isEmpty() || currentPhaseId.isBlank() || _uiState.value.programId != programId || forceRefresh) {
+                    try {
+                        val phaseQuery = GraphQlQuery(
+                            operationName = "ProgramPhasesByStudent",
+                            query = """
+                                query ProgramPhasesByStudent(${'$'}program_id: String!) {
+                                  programPhasesByStudent(program_id: ${'$'}program_id) {
+                                    data {
+                                      id
+                                      academic_program_id
+                                      title
+                                      status
+                                      is_current
+                                      has_enrolment
+                                      has_free_trial_enrolment
+                                      course_progress_percentage
+                                      start_date
+                                      end_date
+                                    }
+                                  }
                                 }
-                              }
-                            }
-                        """.trimIndent(),
-                        variables = mapOf("program_id" to programId)
-                    )
-                    val phaseRes = apiService.getProgramPhases(phaseQuery)
-                    val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
-                    phasesList = fetchedPhases
-                    val activePhase = fetchedPhases.firstOrNull { it.is_current == true }
-                        ?: fetchedPhases.firstOrNull { it.status == "ACTIVE" }
-                        ?: fetchedPhases.firstOrNull()
-
-                    currentPhaseId = activePhase?.id ?: ""
-                    _uiState.update {
-                        it.copy(
-                            phases = phasesList,
-                            selectedPhase = activePhase,
-                            activePhaseId = currentPhaseId,
-                            activePhaseTitle = activePhase?.title ?: ""
+                            """.trimIndent(),
+                            variables = mapOf("program_id" to programId)
                         )
-                    }
+                        val phaseRes = apiService.getProgramPhases(phaseQuery)
+                        val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                        phasesList = fetchedPhases
+                        val activePhase = fetchedPhases.firstOrNull { it.is_current == true }
+                            ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                            ?: fetchedPhases.firstOrNull()
+
+                        currentPhaseId = activePhase?.id ?: ""
+                        _uiState.update {
+                            it.copy(
+                                programId = programId,
+                                phases = phasesList,
+                                selectedPhase = activePhase,
+                                activePhaseId = currentPhaseId,
+                                activePhaseTitle = activePhase?.title ?: ""
+                            )
+                        }
+                    } catch (_: Exception) {}
                 }
 
                 // 2. Fetch Academic Subjects
-                val subjectsQuery = GraphQlQuery(
-                    operationName = "GetAcademicSubjects",
-                    query = """
-                        query GetAcademicSubjects(${'$'}programId: String!, ${'$'}phase_id: String!) {
-                          academicProgram(id: ${'$'}programId, show_subject_progress_bar: true, phase_id: ${'$'}phase_id) {
-                            subjects {
-                              code
-                              color_code
-                              display_bn
-                              icon
-                            }
-                            subjects_progress_bar {
-                              code
-                              percentage
-                              total_chapters
-                              completed_chapters
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf(
-                        "programId" to programId,
-                        "phase_id" to currentPhaseId
-                    )
-                )
+                var rawSubjects: List<AcademicSubjectItem> = emptyList()
+                var progressBars: List<SubjectProgressBarItem> = emptyList()
 
-                val response = apiService.getAcademicSubjects(subjectsQuery)
-                val academicProgram = response.data?.academicProgram
-                val rawSubjects = academicProgram?.subjects ?: emptyList()
-                val progressBars = academicProgram?.subjects_progress_bar ?: emptyList()
+                if (currentPhaseId.isNotBlank()) {
+                    try {
+                        val subjectsQuery = GraphQlQuery(
+                            operationName = "GetAcademicSubjects",
+                            query = """
+                                query GetAcademicSubjects(${'$'}programId: String!, ${'$'}phase_id: String!) {
+                                  academicProgram(id: ${'$'}programId, show_subject_progress_bar: true, phase_id: ${'$'}phase_id) {
+                                    subjects {
+                                      code
+                                      color_code
+                                      display_bn
+                                      icon
+                                    }
+                                    subjects_progress_bar {
+                                      code
+                                      percentage
+                                      total_chapters
+                                      completed_chapters
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "programId" to programId,
+                                "phase_id" to currentPhaseId
+                            )
+                        )
+                        val response = apiService.getAcademicSubjects(subjectsQuery)
+                        val academicProgram = response.data?.academicProgram
+                        rawSubjects = academicProgram?.subjects ?: emptyList()
+                        progressBars = academicProgram?.subjects_progress_bar ?: emptyList()
+                    } catch (_: Exception) {}
+                }
+
+                if (rawSubjects.isEmpty()) {
+                    try {
+                        val fallbackSubjectsQuery = GraphQlQuery(
+                            operationName = "GetAcademicSubjects",
+                            query = """
+                                query GetAcademicSubjects(${'$'}programId: String!) {
+                                  academicProgram(id: ${'$'}programId, show_subject_progress_bar: true) {
+                                    subjects {
+                                      code
+                                      color_code
+                                      display_bn
+                                      icon
+                                    }
+                                    subjects_progress_bar {
+                                      code
+                                      percentage
+                                      total_chapters
+                                      completed_chapters
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf("programId" to programId)
+                        )
+                        val response = apiService.getAcademicSubjects(fallbackSubjectsQuery)
+                        val academicProgram = response.data?.academicProgram
+                        rawSubjects = academicProgram?.subjects ?: emptyList()
+                        progressBars = academicProgram?.subjects_progress_bar ?: emptyList()
+                    } catch (_: Exception) {}
+                }
 
                 val subjectWithProgressList = rawSubjects.map { subject ->
                     val pb = progressBars.find { it.code.equals(subject.code, ignoreCase = true) }
@@ -218,15 +258,23 @@ class CourseViewModel(
         subjectColor: String? = null,
         phaseId: String? = null
     ) {
-        val progId = _uiState.value.programId.ifBlank { sessionManager.getActiveProgramId() ?: "" }
+        val progId = sessionManager.getActiveProgramId() ?: _uiState.value.programId
         val targetPhaseId = phaseId ?: _uiState.value.activePhaseId
         
+        val matchedPhase = _uiState.value.phases.find { it.id == targetPhaseId }
+            ?: _uiState.value.selectedPhase
+            ?: _uiState.value.phases.firstOrNull { it.is_current == true }
+            ?: _uiState.value.phases.firstOrNull()
+
         _uiState.update {
             it.copy(
+                programId = progId,
                 selectedSubjectCode = subjectCode,
                 selectedSubjectTitle = subjectTitle ?: it.selectedSubjectTitle,
                 selectedSubjectColor = subjectColor ?: it.selectedSubjectColor,
-                activePhaseId = targetPhaseId,
+                selectedPhase = matchedPhase,
+                activePhaseId = matchedPhase?.id ?: targetPhaseId,
+                activePhaseTitle = matchedPhase?.title ?: it.activePhaseTitle,
                 isChaptersLoading = true,
                 chaptersErrorMessage = null
             )
@@ -235,75 +283,175 @@ class CourseViewModel(
         viewModelScope.launch {
             try {
                 // Ensure phases are available for the tab bar
-                if (_uiState.value.phases.isEmpty()) {
-                    val phaseQuery = GraphQlQuery(
-                        operationName = "ProgramPhasesByStudent",
-                        query = """
-                            query ProgramPhasesByStudent(${'$'}program_id: String!) {
-                              programPhasesByStudent(program_id: ${'$'}program_id) {
-                                data {
-                                  id
-                                  academic_program_id
-                                  title
-                                  status
-                                  is_current
-                                  has_enrolment
-                                  has_free_trial_enrolment
-                                  course_progress_percentage
-                                  start_date
-                                  end_date
-                                }
-                              }
-                            }
-                        """.trimIndent(),
-                        variables = mapOf("program_id" to progId)
-                    )
-                    val phaseRes = apiService.getProgramPhases(phaseQuery)
-                    val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
-                    val activePhase = fetchedPhases.find { it.id == targetPhaseId }
-                        ?: fetchedPhases.firstOrNull { it.is_current == true }
-                        ?: fetchedPhases.firstOrNull()
+                var currentPhases = _uiState.value.phases
+                var effectivePhaseId = _uiState.value.activePhaseId
 
-                    _uiState.update {
-                        it.copy(
-                            phases = fetchedPhases,
-                            selectedPhase = activePhase,
-                            activePhaseId = activePhase?.id ?: targetPhaseId,
-                            activePhaseTitle = activePhase?.title ?: ""
+                if (currentPhases.isEmpty() || _uiState.value.programId != progId) {
+                    try {
+                        val phaseQuery = GraphQlQuery(
+                            operationName = "ProgramPhasesByStudent",
+                            query = """
+                                query ProgramPhasesByStudent(${'$'}program_id: String!) {
+                                  programPhasesByStudent(program_id: ${'$'}program_id) {
+                                    data {
+                                      id
+                                      academic_program_id
+                                      title
+                                      status
+                                      is_current
+                                      has_enrolment
+                                      has_free_trial_enrolment
+                                      course_progress_percentage
+                                      start_date
+                                      end_date
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf("program_id" to progId)
                         )
+                        val phaseRes = apiService.getProgramPhases(phaseQuery)
+                        val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                        if (fetchedPhases.isNotEmpty()) {
+                            currentPhases = fetchedPhases
+                            val activePhase = if (targetPhaseId.isNotBlank()) {
+                                fetchedPhases.find { it.id == targetPhaseId }
+                            } else null
+                                ?: fetchedPhases.firstOrNull { it.is_current == true }
+                                ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                                ?: fetchedPhases.firstOrNull()
+
+                            effectivePhaseId = activePhase?.id ?: targetPhaseId
+                            _uiState.update {
+                                it.copy(
+                                    programId = progId,
+                                    phases = fetchedPhases,
+                                    selectedPhase = activePhase,
+                                    activePhaseId = effectivePhaseId,
+                                    activePhaseTitle = activePhase?.title ?: ""
+                                )
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // Fetch Chapters for the specific subject and phase
+                var chaptersList = emptyList<AcademicChapterItem>()
+
+                if (effectivePhaseId.isNotBlank()) {
+                    try {
+                        val chaptersQuery = GraphQlQuery(
+                            operationName = "PhaseWiseChapters",
+                            query = """
+                                query PhaseWiseChapters(${'$'}program_id: String!, ${'$'}phase_id: String!, ${'$'}subject_id: String!) {
+                                  listAcademicProgramChapters(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id, subject_id: ${'$'}subject_id, show_chapter_progress_bar: true) {
+                                    data {
+                                      id
+                                      chapter_id
+                                      chapter_name
+                                      chapter_no
+                                      status
+                                      class_counter
+                                      exam_counter
+                                      chapters_progress_percentage
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "program_id" to progId,
+                                "phase_id" to effectivePhaseId,
+                                "subject_id" to subjectCode
+                            )
+                        )
+
+                        val response = apiService.getPhaseWiseChapters(chaptersQuery)
+                        chaptersList = response.data?.listAcademicProgramChapters?.data ?: emptyList()
+                    } catch (_: Exception) {}
+                }
+
+                // If no phase-specific chapters found on initial entry (phaseId == null) and multiple phases exist,
+                // check if chapters exist in another phase (e.g. Quarter 1)
+                if (chaptersList.isEmpty() && phaseId == null && currentPhases.size > 1) {
+                    for (p in currentPhases) {
+                        if (p.id != effectivePhaseId && p.id.isNotBlank()) {
+                            try {
+                                val altPhaseQuery = GraphQlQuery(
+                                    operationName = "PhaseWiseChapters",
+                                    query = """
+                                        query PhaseWiseChapters(${'$'}program_id: String!, ${'$'}phase_id: String!, ${'$'}subject_id: String!) {
+                                          listAcademicProgramChapters(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id, subject_id: ${'$'}subject_id, show_chapter_progress_bar: true) {
+                                            data {
+                                              id
+                                              chapter_id
+                                              chapter_name
+                                              chapter_no
+                                              status
+                                              class_counter
+                                              exam_counter
+                                              chapters_progress_percentage
+                                            }
+                                          }
+                                        }
+                                    """.trimIndent(),
+                                    variables = mapOf(
+                                        "program_id" to progId,
+                                        "phase_id" to p.id,
+                                        "subject_id" to subjectCode
+                                    )
+                                )
+                                val altRes = apiService.getPhaseWiseChapters(altPhaseQuery)
+                                val altList = altRes.data?.listAcademicProgramChapters?.data ?: emptyList()
+                                if (altList.isNotEmpty()) {
+                                    chaptersList = altList
+                                    effectivePhaseId = p.id
+                                    _uiState.update {
+                                        it.copy(
+                                            selectedPhase = p,
+                                            activePhaseId = p.id,
+                                            activePhaseTitle = p.title ?: ""
+                                        )
+                                    }
+                                    break
+                                }
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
 
-                val effectivePhaseId = _uiState.value.activePhaseId.ifBlank { targetPhaseId }
-
-                // Fetch Chapters
-                val chaptersQuery = GraphQlQuery(
-                    operationName = "PhaseWiseChapters",
-                    query = """
-                        query PhaseWiseChapters(${'$'}program_id: String!, ${'$'}phase_id: String!, ${'$'}subject_id: String!) {
-                          listAcademicProgramChapters(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id, subject_id: ${'$'}subject_id, show_chapter_progress_bar: true) {
-                            data {
-                              id
-                              chapter_id
-                              chapter_name
-                              chapter_no
-                              status
-                              class_counter
-                              exam_counter
-                              chapters_progress_percentage
-                            }
-                          }
+                // If still empty or no phase was set, try query without phase_id
+                if (chaptersList.isEmpty() && (effectivePhaseId.isBlank() || phaseId == null)) {
+                    try {
+                        val fallbackQuery = GraphQlQuery(
+                            operationName = "AcademicProgramChapters",
+                            query = """
+                                query AcademicProgramChapters(${'$'}program_id: String!, ${'$'}subject_id: String!) {
+                                  listAcademicProgramChapters(program_id: ${'$'}program_id, subject_id: ${'$'}subject_id, show_chapter_progress_bar: true) {
+                                    data {
+                                      id
+                                      chapter_id
+                                      chapter_name
+                                      chapter_no
+                                      status
+                                      class_counter
+                                      exam_counter
+                                      chapters_progress_percentage
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "program_id" to progId,
+                                "subject_id" to subjectCode
+                            )
+                        )
+                        val fallbackRes = apiService.getPhaseWiseChapters(fallbackQuery)
+                        val fallbackList = fallbackRes.data?.listAcademicProgramChapters?.data ?: emptyList()
+                        if (fallbackList.isNotEmpty()) {
+                            chaptersList = fallbackList
                         }
-                    """.trimIndent(),
-                    variables = mapOf(
-                        "program_id" to progId,
-                        "phase_id" to effectivePhaseId,
-                        "subject_id" to subjectCode
-                    )
-                )
-
-                val response = apiService.getPhaseWiseChapters(chaptersQuery)
-                val chaptersList = response.data?.listAcademicProgramChapters?.data ?: emptyList()
+                    } catch (_: Exception) {}
+                }
 
                 _uiState.update {
                     it.copy(
@@ -352,7 +500,7 @@ class CourseViewModel(
         chapterName: String? = null,
         chapterStatus: String? = null
     ) {
-        val progId = _uiState.value.programId.ifBlank { sessionManager.getActiveProgramId() ?: "" }
+        val progId = sessionManager.getActiveProgramId() ?: _uiState.value.programId
         val phaseId = _uiState.value.activePhaseId
 
         _uiState.update {
@@ -367,73 +515,79 @@ class CourseViewModel(
 
         viewModelScope.launch {
             try {
-                val lessonsQuery = GraphQlQuery(
-                    operationName = "GetUpcomingLessonsPhaseWise",
-                    query = """
-                        query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}program_id: String!, ${'$'}phase_id: String!) {
-                          studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id) {
-                            data {
-                              id
-                              title
-                              content_id
-                              content_type
-                              user_activity_state
-                              start_time
-                              end_time
-                              subject_id
-                              subject_name
-                              color_code
-                              icon
-                              live_class {
-                                id
-                                recording_url
-                                chapter_name
-                                is_on_going
-                                start_time
-                                end_time
-                                type
-                                slide_url
-                                topics {
-                                  id
-                                  title
-                                  name
-                                }
-                                teacher {
-                                  id
-                                  name
-                                  first_name
-                                  last_name
-                                  avatar
-                                  subject
-                                }
-                                instructor {
-                                  id
-                                  name
-                                  first_name
-                                  last_name
-                                  avatar
-                                  subject
-                                }
-                                attachments {
-                                  id
-                                  title
-                                  url
-                                  file_type
-                                }
-                              }
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf(
-                        "chapter_id" to chapterId,
-                        "program_id" to progId,
-                        "phase_id" to phaseId
-                    )
-                )
+                var lessonList = emptyList<StudentLessonItem>()
 
-                val response = apiService.getStudentLessons(lessonsQuery)
-                val lessonList = response.data?.studentSpecificLessons?.data ?: emptyList()
+                // 1. If phaseId is non-blank, try phase-wise lessons query
+                if (phaseId.isNotBlank()) {
+                    try {
+                        val phaseWiseQuery = GraphQlQuery(
+                            operationName = "GetUpcomingLessonsPhaseWise",
+                            query = """
+                                query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}program_id: String!, ${'$'}phase_id: String!) {
+                                  studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id) {
+                                    data {
+                                      id
+                                      title
+                                      content_type
+                                      user_activity_state
+                                      live_class {
+                                        id
+                                        recording_url
+                                        start_time
+                                        type
+                                      }
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "chapter_id" to chapterId,
+                                "program_id" to progId,
+                                "phase_id" to phaseId
+                            )
+                        )
+                        val response = apiService.getStudentLessons(phaseWiseQuery)
+                        lessonList = response.data?.studentSpecificLessons?.data ?: emptyList()
+                    } catch (_: Exception) {
+                        // Fallback to standard query if phase-wise query throws HTTP 400 or fails
+                    }
+                }
+
+                // 2. If phase-wise query was not used or failed/returned empty, query without phase_id
+                if (lessonList.isEmpty()) {
+                    try {
+                        val standardQuery = GraphQlQuery(
+                            operationName = "GetUpcomingLessons",
+                            query = """
+                                query GetUpcomingLessons(${'$'}chapter_id: String!, ${'$'}program_id: String!) {
+                                  studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id) {
+                                    data {
+                                      id
+                                      title
+                                      content_type
+                                      user_activity_state
+                                      live_class {
+                                        id
+                                        recording_url
+                                        start_time
+                                        type
+                                      }
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "chapter_id" to chapterId,
+                                "program_id" to progId
+                            )
+                        )
+                        val standardRes = apiService.getStudentLessons(standardQuery)
+                        val standardList = standardRes.data?.studentSpecificLessons?.data ?: emptyList()
+                        if (standardList.isNotEmpty()) {
+                            lessonList = standardList
+                        }
+                    } catch (_: Exception) {}
+                }
 
                 _uiState.update {
                     it.copy(

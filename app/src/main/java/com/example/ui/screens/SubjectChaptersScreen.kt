@@ -138,8 +138,8 @@ fun SubjectChaptersScreen(
                         }
                     }
 
-                    // Horizontal Quarter / Phase Tabs
-                    if (uiState.phases.isNotEmpty()) {
+                    // Dynamic Phase / Quarter Tabs (Shown ONLY if more than 1 phase exists)
+                    if (uiState.phases.size > 1) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -149,7 +149,7 @@ fun SubjectChaptersScreen(
                         ) {
                             uiState.phases.forEach { phase ->
                                 val isSelected = phase.id == uiState.activePhaseId || 
-                                        (uiState.activePhaseId.isBlank() && phase == uiState.phases.firstOrNull())
+                                        (uiState.activePhaseId.isBlank() && phase == uiState.selectedPhase)
 
                                 Surface(
                                     shape = RoundedCornerShape(20.dp),
@@ -178,7 +178,7 @@ fun SubjectChaptersScreen(
                                             )
                                         }
                                         Text(
-                                            text = phase.title ?: "কোয়ার্টার",
+                                            text = phase.title ?: "",
                                             fontSize = 12.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                             color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
