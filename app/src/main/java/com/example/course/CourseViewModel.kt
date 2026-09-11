@@ -686,6 +686,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             end_time
                             type
@@ -739,6 +744,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             type
                             slide_url
@@ -779,6 +789,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             type
                             slide_url
@@ -813,6 +828,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             type
                           }
@@ -856,6 +876,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             end_time
                             type
@@ -908,6 +933,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             type
                             slide_url
@@ -947,6 +977,11 @@ class CourseViewModel(
                           live_class {
                             id
                             recording_url
+                            stream_url
+                            video_url
+                            playback_url
+                            hls_url
+                            url
                             start_time
                             type
                           }

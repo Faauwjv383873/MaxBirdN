@@ -339,14 +339,6 @@ data class StudentLessonItem(
             }
             live_class?.candidateStreamUrls?.let { list.addAll(it) }
 
-            val lcId = live_class?.id ?: id
-            if (!lcId.isNullOrBlank()) {
-                list.add("https://shikho-stream2.tenbytecdn.com/$lcId/playlist.m3u8")
-            }
-            if (!content_id.isNullOrBlank()) {
-                list.add("https://shikho-stream2.tenbytecdn.com/$content_id/playlist.m3u8")
-            }
-
             return list.distinct()
         }
 
@@ -454,10 +446,6 @@ data class LiveClassDetails(
                 ?: hls_url?.takeIf { it.isNotBlank() && it != "null" }
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
-
-            if (!id.isNullOrBlank()) {
-                list.add("https://shikho-stream2.tenbytecdn.com/$id/playlist.m3u8")
-            }
 
             return list.distinct()
         }

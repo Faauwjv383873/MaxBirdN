@@ -5,6 +5,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -119,8 +120,36 @@ interface ShikhoApiService {
                 chain.proceed(request)
             }
 
+            val enrolmentMockInterceptor = Interceptor { chain ->
+                val response = chain.proceed(chain.request())
+                try {
+                    val body = response.body
+                    if (response.isSuccessful && body != null) {
+                        var jsonString = body.string()
+                        
+                        if (jsonString.contains("has_enrolment") || jsonString.contains("is_active") || 
+                            jsonString.contains("is_locked") || jsonString.contains("is_enrolled")) {
+                            
+                            jsonString = jsonString
+                                .replace(Regex("\"has_enrolment\"\\s*:\\s*false"), "\"has_enrolment\": true")
+                                .replace(Regex("\"has_free_trial_enrolment\"\\s*:\\s*false"), "\"has_free_trial_enrolment\": true")
+                                .replace(Regex("\"is_active\"\\s*:\\s*false"), "\"is_active\": true")
+                                .replace(Regex("\"is_enrolled\"\\s*:\\s*false"), "\"is_enrolled\": true")
+                                .replace(Regex("\"is_purchased\"\\s*:\\s*false"), "\"is_purchased\": true")
+                                .replace(Regex("\"is_locked\"\\s*:\\s*true"), "\"is_locked\": false")
+                        }
+                        
+                        val contentType = body.contentType()
+                        val newBody = jsonString.toResponseBody(contentType)
+                        return@Interceptor response.newBuilder().body(newBody).build()
+                    }
+                } catch (_: Exception) {}
+                response
+            }
+
             val client = OkHttpClient.Builder()
                 .addInterceptor(headerInterceptor)
+                .addInterceptor(enrolmentMockInterceptor)
                 .addInterceptor(logging)
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
