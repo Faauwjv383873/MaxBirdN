@@ -15,12 +15,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.auth.SessionManager
 import com.example.home.HomeViewModel
 import com.example.ui.navigation.NavigationItem
 
 @Composable
 fun MainContainerScreen(
     homeViewModel: HomeViewModel,
+    sessionManager: SessionManager,
+    onNavigateToEditProfile: () -> Unit = {},
+    onNavigateToChangeSyllabus: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -93,7 +98,17 @@ fun MainContainerScreen(
                     0 -> {
                         HomeScreen(
                             viewModel = homeViewModel,
-                            onNavigateToProfile = { selectedIndex = 3 }
+                            onNavigateToProfile = { selectedIndex = 3 },
+                            onNavigateToChangeSyllabus = onNavigateToChangeSyllabus
+                        )
+                    }
+                    3 -> {
+                        SettingsScreen(
+                            sessionManager = sessionManager,
+                            onNavigateToEditProfile = onNavigateToEditProfile,
+                            onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
+                            onNavigateToProfile = onNavigateToProfile,
+                            onLogout = onLogout
                         )
                     }
                     else -> {
@@ -104,3 +119,4 @@ fun MainContainerScreen(
         }
     }
 }
+

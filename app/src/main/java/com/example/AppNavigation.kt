@@ -18,6 +18,10 @@ import com.example.auth.AuthViewModelFactory
 import com.example.auth.SessionManager
 import com.example.home.HomeViewModel
 import com.example.home.HomeViewModelFactory
+import com.example.profile.EditProfileViewModel
+import com.example.profile.EditProfileViewModelFactory
+import com.example.syllabus.ChangeSyllabusViewModel
+import com.example.syllabus.ChangeSyllabusViewModelFactory
 import com.example.ui.screens.*
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -30,6 +34,8 @@ object Routes {
     const val RESET_SUCCESS = "reset_success/{phone}"
     const val HOME = "home"
     const val PROFILE = "profile"
+    const val EDIT_PROFILE = "edit_profile"
+    const val CHANGE_SYLLABUS = "change_syllabus"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
 }
 
@@ -147,11 +153,45 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         composable(Routes.HOME) {
             MainContainerScreen(
                 homeViewModel = homeViewModel,
+                sessionManager = sessionManager,
+                onNavigateToEditProfile = {
+                    navController.navigate(Routes.EDIT_PROFILE)
+                },
+                onNavigateToChangeSyllabus = {
+                    navController.navigate(Routes.CHANGE_SYLLABUS)
+                },
+                onNavigateToProfile = {
+                    navController.navigate(Routes.PROFILE)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        composable(Routes.EDIT_PROFILE) {
+            val editProfileViewModel: EditProfileViewModel = viewModel(
+                factory = EditProfileViewModelFactory(apiService, sessionManager)
+            )
+            EditProfileScreen(
+                viewModel = editProfileViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Routes.CHANGE_SYLLABUS) {
+            val changeSyllabusViewModel: ChangeSyllabusViewModel = viewModel(
+                factory = ChangeSyllabusViewModelFactory(apiService, sessionManager)
+            )
+            ChangeSyllabusScreen(
+                viewModel = changeSyllabusViewModel,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }
@@ -188,6 +228,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             ProfileScreen(
                 viewModel = authViewModel,
                 authState = authState,
+                onNavigateToEditProfile = {
+                    navController.navigate(Routes.EDIT_PROFILE)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {

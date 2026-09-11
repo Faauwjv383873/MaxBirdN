@@ -44,6 +44,25 @@ class SessionManager(context: Context) {
             .apply()
     }
 
+    fun updateAuthTokens(accessToken: String, refreshToken: String?, idToken: String? = null) {
+        val editor = sharedPreferences.edit()
+            .putString("access_token", accessToken)
+        if (!refreshToken.isNullOrBlank()) {
+            editor.putString("refresh_token", refreshToken)
+        }
+        if (!idToken.isNullOrBlank()) {
+            editor.putString("id_token", idToken)
+        }
+        editor.apply()
+    }
+
+    fun clearActiveProgram() {
+        sharedPreferences.edit()
+            .remove("active_program_id")
+            .remove("active_program_title_bn")
+            .apply()
+    }
+
     fun getAccessToken(): String? = sharedPreferences.getString("access_token", null)
     fun getUserId(): String? = sharedPreferences.getString("user_id", null)
 

@@ -113,6 +113,10 @@ class HomeViewModel(
                     else -> "শিক্ষার্থী"
                 }
 
+                val currentBatchId = sessionManager.getUserBatchId()
+                val profileClass = profile.`class`?.code ?: sessionManager.getUserClassName() ?: "C11"
+                val profileGroup = profile.study_group ?: sessionManager.getUserGroup() ?: "Humanities"
+
                 sessionManager.saveUserProfile(
                     firstName = firstName.ifBlank { first },
                     lastName = lastName,
@@ -121,9 +125,9 @@ class HomeViewModel(
                     classDisplay = profile.`class`?.display ?: profile.`class`?.code
                 )
                 sessionManager.saveUserAcademicInfo(
-                    batchId = "HSC 2027",
-                    className = profile.`class`?.code ?: "C11",
-                    group = profile.study_group ?: "Humanities",
+                    batchId = currentBatchId ?: "HSC 2027",
+                    className = profileClass,
+                    group = profileGroup,
                     vendor = "BD"
                 )
 
@@ -133,7 +137,7 @@ class HomeViewModel(
                     userFirstName = first,
                     userAvatar = profile.avatar,
                     userClass = profile.`class`?.display ?: profile.`class`?.code ?: "একাদশ শ্রেণি",
-                    userGroup = profile.study_group ?: "মানবিক",
+                    userGroup = profileGroup,
                     userSchool = profile.school?.name ?: ""
                 )
             }
@@ -143,44 +147,137 @@ class HomeViewModel(
     }
 
     private suspend fun fetchAcademicPrograms() {
-        val batchId = sessionManager.getUserBatchId() ?: "HSC 2027"
+        val batchId = sessionManager.getUserBatchId()
         val className = sessionManager.getUserClassName() ?: "C11"
         val group = sessionManager.getUserGroup() ?: "Humanities"
         val vendor = sessionManager.getUserVendor() ?: "BD"
 
-        val query = GraphQlQuery(
-            operationName = "GetAcademicProgram",
-            query = """
-                query GetAcademicProgram(${'$'}batch_id: String, ${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum, ${'$'}vendor: VendorEnum, ${'$'}classes: [AcademicProgramClassEnum]) {
-                  listAcademicProgramByEnrollment(batch_id: ${'$'}batch_id, class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
-                    enrolled_programs {
-                      id
-                      title_bn
-                      banner_url
-                      color
-                      is_free
-                      trial_enabled
-                      enrollment_details {
-                        batch_id
-                        is_active
-                        trial_end_date
-                        type
-                        expiry_date
-                      }
-                    }
-                  }
-                }
-            """.trimIndent(),
-            variables = mapOf(
-                "batch_id" to batchId,
-                "className" to className,
-                "group" to group,
-                "vendor" to vendor
-            )
-        )
+        // Map group to standard GraphQL enum formatting
+        val formattedGroup = when (group.lowercase()) {
+            "humanities", "humanities_group" -> "Humanities"
+            "science", "science_group" -> "Science"
+            "business", "business_studies", "commerce" -> "Business_Studies"
+            else -> group.replace("-", "_")
+        }
 
-        val response = apiService.getAcademicProgram(query)
-        val programs = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+        var programs: List<EnrolledProgram> = emptyList()
+
+        // 1. Try querying with batch_id if available
+        if (!batchId.isNullOrBlank()) {
+            try {
+                val queryWithBatch = GraphQlQuery(
+                    operationName = "GetAcademicProgram",
+                    query = """
+                        query GetAcademicProgram(${'$'}batch_id: String, ${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum, ${'$'}vendor: VendorEnum, ${'$'}classes: [AcademicProgramClassEnum]) {
+                          listAcademicProgramByEnrollment(batch_id: ${'$'}batch_id, class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
+                            enrolled_programs {
+                              id
+                              title_bn
+                              banner_url
+                              color
+                              is_free
+                              trial_enabled
+                              enrollment_details {
+                                batch_id
+                                is_active
+                                trial_end_date
+                                type
+                                expiry_date
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mutableMapOf<String, Any?>(
+                        "batch_id" to batchId,
+                        "className" to className,
+                        "group" to formattedGroup,
+                        "vendor" to vendor
+                    )
+                )
+                val response = apiService.getAcademicProgram(queryWithBatch)
+                programs = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+            } catch (_: Exception) {
+                // Ignore and try fallback without batch_id
+            }
+        }
+
+        // 2. Fallback query without batch_id if programs are empty
+        if (programs.isEmpty()) {
+            try {
+                val fallbackQuery = GraphQlQuery(
+                    operationName = "GetAcademicProgram",
+                    query = """
+                        query GetAcademicProgram(${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum, ${'$'}vendor: VendorEnum, ${'$'}classes: [AcademicProgramClassEnum]) {
+                          listAcademicProgramByEnrollment(class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
+                            enrolled_programs {
+                              id
+                              title_bn
+                              banner_url
+                              color
+                              is_free
+                              trial_enabled
+                              enrollment_details {
+                                batch_id
+                                is_active
+                                trial_end_date
+                                type
+                                expiry_date
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf(
+                        "className" to className,
+                        "group" to formattedGroup,
+                        "vendor" to vendor
+                    )
+                )
+                val fallbackResponse = apiService.getAcademicProgram(fallbackQuery)
+                programs = fallbackResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+            } catch (_: Exception) {
+                // Ignore and proceed to class-only fallback
+            }
+        }
+
+        // 3. Fallback query with class only if still empty
+        if (programs.isEmpty()) {
+            try {
+                val classOnlyQuery = GraphQlQuery(
+                    operationName = "GetAcademicProgram",
+                    query = """
+                        query GetAcademicProgram(${'$'}className: AcademicProgramClassEnum, ${'$'}vendor: VendorEnum) {
+                          listAcademicProgramByEnrollment(class: ${'$'}className, vendor: ${'$'}vendor) {
+                            enrolled_programs {
+                              id
+                              title_bn
+                              banner_url
+                              color
+                              is_free
+                              trial_enabled
+                              enrollment_details {
+                                batch_id
+                                is_active
+                                trial_end_date
+                                type
+                                expiry_date
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf(
+                        "className" to className,
+                        "vendor" to vendor
+                    )
+                )
+                val classOnlyResponse = apiService.getAcademicProgram(classOnlyQuery)
+                programs = classOnlyResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+            } catch (_: Exception) {
+                // Final fallback
+            }
+        }
 
         // Determine active program
         val savedProgramId = sessionManager.getActiveProgramId()

@@ -12,6 +12,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 interface ShikhoApiService {
@@ -51,6 +52,36 @@ interface ShikhoApiService {
 
     @POST("/graphql")
     suspend fun getVideoList(@Body query: GraphQlQuery): VideoListResponse
+
+    @GET("/class_list")
+    suspend fun getClassList(
+        @Query("vendor") vendor: String = "BD",
+        @Query("type") type: String = "syllabus"
+    ): ClassListResponse
+
+    @POST("/graphql")
+    suspend fun getBatchOptions(@Body query: GraphQlQuery): BatchOptionsResponse
+
+    @POST("/graphql")
+    suspend fun changeSyllabus(@Body query: GraphQlQuery): ChangeSyllabusResponse
+
+    @POST("/graphql")
+    suspend fun updateExamYear(@Body query: GraphQlQuery): UpdateExamYearResponse
+
+    @GET("/address")
+    suspend fun getAddress(
+        @Query("country_code") countryCode: String? = null,
+        @Query("division_id") divisionId: String? = null
+    ): AddressListResponse
+
+    @POST("/graphql")
+    suspend fun getSchools(@Body query: GraphQlQuery): SchoolSearchResponse
+
+    @POST("/graphql")
+    suspend fun updateProfile(@Body query: GraphQlQuery): UpdateProfileResponse
+
+    @POST("/graphql")
+    suspend fun updateUserSchool(@Body query: GraphQlQuery): UpdateSchoolResponse
 
     @GET("https://analytics.shikho.com/api/v1/results/quarterly/quarter/{programId}/{phaseId}")
     suspend fun getQuarterlyResults(

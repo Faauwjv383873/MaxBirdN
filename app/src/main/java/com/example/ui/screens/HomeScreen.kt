@@ -31,6 +31,7 @@ import com.example.ui.components.HomeHeader
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToProfile: () -> Unit = {},
+    onNavigateToChangeSyllabus: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -45,7 +46,8 @@ fun HomeScreen(
             },
             onDismiss = {
                 viewModel.setCourseSwitcherVisible(false)
-            }
+            },
+            onChangeSyllabusClick = onNavigateToChangeSyllabus
         )
     }
 

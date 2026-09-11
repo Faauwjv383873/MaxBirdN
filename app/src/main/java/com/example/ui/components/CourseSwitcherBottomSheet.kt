@@ -95,7 +95,8 @@ fun CourseSwitcherBottomSheet(
     enrolledPrograms: List<EnrolledProgram>,
     activeProgram: EnrolledProgram?,
     onSelectProgram: (EnrolledProgram) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onChangeSyllabusClick: (() -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -162,17 +163,59 @@ fun CourseSwitcherBottomSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             if (enrolledPrograms.isEmpty()) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
                     Text(
-                        text = "কোনো কোর্স পাওয়া যায়নি",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "কোনো সক্রিয় কোর্স পাওয়া যায়নি",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
+
+                    Text(
+                        text = "তোমার বর্তমান শ্রেণি বা গ্রুপের জন্য কোর্সগুলো দেখতে সিলেবাস চেক করো অথবা সিলেবাস পরিবর্তন করো।",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    if (onChangeSyllabusClick != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onChangeSyllabusClick()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("সিলেবাস বা শ্রেণি পরিবর্তন করো")
+                        }
+                    }
                 }
             } else {
                 LazyColumn(

@@ -116,14 +116,24 @@ data class ProfileData(
 data class UserProfile(
     val id: String?,
     val first_name: String?,
-    val last_name: String?,
-    val avatar: String?,
-    val gender: String?,
-    val dob: String?,
-    val study_group: String?,
-    val `class`: ClassInfo?,
-    val school: SchoolInfo?,
-    val user: UserInfo?
+    val last_name: String? = null,
+    val avatar: String? = null,
+    val gender: String? = null,
+    val dob: String? = null,
+    val shift: String? = null,
+    val guardian_name: String? = null,
+    val guardian_mobile: String? = null,
+    val ssc_board_name: String? = null,
+    val hsc_board_name: String? = null,
+    val board_roll_number: String? = null,
+    val hsc_board_roll_number: String? = null,
+    val board_reg_number: String? = null,
+    val other_tutoring_source: List<String>? = null,
+    val study_group: String? = null,
+    val `class`: ClassInfo? = null,
+    val school: SchoolInfo? = null,
+    val user: UserInfo? = null,
+    val passing_year: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -135,13 +145,91 @@ data class ClassInfo(
 @JsonClass(generateAdapter = true)
 data class SchoolInfo(
     val id: String?,
-    val name: String?
+    val name: String?,
+    val address: SchoolAddressInfo? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SchoolAddressInfo(
+    val division: DivisionDistrictInfo? = null,
+    val district: DivisionDistrictInfo? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class DivisionDistrictInfo(
+    val code: String? = null,
+    val display: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class UserInfo(
     val phone: String?,
     val email: String?
+)
+
+// Address API Models (/address)
+@JsonClass(generateAdapter = true)
+data class AddressListResponse(
+    val body: List<AddressItem>? = null,
+    val code: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AddressItem(
+    val code: String? = null,
+    val display: String? = null,
+    val ref: String? = null,
+    val _key: String? = null
+)
+
+// School Search Models (query GetSchools / searchSchoolV1)
+@JsonClass(generateAdapter = true)
+data class SchoolSearchResponse(
+    val data: SchoolSearchData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SchoolSearchData(
+    val searchSchoolV1: SchoolSearchResult? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SchoolSearchResult(
+    val data: List<SchoolItem>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SchoolItem(
+    val id: String? = null,
+    val name: String? = null
+)
+
+// Update Profile & School Mutations
+@JsonClass(generateAdapter = true)
+data class UpdateProfileResponse(
+    val data: UpdateProfileData? = null,
+    val errors: List<GraphQlError>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateProfileData(
+    val updateProfile: UserProfile? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateSchoolResponse(
+    val data: UpdateSchoolData? = null,
+    val errors: List<GraphQlError>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateSchoolData(
+    val updateProfile: UpdateSchoolProfileResult? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateSchoolProfileResult(
+    val school: SchoolItem? = null
 )
 
 // ==========================================
@@ -335,4 +423,151 @@ data class VideoItem(
     val stream_url: String? = null,
     val subject: String? = null,
     val view_count: String? = null
+)
+
+// ==========================================
+// 8. Syllabus Change, Class List & Batch Models
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class ClassListResponse(
+    val classes: List<ClassItem>? = null,
+    val data: List<ClassItem>? = null,
+    val code: Int? = null,
+    val status: String? = null,
+    val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ClassItem(
+    val serial: Int? = null,
+    val code: String = "",
+    val name_en: String? = null,
+    val name_bn: String? = null,
+    val title_bn: String? = null,
+    val title_en: String? = null,
+    val is_group_required: Boolean? = null,
+    val has_batch_selection: Boolean? = null,
+    val show_on_boarding: Boolean? = null,
+    val parent_name: String? = null,
+    val parent_name_bn: String? = null,
+    val is_active: Boolean? = true,
+    val vendor: String? = "BD",
+    val groups: List<StudyGroupItem>? = null
+) {
+    val displayNameBn: String
+        get() = when (code.uppercase()) {
+            "C5", "C05" -> "ক্লাস ৫"
+            "C6", "C06" -> "ক্লাস ৬"
+            "C7", "C07" -> "ক্লাস ৭"
+            "C8", "C08" -> "ক্লাস ৮"
+            "C9", "C09" -> "ক্লাস ৯"
+            "C10" -> "ক্লাস ১০"
+            "C11" -> "এইচএসসি"
+            "C12" -> "এডমিশন"
+            else -> name_bn ?: title_bn ?: code
+        }
+
+    val displaySubtitle: String
+        get() = when (code.uppercase()) {
+            "C5", "C05" -> "Class 5"
+            "C6", "C06" -> "Class 6"
+            "C7", "C07" -> "Class 7"
+            "C8", "C08" -> "Class 8"
+            "C9", "C09" -> "Class 9"
+            "C10" -> "Class 10"
+            "C11" -> "HSC"
+            "C12" -> "Admission"
+            else -> name_en ?: title_en ?: ""
+        }
+
+    val isGroupRequired: Boolean
+        get() = is_group_required == true || code.uppercase() in listOf("C9", "C09", "C10", "C11", "C12")
+}
+
+@JsonClass(generateAdapter = true)
+data class StudyGroupItem(
+    val code: String = "",
+    val name_en: String? = null,
+    val name_bn: String? = null,
+    val title_bn: String? = null,
+    val title_en: String? = null
+) {
+    val displayNameBn: String
+        get() = when (code.lowercase()) {
+            "science" -> "বিজ্ঞান"
+            "humanities", "hum" -> "মানবিক"
+            "business_studies", "business", "business studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            else -> name_bn ?: title_bn ?: code
+        }
+}
+
+@JsonClass(generateAdapter = true)
+data class BatchOptionsResponse(
+    val data: BatchOptionsData? = null,
+    val errors: List<GraphQlError>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class BatchOptionsData(
+    val batchOptions: BatchOptionsPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class BatchOptionsPayload(
+    val classCode: String? = null,
+    val date: String? = null,
+    val options: List<BatchOptionItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class BatchOptionItem(
+    val year: Any? = null,
+    val label: String? = null
+) {
+    val yearString: String
+        get() = when (val y = year) {
+            is Number -> y.toLong().toString()
+            is String -> y
+            null -> ""
+            else -> y.toString()
+        }
+}
+
+@JsonClass(generateAdapter = true)
+data class GraphQlError(
+    val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ChangeSyllabusResponse(
+    val data: ChangeSyllabusData? = null,
+    val errors: List<GraphQlError>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ChangeSyllabusData(
+    val changeSyllabus: AuthTokensPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AuthTokensPayload(
+    val access_token: String? = null,
+    val id_token: String? = null,
+    val refresh_token: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateExamYearResponse(
+    val data: UpdateExamYearData? = null,
+    val errors: List<GraphQlError>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateExamYearData(
+    val updateProfile: UpdateProfilePayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateProfilePayload(
+    val passing_year: String? = null
 )
