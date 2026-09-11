@@ -1,0 +1,6 @@
+{
+  "name": "MaxBird",
+  "description": "A cross-platform compatible application starting on Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
