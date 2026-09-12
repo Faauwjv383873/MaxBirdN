@@ -44,6 +44,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.player.ShikhoPlayerManager
@@ -221,11 +222,24 @@ fun VideoPlayerScreen(
     }
 
     // Handle App Lifecycle (Pause video on background)
+
+    val mediaSession = remember(exoPlayer) {
+        MediaSession.Builder(context, exoPlayer).build()
+    }
+    DisposableEffect(mediaSession) {
+        onDispose {
+            mediaSession.release()
+        }
+    }
+    
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
-                    exoPlayer.pause()
+                    val activity = context as? Activity
+                    if (activity?.isInPictureInPictureMode != true) {
+                        exoPlayer.pause()
+                    }
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     if (isPlaying) {

@@ -28,9 +28,6 @@ import androidx.compose.ui.unit.sp
 import com.example.api.StudentLessonItem
 import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
-import com.example.ui.components.DebugTerminalManager
-import com.example.ui.components.DebugTerminalOverlay
-import com.example.ui.components.LogType
 import java.text.SimpleDateFormat
 import java.util.*
 

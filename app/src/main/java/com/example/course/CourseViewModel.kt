@@ -5,8 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.api.*
 import com.example.auth.SessionManager
-import com.example.ui.components.DebugTerminalManager
-import com.example.ui.components.LogType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -135,19 +133,9 @@ class CourseViewModel(
                 val response = apiService.getAcademicProgram(query)
                 val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs
                 if (!list.isNullOrEmpty()) {
-                    DebugTerminalManager.log(
-                        "ENROLLED_PROGS",
-                        "কোর্স অপশনের জন্য ${list.size} টি এনরোল করা প্রোগ্রাম লোড করা হয়েছে",
-                        LogType.SUCCESS
-                    )
                     _uiState.update { it.copy(enrolledPrograms = list) }
                 }
             } catch (e: Exception) {
-                DebugTerminalManager.log(
-                    "ENROLLED_PROGS_ERR",
-                    "এনরোল করা কোর্স লোড করতে ত্রুটি: ${e.localizedMessage}",
-                    LogType.ERROR
-                )
             }
         }
     }
@@ -156,11 +144,6 @@ class CourseViewModel(
         val recUrl = lesson.resolvedVideoUrl ?: lesson.live_class?.resolvedVideoUrl ?: lesson.live_class?.recording_url ?: ""
         val isEnrolled = recUrl.isNotBlank()
         val sessionId = lesson.live_class?.session_id ?: lesson.session_id ?: "N/A"
-        DebugTerminalManager.log(
-            "SELECT_LESSON",
-            "ক্লাস সিলেক্ট করা হয়েছে: '${lesson.title}' (ID: ${lesson.id})\n- Session ID: $sessionId\n- স্ট্রিমিং URL: ${if (isEnrolled) recUrl else "নেই (ফ্রি বা আনএনরোল্ড কোর্স, ভিডিও প্লে হবে না)"}\n- Candidate URLs Count: ${lesson.candidateStreamUrls.size}",
-            if (isEnrolled) LogType.SUCCESS else LogType.ERROR
-        )
         _uiState.update {
             it.copy(selectedLesson = lesson)
         }
@@ -289,18 +272,8 @@ class CourseViewModel(
                                 if (fullTeacher != null) {
                                     val withTeacher = currentLessonState.live_class?.copy(teacher = fullTeacher)
                                     currentLessonState = currentLessonState.copy(live_class = withTeacher)
-                                    DebugTerminalManager.log(
-                                        "TEACHER_DETAILS_RESP",
-                                        "Teacher details loaded for $teacherId: ${fullTeacher.displayName}",
-                                        LogType.SUCCESS
-                                    )
                                 }
                             } catch (e: Exception) {
-                                DebugTerminalManager.log(
-                                    "TEACHER_DETAILS_ERR",
-                                    "Error fetching teacher details ($teacherId): ${e.localizedMessage}",
-                                    LogType.ERROR
-                                )
                             }
                         }
 
@@ -353,37 +326,17 @@ class CourseViewModel(
                                         recording_url = fallbackTopicUrl,
                                         live_class = withTopicPb
                                     )
-                                    DebugTerminalManager.log(
-                                        "TOPICS_RESP",
-                                        "Topic video stream loaded for chapter $chapterIdForTopics: $fallbackTopicUrl",
-                                        LogType.SUCCESS
-                                    )
                                 }
                             } catch (e: Exception) {
-                                DebugTerminalManager.log(
-                                    "TOPICS_ERR",
-                                    "Error fetching topic videos ($chapterIdForTopics): ${e.localizedMessage}",
-                                    LogType.ERROR
-                                )
                             }
                         }
 
                         if (_uiState.value.selectedLesson?.id == lesson.id) {
                             _uiState.update { it.copy(selectedLesson = currentLessonState) }
                         }
-                        DebugTerminalManager.log(
-                            "LIVE_CLASS_DETAILS_RESP",
-                            "Live Class Details loaded for $liveClassId:\n- Playback URL: ${currentLessonState.resolvedVideoUrl}\n- Teacher: ${currentLessonState.live_class?.teacher?.displayName}\n- Materials: ${liveClassData.study_materials?.size ?: 0}",
-                            LogType.SUCCESS
-                        )
 
                     }
                 } catch (e: Exception) {
-                    DebugTerminalManager.log(
-                        "LIVE_CLASS_DETAILS_ERR",
-                        "Error fetching live class details for $liveClassId: ${e.localizedMessage}",
-                        LogType.ERROR
-                    )
                 }
             }
         }
@@ -948,11 +901,6 @@ class CourseViewModel(
         }
 
         viewModelScope.launch {
-            DebugTerminalManager.log(
-                "LOAD_LESSONS",
-                "চ্যাপ্টার লেকচার লোড হচ্ছে: '${chapterName ?: matchingChapter?.chapter_name}' (ID: $primaryChapterId)\n- Candidate Chapter IDs: $candidateChapterIds\n- Candidate Program IDs: $candidateProgramIds",
-                LogType.INFO
-            )
             try {
                 var lessonList = emptyList<StudentLessonItem>()
                 val queryAttempts = mutableListOf<String>()
@@ -997,11 +945,6 @@ class CourseViewModel(
                     "কোর্স আইডি: ${candidateProgramIds.joinToString(", ")}\nঅধ্যায় আইডি: ${candidateChapterIds.joinToString(", ")}\nকোয়ার্টার আইডি: ${candidatePhaseIds.joinToString(", ")}\nঅনুসন্ধান সংখ্যা: ${queryAttempts.size}টি কোয়েরি"
                 } else null
 
-                DebugTerminalManager.log(
-                    "LOAD_LESSONS_RESULT",
-                    "লোড সম্পন্ন: ${lessonList.size}টি ক্লাস পাওয়া গেছে।\n- চেষ্টা করা কোয়েরি: ${queryAttempts.size}টি\n- স্ট্যাটাস: ${if (lessonList.isNotEmpty()) "সফল (Lessons Loaded)" else "ফাঁকা (No lessons found, possible enrollment restriction)"}",
-                    if (lessonList.isNotEmpty()) LogType.SUCCESS else LogType.WARNING
-                )
 
                 if (lessonList.isNotEmpty()) {
                     lessonsCache[primaryChapterId] = lessonList
@@ -1095,18 +1038,8 @@ class CourseViewModel(
             val detailsLog = data?.joinToString("\n") { item ->
                 "[Lesson ID=${item.id}, title=${item.title}, content_id=${item.content_id}, rec_url=${item.live_class?.recording_url}]"
             } ?: "[]"
-            DebugTerminalManager.log(
-                "GQL_PHASE_RESP",
-                "Query PhaseWise (cid=$chapterId, pid=$programId, phId=$phaseId):\nData Count: ${data?.size ?: 0}\nItems:\n$detailsLog",
-                if (!data.isNullOrEmpty()) LogType.SUCCESS else LogType.WARNING
-            )
             return data ?: emptyList()
         } catch (e: Exception) {
-            DebugTerminalManager.log(
-                "GQL_PHASE_ERR",
-                "Query PhaseWise Error (cid=$chapterId, pid=$programId, phId=$phaseId): ${e.localizedMessage}",
-                LogType.ERROR
-            )
             return emptyList()
         }
     }
@@ -1147,18 +1080,8 @@ class CourseViewModel(
             val detailsLog = data?.joinToString("\n") { item ->
                 "[Lesson ID=${item.id}, title=${item.title}, content_id=${item.content_id}, rec_url=${item.live_class?.recording_url}]"
             } ?: "[]"
-            DebugTerminalManager.log(
-                "GQL_STD_RESP",
-                "Query Standard (cid=$chapterId, pid=$programId):\nData Count: ${data?.size ?: 0}\nItems:\n$detailsLog",
-                if (!data.isNullOrEmpty()) LogType.SUCCESS else LogType.WARNING
-            )
             return data ?: emptyList()
         } catch (e: Exception) {
-            DebugTerminalManager.log(
-                "GQL_STD_ERR",
-                "Query Standard Error (cid=$chapterId, pid=$programId): ${e.localizedMessage}",
-                LogType.ERROR
-            )
             return emptyList()
         }
     }
@@ -1206,18 +1129,8 @@ class CourseViewModel(
                 )
             } ?: emptyList()
 
-            DebugTerminalManager.log(
-                "HIERARCHY_CHAPTERS_RESP",
-                "Hierarchy Fallback (code=$subjectCode): Found ${foundChapters.size} chapters",
-                if (foundChapters.isNotEmpty()) LogType.SUCCESS else LogType.WARNING
-            )
             return foundChapters
         } catch (e: Exception) {
-            DebugTerminalManager.log(
-                "HIERARCHY_CHAPTERS_ERR",
-                "Hierarchy Fallback Error (code=$subjectCode): ${e.localizedMessage}",
-                LogType.ERROR
-            )
             return emptyList()
         }
     }

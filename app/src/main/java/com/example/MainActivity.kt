@@ -13,7 +13,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import com.example.ui.components.DebugTerminalOverlay
 import com.example.ui.theme.MyApplicationTheme
 
 val LocalPictureInPictureMode = compositionLocalOf { false }
@@ -34,9 +33,6 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             AppNavigation()
-                            if (!isPipModeState.value) {
-                                DebugTerminalOverlay()
-                            }
                         }
                     }
                 }
@@ -52,5 +48,3 @@ class MainActivity : ComponentActivity() {
         isPipModeState.value = isInPictureInPictureMode
     }
 }
-
-
