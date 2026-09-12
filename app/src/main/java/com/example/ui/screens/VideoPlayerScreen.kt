@@ -113,7 +113,7 @@ fun VideoPlayerScreen(
     // ExoPlayer instance configured with Shikho CDN headers
     val exoPlayer = remember(context) {
         ShikhoPlayerManager.buildExoPlayer(context).apply {
-            val mediaSource = ShikhoPlayerManager.createMediaSource(resolvedUrl)
+            val mediaSource = ShikhoPlayerManager.createMediaSource(resolvedUrl, isLive = isLive)
             setMediaSource(mediaSource)
             prepare()
             playWhenReady = true

@@ -55,20 +55,29 @@ object ShikhoPlayerManager {
     }
 
     /**
-     * Creates a MediaSource properly configured for HLS (.m3u8) or standard MP4 streams.
+     * Creates a MediaSource properly configured for HLS (.m3u8), standard MP4 streams, and Live streaming.
      */
     fun createMediaSource(
         url: String,
+        isLive: Boolean = false,
         dataSourceFactory: DefaultHttpDataSource.Factory = createHttpDataSourceFactory()
     ): MediaSource {
         val uri = Uri.parse(url)
-        val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("hls", ignoreCase = true)
+        val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("hls", ignoreCase = true) || isLive
 
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
             .apply {
                 if (isHls) {
                     setMimeType(MimeTypes.APPLICATION_M3U8)
+                }
+                if (isLive) {
+                    setLiveConfiguration(
+                        MediaItem.LiveConfiguration.Builder()
+                            .setMaxPlaybackSpeed(1.02f)
+                            .setMinPlaybackSpeed(0.98f)
+                            .build()
+                    )
                 }
             }
             .build()

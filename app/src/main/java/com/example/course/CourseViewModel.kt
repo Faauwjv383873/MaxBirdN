@@ -335,8 +335,88 @@ class CourseViewModel(
                             _uiState.update { it.copy(selectedLesson = currentLessonState) }
                         }
 
+                        // 3. Attempt to fetch live room & meeting link via JoinLiveClass mutation
+                        joinLiveClass(currentLessonState)
+
                     }
                 } catch (e: Exception) {
+                }
+            }
+        }
+    }
+
+    /**
+     * Executes the GraphQL mutation JoinLiveClass to obtain live room ID, join link, and streaming credentials.
+     */
+    fun joinLiveClass(lesson: StudentLessonItem, onResult: ((JoinLiveClassPayload?) -> Unit)? = null) {
+        val liveClassId = lesson.live_class?.id ?: lesson.content_id ?: lesson.id
+        val lessonId = lesson.id.ifBlank { lesson.content_id ?: liveClassId }
+
+        if (liveClassId.isBlank()) {
+            onResult?.invoke(null)
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val joinQuery = GraphQlQuery(
+                    operationName = "JoinLiveClass",
+                    query = """
+                        mutation JoinLiveClass(${'$'}joinLiveCLassId: String!, ${'$'}lesson_id: String!) {
+                          joinLiveCLass(id: ${'$'}joinLiveCLassId, lesson_id: ${'$'}lesson_id) {
+                            join_link
+                            provider
+                            hms_room_id
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf(
+                        "joinLiveCLassId" to liveClassId,
+                        "lesson_id" to lessonId
+                    )
+                )
+                val response = apiService.joinLiveClass(joinQuery)
+                val payload = response.data?.joinLiveCLass
+                if (payload != null) {
+                    val currentSelected = _uiState.value.selectedLesson
+                    if (currentSelected != null && (currentSelected.id == lesson.id || currentSelected.content_id == lesson.content_id || currentSelected.live_class?.id == liveClassId)) {
+                        val updatedLiveClass = (currentSelected.live_class ?: LiveClassDetails()).copy(
+                            join_link = payload.join_link ?: currentSelected.live_class?.join_link,
+                            provider = payload.provider ?: currentSelected.live_class?.provider,
+                            hms_room_id = payload.hms_room_id ?: currentSelected.live_class?.hms_room_id
+                        )
+                        _uiState.update {
+                            it.copy(selectedLesson = currentSelected.copy(live_class = updatedLiveClass))
+                        }
+                    }
+                }
+                onResult?.invoke(payload)
+            } catch (e: Exception) {
+                onResult?.invoke(null)
+            }
+        }
+    }
+
+    /**
+     * Reloads the currently selected lesson fresh from server (for slides, live updates, or recordings).
+     */
+    fun reloadSelectedLesson() {
+        val current = _uiState.value.selectedLesson
+        val currentChapterId = _uiState.value.selectedChapterId
+        val currentLessonId = current?.id
+
+        if (current != null) {
+            selectLesson(current)
+        }
+
+        if (currentChapterId.isNotBlank()) {
+            viewModelScope.launch {
+                loadLessonsForChapter(currentChapterId)
+                if (!currentLessonId.isNullOrBlank()) {
+                    val updated = _uiState.value.lessons.find { it.id == currentLessonId }
+                    if (updated != null) {
+                        _uiState.update { it.copy(selectedLesson = updated) }
+                    }
                 }
             }
         }
@@ -1132,22 +1212,6 @@ class CourseViewModel(
             return foundChapters
         } catch (e: Exception) {
             return emptyList()
-        }
-    }
-
-    fun reloadSelectedLesson() {
-        val currentChapterId = _uiState.value.selectedChapterId
-        val currentLessonId = _uiState.value.selectedLesson?.id
-        if (currentChapterId.isNotBlank()) {
-            viewModelScope.launch {
-                loadLessonsForChapter(currentChapterId)
-                if (!currentLessonId.isNullOrBlank()) {
-                    val updated = _uiState.value.lessons.find { it.id == currentLessonId }
-                    if (updated != null) {
-                        _uiState.update { it.copy(selectedLesson = updated) }
-                    }
-                }
-            }
         }
     }
 }

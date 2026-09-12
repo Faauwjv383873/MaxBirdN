@@ -31,6 +31,7 @@ import com.example.home.HomeViewModel
 import com.example.ui.components.CourseSwitcherBottomSheet
 import com.example.ui.components.HomeHeader
 import com.example.ui.components.RoutineCard
+import com.example.ui.components.SubjectFilterDialog
 import com.example.ui.components.WeeklyRoutineSection
 import com.example.api.StudentLessonItem
 
@@ -60,6 +61,22 @@ fun HomeScreen(
                 viewModel.setCourseSwitcherVisible(false)
             },
             onChangeSyllabusClick = onNavigateToChangeSyllabus
+        )
+    }
+
+    // Subject Filter / Customizer Dialog
+    if (uiState.showSubjectFilterDialog) {
+        SubjectFilterDialog(
+            courseTitle = uiState.activeProgram?.title_bn ?: "",
+            subjects = uiState.courseSubjects,
+            selectedSubjectCodes = uiState.selectedSubjectCodes,
+            isLoading = uiState.isCourseSubjectsLoading,
+            isSaving = uiState.isSavingSubjectFilter,
+            onToggleSubject = { code -> viewModel.toggleSubjectSelection(code) },
+            onSelectAll = { viewModel.selectAllSubjects() },
+            onClearAll = { viewModel.clearAllSubjectSelection() },
+            onSave = { viewModel.saveSubjectFilter() },
+            onDismiss = { viewModel.dismissSubjectFilterDialog() }
         )
     }
 
@@ -197,9 +214,12 @@ fun HomeScreen(
 
                 else -> {
                     WeeklyRoutineSection(
-                        lessons = uiState.weeklyRoutine,
+                        lessons = uiState.filteredWeeklyRoutine,
                         isLoading = uiState.isRoutineLoading,
+                        selectedSubjectsCount = uiState.selectedSubjectCodes.size,
+                        totalSubjectsCount = uiState.courseSubjects.size,
                         onSeeAllClick = { onOpenFullRoutine() },
+                        onCustomizeSubjectsClick = { viewModel.openSubjectFilterDialog() },
                         onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) }
                     )
                 }

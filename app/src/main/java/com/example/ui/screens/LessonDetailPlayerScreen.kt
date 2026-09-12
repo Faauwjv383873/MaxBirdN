@@ -95,12 +95,39 @@ fun LessonDetailPlayerScreen(
     subjectName: String,
     subjectColorHex: String?,
     onRefreshLesson: (() -> Unit)? = null,
+    onJoinLiveClass: ((StudentLessonItem) -> Unit)? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Live Class Detection & Info
+    val isLive = remember(lesson) {
+        lesson?.live_class?.is_on_going == true ||
+        lesson?.content_type?.contains("LIVE", ignoreCase = true) == true ||
+        !lesson?.live_class?.join_link.isNullOrBlank() ||
+        !lesson?.live_class?.hms_room_id.isNullOrBlank()
+    }
+    val isLiveOngoing = remember(lesson) {
+        lesson?.live_class?.is_on_going == true || lesson?.content_type?.contains("LIVE", ignoreCase = true) == true
+    }
+    val joinLink = lesson?.live_class?.join_link
+    val hmsRoomId = lesson?.live_class?.hms_room_id
+    val liveProvider = lesson?.live_class?.provider ?: "100ms Live"
+
+    var livePlayerMode by remember { mutableStateOf("STREAM") } // "STREAM" or "MEETING"
+    var isJoiningLiveState by remember { mutableStateOf(false) }
+
+    // Auto trigger joinLiveClass if it's a live class and joinLink is missing
+    LaunchedEffect(lesson?.id, isLive) {
+        if (isLive && lesson != null && lesson.live_class?.join_link.isNullOrBlank() && onJoinLiveClass != null) {
+            isJoiningLiveState = true
+            onJoinLiveClass.invoke(lesson)
+            isJoiningLiveState = false
+        }
+    }
 
     // Parse Subject Color
     val subjectThemeColor = remember(subjectColorHex) {
@@ -115,22 +142,33 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    val candidateStreams = remember(lesson) {
-        lesson?.candidateStreamUrls?.filter { it.isNotBlank() && it != "null" } ?: emptyList()
+    val candidateStreams = remember(lesson, lesson?.live_class?.hms_room_id, lesson?.live_class?.recording_url, lesson?.live_class?.playback_url, isLive) {
+        val raw = lesson?.candidateStreamUrls?.filter { it.isNotBlank() && it != "null" } ?: emptyList()
+        if (isLive) {
+            // For active live class, prioritize 100ms beam live streams (stream_1/stream_0/stream_2/master) before recording CDN
+            val liveHls = raw.filter { it.contains("100ms.live") }
+            val other = raw.filterNot { it.contains("100ms.live") }
+            (liveHls + other).distinct()
+        } else {
+            raw.distinct()
+        }
     }
-    var currentStreamIndex by remember(lesson) { mutableIntStateOf(0) }
+    var currentStreamIndex by remember(lesson?.id, lesson?.live_class?.hms_room_id) { mutableIntStateOf(0) }
     var activeStreamUrl by remember(candidateStreams, currentStreamIndex) {
         mutableStateOf(
             candidateStreams.getOrNull(currentStreamIndex)
-                ?: lesson?.resolvedVideoUrl
                 ?: candidateStreams.firstOrNull()
+                ?: lesson?.resolvedVideoUrl
                 ?: ""
         )
     }
 
     LaunchedEffect(candidateStreams) {
-        if (activeStreamUrl.isBlank() && candidateStreams.isNotEmpty()) {
-            activeStreamUrl = candidateStreams.first()
+        if (candidateStreams.isNotEmpty()) {
+            if (activeStreamUrl.isBlank() || !candidateStreams.contains(activeStreamUrl)) {
+                currentStreamIndex = 0
+                activeStreamUrl = candidateStreams.first()
+            }
         }
     }
 
@@ -172,13 +210,13 @@ fun LessonDetailPlayerScreen(
     }
 
     // Initialize media source when activeStreamUrl changes
-    LaunchedEffect(activeStreamUrl) {
+    LaunchedEffect(activeStreamUrl, isLive) {
         playbackError = null
         playbackErrorDetails = null
         if (activeStreamUrl.isNotBlank()) {
             isBuffering = true
             try {
-                val mediaSource = ShikhoPlayerManager.createMediaSource(activeStreamUrl)
+                val mediaSource = ShikhoPlayerManager.createMediaSource(activeStreamUrl, isLive = isLive)
                 exoPlayer.setMediaSource(mediaSource)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
@@ -253,7 +291,7 @@ fun LessonDetailPlayerScreen(
                     val nextUrl = candidateStreams[currentStreamIndex]
                     activeStreamUrl = nextUrl
                     try {
-                        val nextSource = ShikhoPlayerManager.createMediaSource(nextUrl)
+                        val nextSource = ShikhoPlayerManager.createMediaSource(nextUrl, isLive = isLive)
                         exoPlayer.setMediaSource(nextSource)
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
@@ -483,6 +521,18 @@ fun LessonDetailPlayerScreen(
                 areControlsVisible = areControlsVisible,
                 isFullscreen = true,
                 playbackSpeed = playbackSpeed,
+                isLive = isLive,
+                hasMeeting = !joinLink.isNullOrBlank(),
+                onSwitchToMeeting = {
+                    try {
+                        if (!joinLink.isNullOrBlank()) {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(joinLink)).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        }
+                    } catch (_: Exception) {}
+                },
                 onTogglePlayPause = {
                     if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                 },
@@ -590,6 +640,18 @@ fun LessonDetailPlayerScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        if (isLive && onRefreshLesson != null) {
+                                            Button(
+                                                onClick = onRefreshLesson,
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("লাইভ ক্লাস রিফ্রেশ", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
 
                                         OutlinedButton(
                                             onClick = {
@@ -606,7 +668,7 @@ fun LessonDetailPlayerScreen(
                                             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             shape = RoundedCornerShape(8.dp)
-                                        ) {
+                                         ) {
                                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text("পুনরায় চেষ্টা", fontSize = 12.sp)
@@ -626,8 +688,6 @@ fun LessonDetailPlayerScreen(
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
-
-
                                     }
 
                                     val slideUrlForError = lesson?.resolvedSlideUrl
@@ -681,6 +741,12 @@ fun LessonDetailPlayerScreen(
                                 areControlsVisible = areControlsVisible,
                                 isFullscreen = false,
                                 playbackSpeed = playbackSpeed,
+                                isLive = isLive,
+                                hasMeeting = !joinLink.isNullOrBlank(),
+                                onSwitchToMeeting = {
+                                    exoPlayer.pause()
+                                    livePlayerMode = "MEETING"
+                                },
                                 onTogglePlayPause = {
                                     if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                                 },
@@ -736,7 +802,7 @@ fun LessonDetailPlayerScreen(
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "এই ক্লাসের সরাসরি রেকর্ডিং লিংক পাওয়া যায়নি",
+                                    text = if (isLive) "লাইভ ক্লাসের সংযোগ গ্রহণ করা হচ্ছে..." else "এই ক্লাসের সরাসরি রেকর্ডিং লিংক পাওয়া যায়নি",
                                     color = Color.White,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
@@ -744,7 +810,7 @@ fun LessonDetailPlayerScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "কোর্সে সরাসরি ভর্তি না থাকলে বা ক্লাস অপ্রস্তুত থাকলে Shikho API লিংক পাঠায় না।",
+                                    text = if (isLive) "লাইভ স্ট্রিমে যুক্ত হতে নিচের বাটনে ক্লিক করুন" else "কোর্সে সরাসরি ভর্তি না থাকলে বা ক্লাস অপ্রস্তুত থাকলে Shikho API লিংক পাঠায় না।",
                                     color = Color.White.copy(alpha = 0.75f),
                                     fontSize = 11.sp,
                                     textAlign = TextAlign.Center,
@@ -755,6 +821,19 @@ fun LessonDetailPlayerScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    if (isLive && onJoinLiveClass != null && lesson != null) {
+                                        Button(
+                                            onClick = { onJoinLiveClass.invoke(lesson) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.LiveTv, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("লাইভ ক্লাসে যুক্ত হন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
                                     if (onRefreshLesson != null) {
                                         Button(
                                             onClick = onRefreshLesson,
@@ -829,6 +908,139 @@ fun LessonDetailPlayerScreen(
                                     contentDescription = "ফিরে যান",
                                     tint = Color.White
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Live Class Active Room Banner & Control Card (if live)
+                if (isLive) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFFFF1F2)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFDA4AF)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 14.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFE11D48),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .padding(2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = if (isLiveOngoing) "🔴 সরাসরি লাইভ ক্লাস সম্প্রচার চলছে" else "🔴 লাইভ রুম নির্ধারিত",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = Color(0xFF9F1239)
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFBE123C).copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = liveProvider.uppercase(),
+                                        color = Color(0xFF9F1239),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (!hmsRoomId.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Room ID: $hmsRoomId",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF881337),
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (onRefreshLesson != null) {
+                                    Button(
+                                        onClick = onRefreshLesson,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("লাইভ স্ট্রিম রিফ্রেশ", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                if (!joinLink.isNullOrBlank()) {
+                                    IconButton(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(joinLink)).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        },
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.White)
+                                            .border(1.dp, Color(0xFFFDA4AF), RoundedCornerShape(10.dp))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.OpenInBrowser,
+                                            contentDescription = "ব্রাউজার",
+                                            tint = Color(0xFF9F1239),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                } else if (onJoinLiveClass != null && lesson != null) {
+                                    Button(
+                                        onClick = {
+                                            onJoinLiveClass.invoke(lesson)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("রুমে যুক্ত হন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
                     }
@@ -1873,6 +2085,9 @@ private fun PlayerControlsOverlay(
     areControlsVisible: Boolean,
     isFullscreen: Boolean,
     playbackSpeed: Float,
+    isLive: Boolean = false,
+    hasMeeting: Boolean = false,
+    onSwitchToMeeting: (() -> Unit)? = null,
     onTogglePlayPause: () -> Unit,
     onSeekBack: () -> Unit,
     onSeekForward: () -> Unit,
@@ -1949,14 +2164,31 @@ private fun PlayerControlsOverlay(
                         Spacer(modifier = Modifier.width(10.dp))
 
                         Column {
-                            Text(
-                                text = title,
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isLive) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFFE11D48),
+                                        modifier = Modifier.padding(end = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "🔴 LIVE",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = title,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             if (subjectName.isNotBlank()) {
                                 Text(
                                     text = subjectName,
@@ -1968,11 +2200,38 @@ private fun PlayerControlsOverlay(
                         }
                     }
 
-                    // Quality, Speed and PiP Buttons
+                    // Interactive Classroom, Quality, Speed and PiP Buttons
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        if (hasMeeting && onSwitchToMeeting != null) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE11D48).copy(alpha = 0.85f),
+                                modifier = Modifier.clickable { onSwitchToMeeting() }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Chat,
+                                        contentDescription = "ক্লাসরুম",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "ক্লাসরুম",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
                         // Picture in Picture (PiP) Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -2025,20 +2284,22 @@ private fun PlayerControlsOverlay(
                             }
                         }
 
-                        // Playback Speed Tag Button
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.2f),
-                            modifier = Modifier.clickable { onSpeedClick() }
-                        ) {
-                            val displaySpeed = String.format(java.util.Locale.US, "%.2f", playbackSpeed).removeSuffix(".00")
-                            Text(
-                                text = "${displaySpeed}x",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                        // Playback Speed Tag Button (only for recorded / if applicable)
+                        if (!isLive) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.2f),
+                                modifier = Modifier.clickable { onSpeedClick() }
+                            ) {
+                                val displaySpeed = String.format(java.util.Locale.US, "%.2f", playbackSpeed).removeSuffix(".00")
+                                Text(
+                                    text = "${displaySpeed}x",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -2058,20 +2319,22 @@ private fun PlayerControlsOverlay(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(32.dp)
                         ) {
-                            // Seek -10s
-                            IconButton(
-                                onClick = onSeekBack,
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Replay10,
-                                    contentDescription = "১০ সেকেন্ড পেছনে",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                            if (!isLive) {
+                                // Seek -10s
+                                IconButton(
+                                    onClick = onSeekBack,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.45f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Replay10,
+                                        contentDescription = "১০ সেকেন্ড পেছনে",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
                             }
 
                             // Play / Pause Button
@@ -2090,20 +2353,22 @@ private fun PlayerControlsOverlay(
                                 )
                             }
 
-                            // Seek +10s
-                            IconButton(
-                                onClick = onSeekForward,
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Forward10,
-                                    contentDescription = "১০ সেকেন্ড সামনে",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                            if (!isLive) {
+                                // Seek +10s
+                                IconButton(
+                                    onClick = onSeekForward,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.45f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Forward10,
+                                        contentDescription = "১০ সেকেন্ড সামনে",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -2116,56 +2381,97 @@ private fun PlayerControlsOverlay(
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    // Slider / Progress Bar
-                    val sliderValue = if (totalDuration > 0) {
-                        (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
+                    if (!isLive) {
+                        // Slider / Progress Bar
+                        val sliderValue = if (totalDuration > 0) {
+                            (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
 
-                    Slider(
-                        value = sliderValue,
-                        onValueChange = { fraction ->
-                            val target = (fraction * totalDuration).toLong()
-                            onSeekStarted(target)
-                            onSeekChanged(target)
-                        },
-                        onValueChangeFinished = {
-                            val target = (sliderValue * totalDuration).toLong()
-                            onSeekFinished(target)
-                        },
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Color(0xFFE11D48),
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(20.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Time string in Bengali digits
-                        val timeString = "${ShikhoPlayerManager.formatTime(currentPosition, true)} / ${ShikhoPlayerManager.formatTime(totalDuration, true)}"
-                        Text(
-                            text = timeString,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                        Slider(
+                            value = sliderValue,
+                            onValueChange = { fraction ->
+                                val target = (fraction * totalDuration).toLong()
+                                onSeekStarted(target)
+                                onSeekChanged(target)
+                            },
+                            onValueChangeFinished = {
+                                val target = (sliderValue * totalDuration).toLong()
+                                onSeekFinished(target)
+                            },
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color(0xFFE11D48),
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(20.dp)
                         )
 
-                        IconButton(
-                            onClick = onToggleFullscreen,
-                            modifier = Modifier.size(32.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = if (isFullscreen) "ছোট স্ক্রিন" else "ফুল স্ক্রিন",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
+                            // Time string in Bengali digits
+                            val timeString = "${ShikhoPlayerManager.formatTime(currentPosition, true)} / ${ShikhoPlayerManager.formatTime(totalDuration, true)}"
+                            Text(
+                                text = timeString,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
                             )
+
+                            IconButton(
+                                onClick = onToggleFullscreen,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = if (isFullscreen) "ছোট স্ক্রিন" else "ফুল স্ক্রিন",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        // LIVE STATUS BAR
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE11D48))
+                                )
+                                Text(
+                                    text = "🔴 সরাসরি লাইভ সম্প্রচার চলছে (Live)",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            IconButton(
+                                onClick = onToggleFullscreen,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = if (isFullscreen) "ছোট স্ক্রিন" else "ফুল স্ক্রিন",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -2531,4 +2837,156 @@ private fun copyToClipboard(context: Context, url: String) {
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "স্লাইড লিংক কপি করা হয়েছে", Toast.LENGTH_SHORT).show()
     } catch (_: Exception) {}
+}
+
+@Composable
+fun InteractiveLiveMeetingView(
+    meetingUrl: String,
+    onToggleFullscreen: () -> Unit,
+    onSwitchToPlayer: () -> Unit,
+    onOpenExternal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isLoadingMeeting by remember { mutableStateOf(true) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        mediaPlaybackRequiresUserGesture = false
+                        allowFileAccess = true
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
+                        databaseEnabled = true
+                        cacheMode = WebSettings.LOAD_DEFAULT
+                        userAgentString = "Mozilla/5.0 (Linux; Android 12; Pixel 6 Build/SD1A.210817.036) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 Mobile Safari/537.36"
+                    }
+                    webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                            try {
+                                request?.grant(request.resources)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            isLoadingMeeting = false
+                        }
+                    }
+                    loadUrl(meetingUrl)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Overlay Action Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                    )
+                )
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFE11D48),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "লাইভ ক্লাস সম্প্রচার",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(
+                    onClick = onOpenExternal,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInBrowser,
+                        contentDescription = "ব্রাউজারে খুলুন",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleFullscreen,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "ফুলস্ক্রিন",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        if (isLoadingMeeting) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFFE11D48), strokeWidth = 3.dp)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "লাইভ ক্লাসরুমে সংযোগ স্থাপন হচ্ছে...",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
 }

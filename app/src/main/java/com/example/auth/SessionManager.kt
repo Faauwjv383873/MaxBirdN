@@ -138,6 +138,16 @@ class SessionManager(context: Context) {
 
     fun getUserAvatar(): String? = sharedPreferences.getString("user_avatar", null)
 
+    fun saveSelectedSubjectCodes(programId: String, subjectCodes: Set<String>) {
+        sharedPreferences.edit()
+            .putStringSet("priority_subjects_$programId", subjectCodes)
+            .apply()
+    }
+
+    fun getSelectedSubjectCodes(programId: String): Set<String>? {
+        return sharedPreferences.getStringSet("priority_subjects_$programId", null)
+    }
+
     fun clearSession() {
         sharedPreferences.edit()
             .remove("access_token")

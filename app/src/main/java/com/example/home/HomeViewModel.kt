@@ -31,8 +31,36 @@ data class HomeUiState(
     val userGroup: String = "",
     val userSchool: String = "",
     val isPremium: Boolean = false,
-    val errorMessage: String? = null
-)
+    val errorMessage: String? = null,
+    // Subject Filter / Customizer State
+    val showSubjectFilterDialog: Boolean = false,
+    val courseSubjects: List<AcademicSubjectItem> = emptyList(),
+    val isCourseSubjectsLoading: Boolean = false,
+    val selectedSubjectCodes: Set<String> = emptySet(),
+    val isSavingSubjectFilter: Boolean = false
+) {
+    /**
+     * Filtered weekly routine containing only lessons matching the selected subjects
+     * If no subjects are explicitly selected, shows all routine lessons by default.
+     */
+    val filteredWeeklyRoutine: List<StudentLessonItem>
+        get() {
+            if (selectedSubjectCodes.isEmpty()) return weeklyRoutine
+            return weeklyRoutine.filter { lesson ->
+                val code = lesson.subject_id ?: ""
+                val name = lesson.subject_name ?: ""
+                // Match by subject code, subject_id, or subject name / display_bn
+                selectedSubjectCodes.any { selected ->
+                    selected.equals(code, ignoreCase = true) ||
+                    selected.equals(name, ignoreCase = true) ||
+                    courseSubjects.any { sub -> 
+                        (sub.code.equals(selected, ignoreCase = true) || sub.display_bn.equals(selected, ignoreCase = true)) &&
+                        (sub.code.equals(code, ignoreCase = true) || sub.display_bn.equals(name, ignoreCase = true) || (sub.display_bn != null && name.contains(sub.display_bn, ignoreCase = true)))
+                    }
+                }
+            }
+        }
+}
 
 class HomeViewModel(
     private val apiService: ShikhoApiService,
@@ -67,11 +95,174 @@ class HomeViewModel(
             batchId = program.enrollment_details?.batch_id,
             classCode = program.classes?.firstOrNull()
         )
+        // Load saved subject filter for this course if any
+        val savedSubjects = sessionManager.getSelectedSubjectCodes(program.id) ?: emptySet()
+        val initialSubjects = program.subjects?.map { 
+            AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon)
+        } ?: emptyList()
+
         _uiState.value = _uiState.value.copy(
             activeProgram = program,
-            showCourseSwitcher = false
+            showCourseSwitcher = false,
+            selectedSubjectCodes = savedSubjects,
+            courseSubjects = initialSubjects
         )
         fetchWeeklyRoutine(program)
+        loadCourseSubjects(program)
+    }
+
+    fun openSubjectFilterDialog() {
+        val program = _uiState.value.activeProgram ?: return
+        val saved = sessionManager.getSelectedSubjectCodes(program.id) ?: emptySet()
+        _uiState.value = _uiState.value.copy(
+            showSubjectFilterDialog = true,
+            selectedSubjectCodes = saved
+        )
+        loadCourseSubjects(program)
+    }
+
+    fun dismissSubjectFilterDialog() {
+        _uiState.value = _uiState.value.copy(showSubjectFilterDialog = false)
+    }
+
+    fun toggleSubjectSelection(subjectCode: String) {
+        val current = _uiState.value.selectedSubjectCodes.toMutableSet()
+        if (current.contains(subjectCode)) {
+            current.remove(subjectCode)
+        } else {
+            current.add(subjectCode)
+        }
+        _uiState.value = _uiState.value.copy(selectedSubjectCodes = current)
+    }
+
+    fun selectAllSubjects() {
+        val allCodes = _uiState.value.courseSubjects.mapNotNull { it.code }.toSet()
+        _uiState.value = _uiState.value.copy(selectedSubjectCodes = allCodes)
+    }
+
+    fun clearAllSubjectSelection() {
+        _uiState.value = _uiState.value.copy(selectedSubjectCodes = emptySet())
+    }
+
+    fun saveSubjectFilter() {
+        val program = _uiState.value.activeProgram ?: return
+        val selected = _uiState.value.selectedSubjectCodes
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isSavingSubjectFilter = true)
+            // 1. Save locally to SessionManager for instant persistence
+            sessionManager.saveSelectedSubjectCodes(program.id, selected)
+
+            // 2. Optionally sync with backend if mutation is supported
+            try {
+                if (selected.isNotEmpty()) {
+                    val upsertQuery = GraphQlQuery(
+                        operationName = "UpsertUserPrioritySubjects",
+                        query = """
+                            mutation UpsertUserPrioritySubjects(${'$'}program_id: String!, ${'$'}subjects: [String]!) {
+                              upsertUserPrioritySubjects(academic_program_id: ${'$'}program_id, subjects: ${'$'}subjects) {
+                                id
+                                academic_program_id
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf(
+                            "program_id" to program.id,
+                            "subjects" to selected.toList()
+                        )
+                    )
+                    apiService.upsertPrioritySubjects(upsertQuery)
+                }
+            } catch (_: Exception) {
+                // Ignore API error and rely on local storage
+            } finally {
+                _uiState.value = _uiState.value.copy(
+                    isSavingSubjectFilter = false,
+                    showSubjectFilterDialog = false
+                )
+            }
+        }
+    }
+
+    fun loadCourseSubjects(program: EnrolledProgram) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isCourseSubjectsLoading = true)
+            val subjectsList = mutableListOf<AcademicSubjectItem>()
+            
+            // 1. Start with subjects already attached to EnrolledProgram if any
+            program.subjects?.let { subs ->
+                subjectsList.addAll(subs.map {
+                    AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon)
+                })
+            }
+
+            // 2. Try fetching full subjects via GetAcademicSubjects
+            try {
+                val subjectsQuery = GraphQlQuery(
+                    operationName = "GetAcademicSubjects",
+                    query = """
+                        query GetAcademicSubjects(${'$'}programId: String!) {
+                          academicProgram(id: ${'$'}programId, show_subject_progress_bar: true) {
+                            subjects {
+                              code
+                              color_code
+                              display_bn
+                              icon
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf("programId" to program.id)
+                )
+                val res = apiService.getAcademicSubjects(subjectsQuery)
+                val fetched = res.data?.academicProgram?.subjects
+                if (!fetched.isNullOrEmpty()) {
+                    subjectsList.clear()
+                    subjectsList.addAll(fetched)
+                }
+            } catch (_: Exception) {}
+
+            // 3. Try fallback to GetPrioritySubjects or SubjectHierarchy
+            if (subjectsList.isEmpty()) {
+                try {
+                    val pQuery = GraphQlQuery(
+                        operationName = "UserPrioritySubjects",
+                        query = """
+                            query UserPrioritySubjects(${'$'}academic_program_id: String!) {
+                              userPrioritySubjects(academic_program_id: ${'$'}academic_program_id) {
+                                subjects {
+                                  code
+                                  color_code
+                                  display
+                                  display_bn
+                                  icon
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("academic_program_id" to program.id)
+                    )
+                    val pRes = apiService.getPrioritySubjects(pQuery)
+                    val pSubs = pRes.data?.userPrioritySubjects?.subjects
+                    if (!pSubs.isNullOrEmpty()) {
+                        pSubs.forEach { p ->
+                            subjectsList.add(AcademicSubjectItem(code = p.code, color_code = p.color_code, display_bn = p.display_bn ?: p.display, icon = p.icon))
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // Deduplicate by code
+            val distinctSubjects = subjectsList.distinctBy { it.code ?: it.display_bn }
+            
+            // Load saved preference
+            val savedSelection = sessionManager.getSelectedSubjectCodes(program.id) ?: emptySet()
+
+            _uiState.value = _uiState.value.copy(
+                courseSubjects = distinctSubjects,
+                isCourseSubjectsLoading = false,
+                selectedSubjectCodes = if (savedSelection.isNotEmpty()) savedSelection else _uiState.value.selectedSubjectCodes
+            )
+        }
     }
 
     fun loadData(isRefresh: Boolean = false) {
@@ -371,36 +562,70 @@ class HomeViewModel(
         val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||
                 programs.any { it.enrollment_details?.is_active == true }
 
+        val activeSavedSubjects = if (active != null) sessionManager.getSelectedSubjectCodes(active.id) ?: emptySet() else emptySet()
+        val activeInitialSubjects = active?.subjects?.map {
+            AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon)
+        } ?: emptyList()
+
         _uiState.value = _uiState.value.copy(
             enrolledPrograms = programs,
             activeProgram = active,
+            selectedSubjectCodes = activeSavedSubjects,
+            courseSubjects = activeInitialSubjects,
             isPremium = hasActiveEnrollment,
             isLoading = false,
             isRefreshing = false,
             errorMessage = if (programs.isEmpty()) "কোনো সক্রিয় কোর্স পাওয়া যায়নি" else null
         )
+
+        if (active != null) {
+            loadCourseSubjects(active)
+        }
     }
+    fun fetchMonthlyRoutine(
+        year: Int,
+        monthZeroIndexed: Int,
+        program: EnrolledProgram? = _uiState.value.activeProgram
+    ) {
+        val targetProgram = program ?: return
+        fetchRoutineForMonth(targetProgram, year, monthZeroIndexed)
+    }
+
     private fun fetchWeeklyRoutine(program: EnrolledProgram) {
+        val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
+        val now = Calendar.getInstance(dhakaZone)
+        fetchRoutineForMonth(program, now.get(Calendar.YEAR), now.get(Calendar.MONTH))
+    }
+
+    private fun fetchRoutineForMonth(
+        program: EnrolledProgram,
+        year: Int,
+        monthZeroIndexed: Int
+    ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRoutineLoading = true)
             try {
                 val programId = program.id
-                var phaseId = "6864d62506800acba2e27111" // Default fallback phase ID
-                
-                // Fetch active phase ID for the selected program
+                var fetchedPhases = emptyList<PhaseItem>()
+
+                // 1. Fetch active and all phases for the selected program (Science, Business, Humanities, etc.)
                 try {
                     val phaseQuery = GraphQlQuery(
-                        operationName = "GetProgramPhases",
+                        operationName = "ProgramPhasesByStudent",
                         query = """
-                            query GetProgramPhases(${'$'}program_id: String!) {
+                            query ProgramPhasesByStudent(${'$'}program_id: String!) {
                               programPhasesByStudent(program_id: ${'$'}program_id) {
                                 data {
                                   id
+                                  academic_program_id
                                   title
                                   status
+                                  is_current
                                   has_enrolment
                                   has_free_trial_enrolment
-                                  is_current
+                                  course_progress_percentage
+                                  start_date
+                                  end_date
                                 }
                               }
                             }
@@ -408,106 +633,111 @@ class HomeViewModel(
                         variables = mapOf("program_id" to programId)
                     )
                     val phaseRes = apiService.getProgramPhases(phaseQuery)
-                    val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
-                    val activePhase = fetchedPhases.firstOrNull { it.has_enrolment == true }
-                        ?: fetchedPhases.firstOrNull { it.has_free_trial_enrolment == true }
-                        ?: fetchedPhases.firstOrNull { it.is_current == true }
-                        ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
-                        ?: fetchedPhases.firstOrNull()
-                    
-                    if (activePhase?.id != null) {
-                        phaseId = activePhase.id
-                    }
+                    fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
                 } catch (_: Exception) {}
 
-                // Calculate date range in Asia/Dhaka (-30 days to +60 days)
+                // Calculate exact month range in Asia/Dhaka (1st day 00:00:00 to last day 23:59:59)
                 val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka"))
+                cal.set(Calendar.YEAR, year)
+                cal.set(Calendar.MONTH, monthZeroIndexed)
+                cal.set(Calendar.DAY_OF_MONTH, 1)
                 cal.set(Calendar.HOUR_OF_DAY, 0)
                 cal.set(Calendar.MINUTE, 0)
                 cal.set(Calendar.SECOND, 0)
                 cal.set(Calendar.MILLISECOND, 0)
-                cal.add(Calendar.DAY_OF_YEAR, -30)
-                
+
                 val startCal = cal.clone() as Calendar
-                
-                cal.add(Calendar.DAY_OF_YEAR, 90)
-                cal.add(Calendar.SECOND, -1)
+
+                val maxDay = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                cal.set(Calendar.DAY_OF_MONTH, maxDay)
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
                 val endCal = cal.clone() as Calendar
-                
+
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                     timeZone = TimeZone.getTimeZone("UTC")
                 }
-                
+
                 val startDate = dateFormat.format(startCal.time)
                 val endDate = dateFormat.format(endCal.time)
 
-                var lessons = emptyList<StudentLessonItem>()
+                val collectedLessons = mutableListOf<StudentLessonItem>()
 
-                try {
-                    val query = GraphQlQuery(
-                        operationName = "GetStudentSpecificLessons",
-                        query = """
-                            query GetStudentSpecificLessons(${'$'}programId: String!, ${'$'}phaseId: String!, ${'$'}startDate: String!, ${'$'}endDate: String!) {
-                              studentSpecificLessons(program_id: ${'$'}programId, phase_id: ${'$'}phaseId, start_date: ${'$'}startDate, end_date: ${'$'}endDate) {
-                                data {
-                                  access_level
-                                  hw_type
-                                  start_time
-                                  subject_id
-                                  subject_name
-                                  title
-                                  end_time
-                                  icon
-                                  id
-                                  content_id
-                                  content_type
-                                  user_activity_state
-                                  batch_id
-                                  chapter_id
-                                  live_class {
-                                    chapter_id
-                                    chapter_name
-                                    end_time
-                                    is_on_going
-                                    start_time
-                                    subject_name
-                                    subject_id
-                                    id
-                                    type
-                                  }
-                                  model_test {
-                                    result_publish_time
-                                    type
-                                    exam_category
-                                  }
-                                  topics {
-                                    id
-                                    name
-                                  }
-                                  color_code
-                                  phase_id
-                                }
-                              }
-                            }
-                        """.trimIndent(),
-                        variables = mapOf(
-                            "programId" to programId,
-                            "phaseId" to phaseId,
-                            "startDate" to startDate,
-                            "endDate" to endDate
-                        )
-                    )
-                    val response = apiService.getStudentLessons(query)
-                    lessons = response.data?.studentSpecificLessons?.data ?: emptyList()
-                } catch (_: Exception) {}
+                // 2. Query lessons for each phase of this course
+                val validPhases = fetchedPhases.mapNotNull { it.id.ifBlank { null } }.distinct()
+                if (validPhases.isNotEmpty()) {
+                    for (phaseId in validPhases) {
+                        try {
+                            val query = GraphQlQuery(
+                                operationName = "GetStudentSpecificLessons",
+                                query = """
+                                    query GetStudentSpecificLessons(${'$'}program_id: String!, ${'$'}phase_id: String!, ${'$'}start_date: String!, ${'$'}end_date: String!) {
+                                      studentSpecificLessons(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id, start_date: ${'$'}start_date, end_date: ${'$'}end_date) {
+                                        data {
+                                          access_level
+                                          hw_type
+                                          start_time
+                                          subject_id
+                                          subject_name
+                                          title
+                                          end_time
+                                          icon
+                                          id
+                                          content_id
+                                          content_type
+                                          user_activity_state
+                                          batch_id
+                                          chapter_id
+                                          live_class {
+                                            chapter_id
+                                            chapter_name
+                                            end_time
+                                            is_on_going
+                                            recording_url
+                                            start_time
+                                            subject_name
+                                            subject_id
+                                            id
+                                            type
+                                          }
+                                          model_test {
+                                            result_publish_time
+                                            type
+                                            exam_category
+                                          }
+                                          topics {
+                                            id
+                                            name
+                                          }
+                                          color_code
+                                          phase_id
+                                        }
+                                      }
+                                    }
+                                """.trimIndent(),
+                                variables = mapOf(
+                                    "program_id" to programId,
+                                    "phase_id" to phaseId,
+                                    "start_date" to startDate,
+                                    "end_date" to endDate
+                                )
+                            )
+                            val response = apiService.getStudentLessons(query)
+                            val phaseLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                            collectedLessons.addAll(phaseLessons)
+                        } catch (_: Exception) {}
+                    }
+                }
 
-                if (lessons.isEmpty() && phaseId != "6864d62506800acba2e27111") {
+                // 3. If still empty or no phases found, query without phase_id filter
+                if (collectedLessons.isEmpty()) {
                     try {
-                        val fallbackQuery = GraphQlQuery(
-                            operationName = "GetStudentSpecificLessons",
+                        val noPhaseQuery = GraphQlQuery(
+                            operationName = "GetStudentSpecificLessonsNoPhase",
                             query = """
-                                query GetStudentSpecificLessons(${'$'}programId: String!, ${'$'}phaseId: String!, ${'$'}startDate: String!, ${'$'}endDate: String!) {
-                                  studentSpecificLessons(program_id: ${'$'}programId, phase_id: ${'$'}phaseId, start_date: ${'$'}startDate, end_date: ${'$'}endDate) {
+                                query GetStudentSpecificLessonsNoPhase(${'$'}program_id: String!, ${'$'}start_date: String!, ${'$'}end_date: String!) {
+                                  studentSpecificLessons(program_id: ${'$'}program_id, start_date: ${'$'}start_date, end_date: ${'$'}end_date) {
                                     data {
                                       access_level
                                       hw_type
@@ -528,6 +758,7 @@ class HomeViewModel(
                                         chapter_name
                                         end_time
                                         is_on_going
+                                        recording_url
                                         start_time
                                         subject_name
                                         subject_id
@@ -550,19 +781,24 @@ class HomeViewModel(
                                 }
                             """.trimIndent(),
                             variables = mapOf(
-                                "programId" to programId,
-                                "phaseId" to "6864d62506800acba2e27111",
-                                "startDate" to startDate,
-                                "endDate" to endDate
+                                "program_id" to programId,
+                                "start_date" to startDate,
+                                "end_date" to endDate
                             )
                         )
-                        val response = apiService.getStudentLessons(fallbackQuery)
-                        lessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                        val response = apiService.getStudentLessons(noPhaseQuery)
+                        val directLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                        collectedLessons.addAll(directLessons)
                     } catch (_: Exception) {}
                 }
 
+                // Deduplicate by ID and sort chronologically
+                val distinctLessons = collectedLessons
+                    .distinctBy { it.id.ifBlank { "${it.content_id}_${it.start_time}" } }
+                    .sortedBy { it.start_time ?: "" }
+
                 _uiState.value = _uiState.value.copy(
-                    weeklyRoutine = lessons,
+                    weeklyRoutine = distinctLessons,
                     isRoutineLoading = false
                 )
             } catch (e: Exception) {

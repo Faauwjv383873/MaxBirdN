@@ -10,8 +10,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.api.StudentLessonItem
+import com.example.utils.SubjectColorUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -57,6 +61,9 @@ fun WeeklyRoutineSection(
     lessons: List<StudentLessonItem>,
     isLoading: Boolean,
     onSeeAllClick: () -> Unit = {},
+    onCustomizeSubjectsClick: () -> Unit = {},
+    selectedSubjectsCount: Int = 0,
+    totalSubjectsCount: Int = 0,
     onOpenLessonDetail: (StudentLessonItem) -> Unit = {}
 ) {
     val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
@@ -378,6 +385,89 @@ fun WeeklyRoutineSection(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 5. "Customize Subjects" Button (সাবজেক্ট সাজাও)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { onCustomizeSubjectsClick() },
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .padding(8.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = "সাবজেক্ট সাজাও",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (selectedSubjectsCount > 0 && totalSubjectsCount > 0)
+                                "${selectedSubjectsCount.toString().toBengaliDigits()}/${totalSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
+                            else if (selectedSubjectsCount > 0)
+                                "${selectedSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
+                            else
+                                "তোমার প্রয়োজনীয় সাবজেক্টগুলো সিলেক্ট করো",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "পরিবর্তন",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -406,6 +496,18 @@ fun ShikhoRoutineCard(
 
     val subjectName = lesson.subject_name ?: "বিষয়"
     val titleText = lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস"
+    val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
+
+    val titleFontSize = when {
+        titleText.length > 50 -> 12.sp
+        titleText.length > 30 -> 13.5.sp
+        else -> 15.5.sp
+    }
+    val titleLineHeight = when {
+        titleText.length > 50 -> 16.sp
+        titleText.length > 30 -> 18.sp
+        else -> 21.sp
+    }
 
     Card(
         modifier = modifier
@@ -427,16 +529,16 @@ fun ShikhoRoutineCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Subject Tag
+                // Subject Tag (Dynamic Colorful Background)
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFFEE2E2)
+                    color = subjectColors.backgroundColor
                 ) {
                     Text(
                         text = subjectName,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF991B1B),
+                        color = subjectColors.textColor,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -460,20 +562,27 @@ fun ShikhoRoutineCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Lesson Title
-            Text(
-                text = titleText,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF111827),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 22.sp
-            )
+            // Lesson Title (Auto-scaling font size with height constraint to prevent layout breaking)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 44.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = titleText,
+                    fontSize = titleFontSize,
+                    lineHeight = titleLineHeight,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF111827),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Time & Duration String (Pinkish Red text)
             Text(
@@ -502,42 +611,76 @@ fun RoutineCard(
 fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
     if (isoString.isNullOrBlank()) return null
     val clean = isoString.trim()
+    val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
 
-    // 1. Try ISO format with T
-    try {
-        val isoClean = clean.replace(" ", "T").take(19)
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-        if (clean.endsWith("Z") || clean.contains("+")) {
-            sdf.timeZone = TimeZone.getTimeZone("UTC")
-        } else {
-            sdf.timeZone = TimeZone.getTimeZone("Asia/Dhaka")
-        }
-        val date = sdf.parse(isoClean)
-        if (date != null) {
-            return Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka")).apply {
-                timeInMillis = date.time
+    // Check for dummy or invalid dates
+    if (clean.startsWith("0000-00-00") || clean.startsWith("1970-01-01")) return null
+
+    // 1. UTC ISO format ending with Z
+    if (clean.endsWith("Z", ignoreCase = true)) {
+        try {
+            val formatStr = if (clean.contains(".")) "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" else "yyyy-MM-dd'T'HH:mm:ss'Z'"
+            val sdfUtc = SimpleDateFormat(formatStr, Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
             }
+            val date = sdfUtc.parse(clean.replace(" ", "T"))
+            if (date != null) {
+                return Calendar.getInstance(dhakaZone).apply { time = date }
+            }
+        } catch (_: Exception) {}
+
+        // Fallback for Z with take(19)
+        try {
+            val sdfUtc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val date = sdfUtc.parse(clean.replace(" ", "T").take(19))
+            if (date != null) {
+                return Calendar.getInstance(dhakaZone).apply { time = date }
+            }
+        } catch (_: Exception) {}
+    }
+
+    // 2. ISO format with timezone offset (e.g. +06:00 or -05:00)
+    if (clean.contains("+") || (clean.contains("-") && clean.length > 10 && clean.lastIndexOf("-") > 10)) {
+        try {
+            val cleanT = clean.replace(" ", "T")
+            val formatStr = if (cleanT.contains(".")) "yyyy-MM-dd'T'HH:mm:ss.SSSXXX" else "yyyy-MM-dd'T'HH:mm:ssXXX"
+            val date = SimpleDateFormat(formatStr, Locale.US).parse(cleanT)
+            if (date != null) {
+                return Calendar.getInstance(dhakaZone).apply { time = date }
+            }
+        } catch (_: Exception) {}
+    }
+
+    // 3. Local Dhaka time string
+    try {
+        val cleanT = clean.replace(" ", "T").take(19)
+        val sdfLocal = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+            timeZone = dhakaZone
+        }
+        val date = sdfLocal.parse(cleanT)
+        if (date != null) {
+            return Calendar.getInstance(dhakaZone).apply { time = date }
         }
     } catch (_: Exception) {}
 
-    // 2. Try simple date format yyyy-MM-dd
+    // 4. Date only string
     try {
         val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("Asia/Dhaka")
+            timeZone = dhakaZone
         }
         val date = sdfDate.parse(clean.take(10))
         if (date != null) {
-            return Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka")).apply {
-                timeInMillis = date.time
-            }
+            return Calendar.getInstance(dhakaZone).apply { time = date }
         }
     } catch (_: Exception) {}
 
-    // 3. Try timestamp ms
+    // 5. Milliseconds timestamp
     try {
         val ms = clean.toLongOrNull()
         if (ms != null && ms > 1000000000L) {
-            return Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka")).apply {
+            return Calendar.getInstance(dhakaZone).apply {
                 timeInMillis = if (ms < 100000000000L) ms * 1000L else ms
             }
         }
@@ -546,27 +689,33 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
     return null
 }
 
-private fun formatTimeRange(startCal: Calendar?, endCal: Calendar?): String {
+fun formatTimeRange(startCal: Calendar?, endCal: Calendar?): String {
     if (startCal == null) return ""
-    val sdf = SimpleDateFormat("hh.mm a", Locale.US).apply {
+    val sdf = SimpleDateFormat("hh:mm a", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("Asia/Dhaka")
     }
     val startStr = sdf.format(startCal.time).toBengaliDigits()
-    if (endCal == null) return startStr
+    if (endCal == null || endCal.timeInMillis <= startCal.timeInMillis) return startStr
+    
+    // Check if endCal is valid and not absurdly far in the future
+    val diffHours = (endCal.timeInMillis - startCal.timeInMillis) / (1000 * 60 * 60)
+    if (diffHours <= 0 || diffHours > 24) return startStr
+
     val endStr = sdf.format(endCal.time).toBengaliDigits()
     return "$startStr - $endStr"
 }
 
-private fun calculateDurationText(startCal: Calendar?, endCal: Calendar?): String {
+fun calculateDurationText(startCal: Calendar?, endCal: Calendar?): String {
     if (startCal == null || endCal == null) return ""
     val diffMs = endCal.timeInMillis - startCal.timeInMillis
-    if (diffMs <= 0) return ""
+    if (diffMs <= 0 || diffMs > 24 * 60 * 60 * 1000L) return ""
     val diffMins = (diffMs / (1000 * 60)).toInt()
     val hours = diffMins / 60
     val mins = diffMins % 60
     return when {
         hours > 0 && mins > 0 -> "${hours.toString().toBengaliDigits()} ঘণ্টা ${mins.toString().toBengaliDigits()} মিনিট"
         hours > 0 -> "${hours.toString().toBengaliDigits()} ঘণ্টা"
-        else -> "${mins.toString().toBengaliDigits()} মিনিট"
+        mins > 0 -> "${mins.toString().toBengaliDigits()} মিনিট"
+        else -> ""
     }
 }

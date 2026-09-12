@@ -8,6 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -15,39 +18,38 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.api.StudentLessonItem
 import com.example.home.HomeViewModel
+import com.example.ui.components.SubjectFilterDialog
+import com.example.ui.components.calculateDurationText
+import com.example.ui.components.formatTimeRange
+import com.example.ui.components.parseIsoToDhakaCalendar
+import com.example.ui.components.toBengaliDigits
+import com.example.utils.SubjectColorUtils
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
-// Helper extension to convert English numbers to Bengali digits
-private fun String.toBengaliDigits(): String {
-    val englishDigits = arrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
-    val bengaliDigits = arrayOf('০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯')
-    var result = this
-    for (i in englishDigits.indices) {
-        result = result.replace(englishDigits[i], bengaliDigits[i])
-    }
-    return result
-}
-
-private val bengaliDayNames = arrayOf("রবি", "সোম", "মঙ্গল", "বুধ", "বৃহ", "শুক্রবার", "শনি")
+private val bengaliDayNames = arrayOf("রবি", "সোম", "মঙ্গল", "বুধ", "বৃহ", "শুক্র", "শনি")
 private val bengaliFullDayNames = arrayOf("রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার")
 private val bengaliMonthNames = arrayOf(
     "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
@@ -64,6 +66,7 @@ fun FullRoutineScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val dhakaZone = remember { TimeZone.getTimeZone("Asia/Dhaka") }
+    val coroutineScope = rememberCoroutineScope()
 
     // Start at weekOffset = 0 (Page 1000)
     val initialPage = 1000
@@ -79,7 +82,7 @@ fun FullRoutineScreen(
         cal.set(Calendar.SECOND, 0)
         cal.set(Calendar.MILLISECOND, 0)
 
-        // Find Saturday of current week
+        // Find Saturday of base week
         while (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
             cal.add(Calendar.DAY_OF_YEAR, -1)
         }
@@ -94,7 +97,6 @@ fun FullRoutineScreen(
         days
     }
 
-    // Default selected day index (0 to 6), default to today if in current week, else Saturday (0)
     val todayCal = remember {
         Calendar.getInstance(dhakaZone).apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -114,6 +116,14 @@ fun FullRoutineScreen(
 
     val selectedDate = weekDays.getOrNull(selectedDayIndex) ?: weekDays[0]
 
+    // Load routine for the selected month automatically when year or month changes
+    val displayedYear = selectedDate.get(Calendar.YEAR)
+    val displayedMonth = selectedDate.get(Calendar.MONTH)
+
+    LaunchedEffect(displayedYear, displayedMonth, uiState.activeProgram?.id) {
+        viewModel.fetchMonthlyRoutine(displayedYear, displayedMonth)
+    }
+
     // Month and Year for Header (e.g. "সেপ্টেম্বর ২০২৬")
     val monthYearText = remember(selectedDate) {
         val monthStr = bengaliMonthNames[selectedDate.get(Calendar.MONTH)]
@@ -121,7 +131,7 @@ fun FullRoutineScreen(
         "$monthStr $yearStr"
     }
 
-    // Full Date String (e.g. "শনিবার, ০৫/০৯/২০২৬")
+    // Full Date String (e.g. "রবিবার, ১৩/০৯/২০২৬")
     val fullDateText = remember(selectedDate) {
         val dayOfWeek = selectedDate.get(Calendar.DAY_OF_WEEK)
         val dayName = when (dayOfWeek) {
@@ -134,22 +144,22 @@ fun FullRoutineScreen(
             Calendar.FRIDAY -> "শুক্রবার"
             else -> ""
         }
-        val dayNum = String.format("%02d", selectedDate.get(Calendar.DAY_OF_MONTH)).toBengaliDigits()
-        val monthNum = String.format("%02d", selectedDate.get(Calendar.MONTH) + 1).toBengaliDigits()
+        val dayNum = String.format(Locale.US, "%02d", selectedDate.get(Calendar.DAY_OF_MONTH)).toBengaliDigits()
+        val monthNum = String.format(Locale.US, "%02d", selectedDate.get(Calendar.MONTH) + 1).toBengaliDigits()
         val yearNum = selectedDate.get(Calendar.YEAR).toString().toBengaliDigits()
         "$dayName, $dayNum/$monthNum/$yearNum"
     }
 
-    // Filter lessons for selected day
-    val selectedDayLessons = remember(uiState.weeklyRoutine, selectedDate) {
+    // Filter lessons for selected day using the user's selected subjects (filteredWeeklyRoutine)
+    val selectedDayLessons = remember(uiState.filteredWeeklyRoutine, selectedDate) {
         val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = dhakaZone }
         val targetDateStr = sdfDate.format(selectedDate.time)
 
-        uiState.weeklyRoutine.filter { lesson ->
+        uiState.filteredWeeklyRoutine.filter { lesson ->
             val timeStr = lesson.start_time ?: lesson.live_class?.start_time
             if (timeStr.isNullOrBlank()) false
             else {
-                val lessonCal = com.example.ui.components.parseIsoToDhakaCalendar(timeStr)
+                val lessonCal = parseIsoToDhakaCalendar(timeStr)
                 if (lessonCal != null) {
                     val lessonDateStr = sdfDate.format(lessonCal.time)
                     lessonDateStr == targetDateStr
@@ -162,6 +172,24 @@ fun FullRoutineScreen(
 
     val classCount = selectedDayLessons.count { it.live_class?.type != "EXAM" && it.content_type != "LiveExam" }
     val examCount = selectedDayLessons.count { it.live_class?.type == "EXAM" || it.content_type == "LiveExam" }
+
+    var showMonthYearPicker by remember { mutableStateOf(false) }
+
+    // Subject Filter / Customizer Dialog
+    if (uiState.showSubjectFilterDialog) {
+        SubjectFilterDialog(
+            courseTitle = uiState.activeProgram?.title_bn ?: "",
+            subjects = uiState.courseSubjects,
+            selectedSubjectCodes = uiState.selectedSubjectCodes,
+            isLoading = uiState.isCourseSubjectsLoading,
+            isSaving = uiState.isSavingSubjectFilter,
+            onToggleSubject = { code -> viewModel.toggleSubjectSelection(code) },
+            onSelectAll = { viewModel.selectAllSubjects() },
+            onClearAll = { viewModel.clearAllSubjectSelection() },
+            onSave = { viewModel.saveSubjectFilter() },
+            onDismiss = { viewModel.dismissSubjectFilterDialog() }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -184,14 +212,30 @@ fun FullRoutineScreen(
                     }
                 },
                 actions = {
+                    // Customize Subjects Button (সাবজেক্ট সাজাও)
+                    IconButton(
+                        onClick = { viewModel.openSubjectFilterDialog() },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "সাবজেক্ট সাজাও",
+                            tint = if (uiState.selectedSubjectCodes.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    // Clickable Month & Year Pill
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(end = 12.dp)
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { showMonthYearPicker = true }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
                             Text(
                                 text = monthYearText,
@@ -202,7 +246,7 @@ fun FullRoutineScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(
                                 imageVector = Icons.Default.DateRange,
-                                contentDescription = null,
+                                contentDescription = "মাস ও বছর পরিবর্তন করুন",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -249,7 +293,7 @@ fun FullRoutineScreen(
                     list
                 }
 
-                // 7-Day Horizontal Capsule Strip Header (Matching Screenshot 3)
+                // 7-Day Horizontal Capsule Strip Header (Matching Shikho Design)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -272,11 +316,11 @@ fun FullRoutineScreen(
 
                         val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = dhakaZone }
                         val dStr = sdfDate.format(dateCal.time)
-                        val dLessons = uiState.weeklyRoutine.filter { lesson ->
+                        val dLessons = uiState.filteredWeeklyRoutine.filter { lesson ->
                             val st = lesson.start_time ?: lesson.live_class?.start_time
                             if (st.isNullOrBlank()) false
                             else {
-                                val lCal = com.example.ui.components.parseIsoToDhakaCalendar(st)
+                                val lCal = parseIsoToDhakaCalendar(st)
                                 lCal != null && sdfDate.format(lCal.time) == dStr
                             }
                         }
@@ -294,6 +338,11 @@ fun FullRoutineScreen(
                                 .clickable {
                                     if (pageWeekOffset == currentWeekOffset) {
                                         selectedDayIndex = index
+                                    } else {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(page)
+                                            selectedDayIndex = index
+                                        }
                                     }
                                 }
                                 .padding(vertical = 10.dp)
@@ -351,7 +400,7 @@ fun FullRoutineScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Selected Day Summary Row (e.g., "শনিবার, ০৫/০৯/২০২৬"  |  🟢 ক্লাস ২  🟡 এক্সাম ০)
+            // Selected Day Summary Row (e.g., "রবিবার, ১৩/০৯/২০২৬"  |  🔵 ক্লাস ৩  🟡 এক্সাম ০)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -401,7 +450,7 @@ fun FullRoutineScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Vertical Timeline Routine List (Matching Screenshot 3)
+            // Vertical Timeline Routine List
             when {
                 uiState.isRoutineLoading -> {
                     Box(
@@ -458,6 +507,197 @@ fun FullRoutineScreen(
             }
         }
     }
+
+    // Month and Year Selection Dialog
+    if (showMonthYearPicker) {
+        MonthYearSelectionDialog(
+            initialYear = selectedDate.get(Calendar.YEAR),
+            initialMonth = selectedDate.get(Calendar.MONTH),
+            onDismiss = { showMonthYearPicker = false },
+            onSelect = { year, month ->
+                showMonthYearPicker = false
+
+                // Calculate target date (1st of that month, or today if that month is current)
+                val targetCal = Calendar.getInstance(dhakaZone).apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+
+                // Calculate base Saturday of initial page
+                val baseSat = Calendar.getInstance(dhakaZone).apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                    while (get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
+                        add(Calendar.DAY_OF_YEAR, -1)
+                    }
+                }
+
+                // Target Saturday
+                val targetSat = targetCal.clone() as Calendar
+                while (targetSat.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
+                    targetSat.add(Calendar.DAY_OF_YEAR, -1)
+                }
+
+                val diffMillis = targetSat.timeInMillis - baseSat.timeInMillis
+                val weekOffset = Math.round(diffMillis.toDouble() / (7.0 * 24 * 60 * 60 * 1000)).toInt()
+
+                coroutineScope.launch {
+                    val targetPage = (initialPage + weekOffset).coerceIn(0, 1999)
+                    pagerState.scrollToPage(targetPage)
+                    selectedDayIndex = 0
+                }
+
+                viewModel.fetchMonthlyRoutine(year, month)
+            }
+        )
+    }
+}
+
+@Composable
+private fun MonthYearSelectionDialog(
+    initialYear: Int,
+    initialMonth: Int,
+    onDismiss: () -> Unit,
+    onSelect: (year: Int, month: Int) -> Unit
+) {
+    var selectedYear by remember { mutableIntStateOf(initialYear) }
+    var selectedMonth by remember { mutableIntStateOf(initialMonth) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "মাস ও বছর বাছাই করুন",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Year Selector Header with Previous/Next Arrows
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { selectedYear-- },
+                        enabled = selectedYear > 2020
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "পূর্ববর্তী বছর",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = selectedYear.toString().toBengaliDigits() + " সাল",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    IconButton(
+                        onClick = { selectedYear++ },
+                        enabled = selectedYear < 2035
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "পরবর্তী বছর",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 12 Months 3x4 Grid
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(bengaliMonthNames) { index, monthName ->
+                        val isSelected = selectedMonth == index
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { selectedMonth = index }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = monthName,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Action Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("বাতিল", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = { onSelect(selectedYear, selectedMonth) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("বাছাই করুন", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -465,78 +705,70 @@ private fun RoutineTimelineCard(
     lesson: StudentLessonItem,
     onClick: () -> Unit
 ) {
-    val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
-
-    // Format Start Time & End Time
+    // Format Start Time & End Time properly with correct time range and duration
     val formattedTime = remember(lesson.start_time, lesson.end_time, lesson.live_class) {
-        val st = lesson.start_time ?: lesson.live_class?.start_time ?: ""
-        val et = lesson.end_time ?: lesson.live_class?.end_time ?: ""
+        val st = lesson.start_time ?: lesson.live_class?.start_time
+        val et = lesson.end_time ?: lesson.live_class?.end_time
 
-        if (st.length >= 16) {
-            try {
-                val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply { timeZone = dhakaZone }
-                val outputFormat = SimpleDateFormat("hh.mm a", Locale.US).apply { timeZone = dhakaZone }
+        val startCal = parseIsoToDhakaCalendar(st)
+        val endCal = parseIsoToDhakaCalendar(et)
 
-                val startDate = inputFormat.parse(st.take(16))
-                val endDate = if (et.length >= 16) inputFormat.parse(et.take(16)) else null
+        val timeRange = formatTimeRange(startCal, endCal)
+        val duration = calculateDurationText(startCal, endCal)
 
-                val startStr = if (startDate != null) outputFormat.format(startDate) else ""
-                val endStr = if (endDate != null) outputFormat.format(endDate) else ""
-
-                val durationText = if (startDate != null && endDate != null) {
-                    val diffMs = endDate.time - startDate.time
-                    val minutesTotal = (diffMs / (1000 * 60)).toInt()
-                    val hours = minutesTotal / 60
-                    val mins = minutesTotal % 60
-
-                    val hStr = if (hours > 0) "${hours.toString().toBengaliDigits()} ঘণ্টা " else ""
-                    val mStr = if (mins > 0) "${mins.toString().toBengaliDigits()} মিনিট" else ""
-                    " • $hStr$mStr".trimEnd()
-                } else ""
-
-                if (endStr.isNotBlank()) "$startStr - $endStr$durationText".toBengaliDigits()
-                else "$startStr$durationText".toBengaliDigits()
-            } catch (e: Exception) {
-                "07.00 PM - 08.48 PM • ১ ঘণ্টা ৪৮ মিনিট"
-            }
+        if (duration.isNotBlank()) {
+            "$timeRange • $duration"
         } else {
-            "07.00 PM - 08.48 PM • ১ ঘণ্টা ৪৮ মিনিট"
+            timeRange
         }
     }
 
-    val isExam = lesson.live_class?.type == "EXAM" || lesson.content_type == "LiveExam"
+    val isExam = lesson.live_class?.type == "EXAM" || lesson.content_type == "LiveExam" || lesson.content_type == "ModelTest"
+    val isRecorded = lesson.content_type == "RecordedClass"
     val typeText = when {
         isExam -> "✍️ লাইভ এক্সাম"
+        isRecorded -> "🎥 রেকর্ড করা ক্লাস"
         lesson.live_class?.type == "EXTRA" -> "👨‍🏫 এক্সট্রা ক্লাস"
         else -> "👨‍🏫 লেকচার ক্লাস"
     }
 
-    val subjectName = lesson.subject_name ?: "পৌরনীতি ও সুশাসন ২য় পত্র"
-    val titleText = lesson.title ?: lesson.live_class?.chapter_name ?: "পর্ব-১: স্থানীয় শাসন"
+    val subjectName = lesson.subject_name ?: "বিষয়"
+    val titleText = lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস"
+    val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
+
+    val titleFontSize = when {
+        titleText.length > 50 -> 12.5.sp
+        titleText.length > 30 -> 14.sp
+        else -> 16.sp
+    }
+    val titleLineHeight = when {
+        titleText.length > 50 -> 17.sp
+        titleText.length > 30 -> 19.sp
+        else -> 22.sp
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
     ) {
-        // Timeline Left Bar (Line + Circular Cross/Dot Indicator matching Screenshot 3)
+        // Timeline Left Bar (Circle Badge indicator matching Screenshot)
         Box(
             modifier = Modifier
                 .width(36.dp)
                 .padding(top = 18.dp),
             contentAlignment = Alignment.TopCenter
         ) {
-            // Circle Dot with Cross Icon (matching Screenshot 3 red cross on faint pink background)
             Box(
                 modifier = Modifier
                     .size(24.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFFEE2E2)),
+                    .background(if (isExam) Color(0xFFFEF3C7) else Color(0xFFFEE2E2)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = null,
-                    tint = Color(0xFFEF4444),
+                    tint = if (isExam) Color(0xFFD97706) else Color(0xFFEF4444),
                     modifier = Modifier.size(14.dp)
                 )
             }
@@ -544,23 +776,15 @@ private fun RoutineTimelineCard(
 
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Main Card (Matching Screenshot 3 design)
-        Surface(
+        // Main Card (White Card with dynamic Subject Badge & Red Time Display)
+        Card(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(20.dp))
-                .clickable { onClick() }
-                .shadow(
-                    elevation = 2.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    spotColor = Color(0xFF0284C7).copy(alpha = 0.08f)
-                ),
+                .clickable { onClick() },
             shape = RoundedCornerShape(20.dp),
-            color = Color(0xFFF0F9FF),
-            border = BorderStroke(
-                width = 1.dp,
-                color = Color(0xFFBAE6FD)
-            )
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            border = BorderStroke(1.dp, Color(0xFFE5E7EB))
         ) {
             Column(
                 modifier = Modifier
@@ -573,16 +797,16 @@ private fun RoutineTimelineCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Subject Tag (Teal/Cyan pill)
+                    // Subject Tag (Dynamic Colorful Pill)
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF0EA5E9)
+                        color = subjectColors.backgroundColor
                     ) {
                         Text(
                             text = subjectName,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = subjectColors.textColor,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -604,26 +828,30 @@ private fun RoutineTimelineCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Lesson Title
+                // Lesson Title (Auto-scaling text with maxLines = 2)
                 Text(
                     text = titleText,
-                    fontSize = 16.sp,
+                    fontSize = titleFontSize,
+                    lineHeight = titleLineHeight,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF0F172A),
-                    lineHeight = 22.sp
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Time & Duration (Pinkish Red Text `#DC2626` / `#DB2777`)
-                Text(
-                    text = formattedTime,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFFDC2626)
-                )
+                // Time & Duration (Pinkish Red Text `#DC2626`)
+                if (formattedTime.isNotBlank()) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFDC2626)
+                    )
+                }
             }
         }
     }

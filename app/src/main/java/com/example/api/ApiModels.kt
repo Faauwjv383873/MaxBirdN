@@ -351,7 +351,20 @@ data class StudentLessonItem(
                 if (!list.contains(url)) list.add(url)
             }
 
-            // 2. Session ID & Class ID based Tenbyte CDN URLs (prioritizing Session ID)
+            // 2. 100ms / Shikho Live HLS Streams from HMS Room ID
+            val roomId = live_class?.hms_room_id
+            if (!roomId.isNullOrBlank()) {
+                val cleanRoomId = roomId.trim()
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_2/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_3/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/master.m3u8")
+            }
+
+            // 3. Session ID & Class ID based Tenbyte CDN URLs (prioritizing Session ID)
             val targets = listOfNotNull(
                 session_id,
                 live_class?.session_id,
@@ -465,7 +478,10 @@ data class LiveClassDetails(
     val attachment_list: List<LessonAttachmentItem>? = emptyList(),
     val slide_url: String? = null,
     val is_free: Boolean? = false,
-    val is_locked: Boolean? = false
+    val is_locked: Boolean? = false,
+    val join_link: String? = null,
+    val provider: String? = null,
+    val hms_room_id: String? = null
 ) {
     val candidateStreamUrls: List<String>
         get() {
@@ -480,7 +496,21 @@ data class LiveClassDetails(
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
 
-            // 2. Session ID & Class ID CDN Reconstruction
+            // 2. 100ms / Shikho Live HLS Streams from HMS Room ID
+            if (!hms_room_id.isNullOrBlank()) {
+                val cleanRoomId = hms_room_id.trim()
+                // beam3 master & variant playlists (Observed directly in official Shikho app network traffic)
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_2/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_3/stream.m3u8")
+                // beam1 fallback stream
+                list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/master.m3u8")
+            }
+
+            // 3. Session ID & Class ID CDN Reconstruction
             val targets = listOfNotNull(session_id, id).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
             for (target in targets) {
                 val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
@@ -837,6 +867,39 @@ data class GraphQlError(
     val message: String? = null
 )
 
+// ==========================================
+// 8.1. Join Live Class Mutation Models
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class JoinLiveClassResponse(
+    val data: JoinLiveClassData? = null,
+    val errors: List<GraphQlError>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class JoinLiveClassData(
+    val joinLiveCLass: JoinLiveClassPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class JoinLiveClassPayload(
+    val join_link: String? = null,
+    val provider: String? = null,
+    val hms_room_id: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class HmsTokenRequest(
+    val room_id: String,
+    val type: String = "android"
+)
+
+@JsonClass(generateAdapter = true)
+data class HmsTokenResponse(
+    val token: String? = null,
+    val blocked_chat: Boolean? = null
+)
+
 @JsonClass(generateAdapter = true)
 data class ChangeSyllabusResponse(
     val data: ChangeSyllabusData? = null,
@@ -962,5 +1025,69 @@ data class TopicVideoData(
 data class TopicHeaderItem(
     val chapter_id: String? = null,
     val chapter_name: String? = null
+)
+
+// ==========================================
+// User Priority Subjects Models
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class PrioritySubjectsResponse(
+    val data: PrioritySubjectsData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PrioritySubjectsData(
+    val userPrioritySubjects: UserPrioritySubjectsPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpsertPrioritySubjectsResponse(
+    val data: UpsertPrioritySubjectsData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpsertPrioritySubjectsData(
+    val upsertUserPrioritySubjects: UserPrioritySubjectsPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UserPrioritySubjectsPayload(
+    val id: String? = null,
+    val user_id: String? = null,
+    val academic_program_id: String? = null,
+    val created_at: String? = null,
+    val updated_at: String? = null,
+    val subjects: List<PrioritySubjectItem>? = emptyList(),
+    val subject_progress_cards: List<SubjectProgressCardItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class PrioritySubjectItem(
+    val code: String? = null,
+    val color_code: String? = null,
+    val display: String? = null,
+    val display_bn: String? = null,
+    val icon: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubjectProgressCardItem(
+    val subject_id: String? = null,
+    val subject_name: String? = null,
+    val subject_icon: String? = null,
+    val running_chapters: List<SubjectRunningChapterItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class SubjectRunningChapterItem(
+    val chapter_id: String? = null,
+    val title: String? = null,
+    val completed_classes_count: Int? = null,
+    val total_classes_count: Int? = null,
+    val next_exam_start_time: String? = null,
+    val is_urgency_active: Boolean? = null,
+    val is_live_exam_completed: Boolean? = null,
+    val progress_percentage: Double? = null,
+    val status: String? = null
 )
 

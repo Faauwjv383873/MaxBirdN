@@ -222,32 +222,23 @@ fun EditProfileScreen(
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val avatarReq = remember(uiState.avatarUrl, context) {
-                                    AvatarUtils.buildImageRequest(context, uiState.avatarUrl)
+                                val avatarRequest = remember(uiState.avatarUrl, uiState.firstName, context) {
+                                    AvatarUtils.buildImageRequest(context, uiState.avatarUrl, uiState.firstName)
                                 }
-                                if (avatarReq != null) {
-                                    SubcomposeAsyncImage(
-                                        model = avatarReq,
-                                        contentDescription = "Avatar",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                        error = {
-                                            Text(
-                                                text = uiState.firstName.firstOrNull()?.toString()?.uppercase() ?: "S",
-                                                color = Color.White,
-                                                fontSize = 36.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    )
-                                } else {
-                                    Text(
-                                        text = uiState.firstName.firstOrNull()?.toString()?.uppercase() ?: "S",
-                                        color = Color.White,
-                                        fontSize = 36.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                SubcomposeAsyncImage(
+                                    model = avatarRequest,
+                                    contentDescription = "Avatar",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                    error = {
+                                        Text(
+                                            text = uiState.firstName.firstOrNull()?.toString()?.uppercase() ?: "S",
+                                            color = Color.White,
+                                            fontSize = 36.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                )
                             }
 
                             // Camera Edit Badge

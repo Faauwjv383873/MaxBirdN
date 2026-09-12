@@ -105,6 +105,7 @@ dependencies {
   implementation(libs.androidx.media3.common)
   implementation(libs.androidx.media3.session)
   implementation(libs.coil.compose)
+  implementation(libs.coil.svg)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:

@@ -298,6 +298,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onRefreshLesson = {
                     courseViewModel.reloadSelectedLesson()
                 },
+                onJoinLiveClass = { lesson ->
+                    courseViewModel.joinLiveClass(lesson)
+                },
                 onBack = {
                     navController.popBackStack()
                 }

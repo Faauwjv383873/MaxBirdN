@@ -98,8 +98,8 @@ fun ProfileScreen(
 @Composable
 fun ProfileContent(profile: UserProfile) {
     val context = LocalContext.current
-    val imageRequest = remember(profile.avatar, context) {
-        AvatarUtils.buildImageRequest(context, profile.avatar)
+    val imageRequest = remember(profile.avatar, profile.first_name, context) {
+        AvatarUtils.buildImageRequest(context, profile.avatar, profile.first_name)
     }
     val initial = remember(profile.first_name) {
         profile.first_name?.trim()?.firstOrNull()?.toString()?.uppercase() ?: "S"
@@ -119,35 +119,20 @@ fun ProfileContent(profile: UserProfile) {
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            if (imageRequest != null) {
-                SubcomposeAsyncImage(
-                    model = imageRequest,
-                    contentDescription = "User Avatar",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    error = {
-                        Text(
-                            text = initial,
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    },
-                    loading = {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                )
-            } else {
-                Text(
-                    text = initial,
-                    fontSize = 38.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
+            SubcomposeAsyncImage(
+                model = imageRequest,
+                contentDescription = "User Avatar",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                error = {
+                    Text(
+                        text = initial,
+                        fontSize = 38.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            )
         }
         
         Spacer(modifier = Modifier.height(24.dp))

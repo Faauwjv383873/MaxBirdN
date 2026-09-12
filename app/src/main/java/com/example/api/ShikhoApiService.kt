@@ -43,6 +43,12 @@ interface ShikhoApiService {
     suspend fun getAcademicProgram(@Body query: GraphQlQuery): AcademicProgramResponse
 
     @POST("/graphql")
+    suspend fun getPrioritySubjects(@Body query: GraphQlQuery): PrioritySubjectsResponse
+
+    @POST("/graphql")
+    suspend fun upsertPrioritySubjects(@Body query: GraphQlQuery): UpsertPrioritySubjectsResponse
+
+    @POST("/graphql")
     suspend fun getAcademicSubjects(@Body query: GraphQlQuery): AcademicSubjectsResponse
 
     @POST("/graphql")
@@ -59,6 +65,9 @@ interface ShikhoApiService {
 
     @POST("/graphql")
     suspend fun getAcademicLiveClassDetails(@Body query: GraphQlQuery): AcademicLiveClassDetailsResponse
+
+    @POST("/graphql")
+    suspend fun joinLiveClass(@Body query: GraphQlQuery): JoinLiveClassResponse
 
     @POST("/graphql")
     suspend fun getTeacherDetails(@Body query: GraphQlQuery): TeacherDetailsResponse
