@@ -5,6 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.api.*
 import com.example.auth.SessionManager
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,9 +18,11 @@ import kotlinx.coroutines.launch
 data class HomeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
+    val isRoutineLoading: Boolean = false,
     val enrolledPrograms: List<EnrolledProgram> = emptyList(),
     val activeProgram: EnrolledProgram? = null,
     val showCourseSwitcher: Boolean = false,
+    val weeklyRoutine: List<StudentLessonItem> = emptyList(),
     val userProfile: UserProfile? = null,
     val userName: String = "",
     val userFirstName: String = "",
@@ -64,6 +71,7 @@ class HomeViewModel(
             activeProgram = program,
             showCourseSwitcher = false
         )
+        fetchWeeklyRoutine(program)
     }
 
     fun loadData(isRefresh: Boolean = false) {
@@ -80,6 +88,12 @@ class HomeViewModel(
 
                 // 2. Fetch Academic Programs
                 fetchAcademicPrograms()
+                
+                // 3. Fetch Weekly Routine
+                val active = _uiState.value.activeProgram
+                if (active != null) {
+                    fetchWeeklyRoutine(active)
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -365,6 +379,196 @@ class HomeViewModel(
             isRefreshing = false,
             errorMessage = if (programs.isEmpty()) "কোনো সক্রিয় কোর্স পাওয়া যায়নি" else null
         )
+    }
+    private fun fetchWeeklyRoutine(program: EnrolledProgram) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRoutineLoading = true)
+            try {
+                val programId = program.id
+                var phaseId = "6864d62506800acba2e27111" // Default fallback phase ID
+                
+                // Fetch active phase ID for the selected program
+                try {
+                    val phaseQuery = GraphQlQuery(
+                        operationName = "GetProgramPhases",
+                        query = """
+                            query GetProgramPhases(${'$'}program_id: String!) {
+                              programPhasesByStudent(program_id: ${'$'}program_id) {
+                                data {
+                                  id
+                                  title
+                                  status
+                                  has_enrolment
+                                  has_free_trial_enrolment
+                                  is_current
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("program_id" to programId)
+                    )
+                    val phaseRes = apiService.getProgramPhases(phaseQuery)
+                    val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                    val activePhase = fetchedPhases.firstOrNull { it.has_enrolment == true }
+                        ?: fetchedPhases.firstOrNull { it.has_free_trial_enrolment == true }
+                        ?: fetchedPhases.firstOrNull { it.is_current == true }
+                        ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                        ?: fetchedPhases.firstOrNull()
+                    
+                    if (activePhase?.id != null) {
+                        phaseId = activePhase.id
+                    }
+                } catch (_: Exception) {}
+
+                // Calculate date range in Asia/Dhaka (-30 days to +60 days)
+                val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka"))
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                cal.add(Calendar.DAY_OF_YEAR, -30)
+                
+                val startCal = cal.clone() as Calendar
+                
+                cal.add(Calendar.DAY_OF_YEAR, 90)
+                cal.add(Calendar.SECOND, -1)
+                val endCal = cal.clone() as Calendar
+                
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                
+                val startDate = dateFormat.format(startCal.time)
+                val endDate = dateFormat.format(endCal.time)
+
+                var lessons = emptyList<StudentLessonItem>()
+
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetStudentSpecificLessons",
+                        query = """
+                            query GetStudentSpecificLessons(${'$'}programId: String!, ${'$'}phaseId: String!, ${'$'}startDate: String!, ${'$'}endDate: String!) {
+                              studentSpecificLessons(program_id: ${'$'}programId, phase_id: ${'$'}phaseId, start_date: ${'$'}startDate, end_date: ${'$'}endDate) {
+                                data {
+                                  access_level
+                                  hw_type
+                                  start_time
+                                  subject_id
+                                  subject_name
+                                  title
+                                  end_time
+                                  icon
+                                  id
+                                  content_id
+                                  content_type
+                                  user_activity_state
+                                  batch_id
+                                  chapter_id
+                                  live_class {
+                                    chapter_id
+                                    chapter_name
+                                    end_time
+                                    is_on_going
+                                    start_time
+                                    subject_name
+                                    subject_id
+                                    id
+                                    type
+                                  }
+                                  model_test {
+                                    result_publish_time
+                                    type
+                                    exam_category
+                                  }
+                                  topics {
+                                    id
+                                    name
+                                  }
+                                  color_code
+                                  phase_id
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf(
+                            "programId" to programId,
+                            "phaseId" to phaseId,
+                            "startDate" to startDate,
+                            "endDate" to endDate
+                        )
+                    )
+                    val response = apiService.getStudentLessons(query)
+                    lessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                } catch (_: Exception) {}
+
+                if (lessons.isEmpty() && phaseId != "6864d62506800acba2e27111") {
+                    try {
+                        val fallbackQuery = GraphQlQuery(
+                            operationName = "GetStudentSpecificLessons",
+                            query = """
+                                query GetStudentSpecificLessons(${'$'}programId: String!, ${'$'}phaseId: String!, ${'$'}startDate: String!, ${'$'}endDate: String!) {
+                                  studentSpecificLessons(program_id: ${'$'}programId, phase_id: ${'$'}phaseId, start_date: ${'$'}startDate, end_date: ${'$'}endDate) {
+                                    data {
+                                      access_level
+                                      hw_type
+                                      start_time
+                                      subject_id
+                                      subject_name
+                                      title
+                                      end_time
+                                      icon
+                                      id
+                                      content_id
+                                      content_type
+                                      user_activity_state
+                                      batch_id
+                                      chapter_id
+                                      live_class {
+                                        chapter_id
+                                        chapter_name
+                                        end_time
+                                        is_on_going
+                                        start_time
+                                        subject_name
+                                        subject_id
+                                        id
+                                        type
+                                      }
+                                      model_test {
+                                        result_publish_time
+                                        type
+                                        exam_category
+                                      }
+                                      topics {
+                                        id
+                                        name
+                                      }
+                                      color_code
+                                      phase_id
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "programId" to programId,
+                                "phaseId" to "6864d62506800acba2e27111",
+                                "startDate" to startDate,
+                                "endDate" to endDate
+                            )
+                        )
+                        val response = apiService.getStudentLessons(fallbackQuery)
+                        lessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                    } catch (_: Exception) {}
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    weeklyRoutine = lessons,
+                    isRoutineLoading = false
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isRoutineLoading = false)
+            }
+        }
     }
 }
 

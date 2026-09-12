@@ -13,13 +13,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.api.UserProfile
 import com.example.auth.AuthState
 import com.example.auth.AuthViewModel
+import com.example.utils.AvatarUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,6 +97,14 @@ fun ProfileScreen(
 
 @Composable
 fun ProfileContent(profile: UserProfile) {
+    val context = LocalContext.current
+    val imageRequest = remember(profile.avatar, context) {
+        AvatarUtils.buildImageRequest(context, profile.avatar)
+    }
+    val initial = remember(profile.first_name) {
+        profile.first_name?.trim()?.firstOrNull()?.toString()?.uppercase() ?: "S"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -103,23 +114,38 @@ fun ProfileContent(profile: UserProfile) {
         // Avatar
         Box(
             modifier = Modifier
-                .size(120.dp)
+                .size(110.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface),
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            if (profile.avatar != null) {
-                AsyncImage(
-                    model = profile.avatar,
+            if (imageRequest != null) {
+                SubcomposeAsyncImage(
+                    model = imageRequest,
                     contentDescription = "User Avatar",
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    error = {
+                        Text(
+                            text = initial,
+                            fontSize = 38.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    },
+                    loading = {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(32.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 )
             } else {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                Text(
+                    text = initial,
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }

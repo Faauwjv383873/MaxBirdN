@@ -301,10 +301,10 @@ data class StudentLessonsInnerData(
 
 @JsonClass(generateAdapter = true)
 data class StudentLessonItem(
-    val id: String,
-    val title: String?,
+    val id: String = "",
+    val title: String? = null,
     val content_id: String? = null,
-    val content_type: String?, // "LiveClass", "LiveExam", "RecordedClass"
+    val content_type: String? = null, // "LiveClass", "LiveExam", "RecordedClass"
     val access_level: String? = null,
     val start_time: String? = null,
     val end_time: String? = null,
@@ -314,7 +314,7 @@ data class StudentLessonItem(
     val batch_id: String? = null,
     val color_code: String? = null,
     val icon: String? = null,
-    val user_activity_state: String?, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
+    val user_activity_state: String? = null, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
     val live_class: LiveClassDetails? = null,
     val model_test: ModelTestDetails? = null,
     val slide_url: String? = null,
@@ -650,7 +650,7 @@ data class ProgramPhasesInnerData(
 
 @JsonClass(generateAdapter = true)
 data class PhaseItem(
-    val id: String,
+    val id: String = "",
     val academic_program_id: String?,
     val title: String?,
     val status: String?, // "ACTIVE", "COMPLETED", "UPCOMING", "UNENROLLED"

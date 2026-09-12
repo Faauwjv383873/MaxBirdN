@@ -39,6 +39,7 @@ import coil.request.ImageRequest
 import com.example.api.AddressItem
 import com.example.api.SchoolItem
 import com.example.profile.EditProfileViewModel
+import com.example.utils.AvatarUtils
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -221,12 +222,12 @@ fun EditProfileScreen(
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (!uiState.avatarUrl.isNullOrBlank()) {
+                                val avatarReq = remember(uiState.avatarUrl, context) {
+                                    AvatarUtils.buildImageRequest(context, uiState.avatarUrl)
+                                }
+                                if (avatarReq != null) {
                                     SubcomposeAsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(uiState.avatarUrl)
-                                            .crossfade(true)
-                                            .build(),
+                                        model = avatarReq,
                                         contentDescription = "Avatar",
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop,

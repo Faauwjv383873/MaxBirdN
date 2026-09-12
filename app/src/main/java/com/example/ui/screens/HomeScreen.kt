@@ -9,7 +9,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -28,6 +30,9 @@ import com.example.api.EnrolledProgram
 import com.example.home.HomeViewModel
 import com.example.ui.components.CourseSwitcherBottomSheet
 import com.example.ui.components.HomeHeader
+import com.example.ui.components.RoutineCard
+import com.example.ui.components.WeeklyRoutineSection
+import com.example.api.StudentLessonItem
 
 @Composable
 fun HomeScreen(
@@ -36,6 +41,8 @@ fun HomeScreen(
     onNavigateToChangeSyllabus: () -> Unit = {},
     onCourseSelected: (EnrolledProgram) -> Unit = {},
     onOpenCourse: () -> Unit = {},
+    onOpenFullRoutine: () -> Unit = {},
+    onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -189,157 +196,11 @@ fun HomeScreen(
                 }
 
                 else -> {
-                    ActiveCourseCard(
-                        activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোনো সক্রিয় কোর্স নেই",
-                        onOpenCourse = onOpenCourse,
-                        onOpenCourseSwitcher = {
-                            viewModel.setCourseSwitcherVisible(true)
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActiveCourseCard(
-    activeCourseTitle: String,
-    onOpenCourse: () -> Unit,
-    onOpenCourseSwitcher: () -> Unit
-) {
-    AnimatedVisibility(
-        visible = true,
-        enter = fadeIn() + scaleIn(initialScale = 0.95f)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 6.dp,
-                    shape = RoundedCornerShape(24.dp),
-                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                ),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                    )
-                )
-            )
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Active Badge Indicator
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "সক্রিয় কোর্স",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Active Course Title
-                Text(
-                    text = "বর্তমান সক্রিয় কোর্স:",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = activeCourseTitle,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Subtitle
-                Text(
-                    text = "সব বিষয়ের লেকচার ক্লাস, রেকর্ডিং ও স্লাইড দেখতে নিচে ট্যাপ করো।",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 19.sp
-                )
-
-                Spacer(modifier = Modifier.height(22.dp))
-
-                // Primary Button: View Course Classes
-                Button(
-                    onClick = onOpenCourse,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "কোর্সের ক্লাসগুলো দেখো",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Secondary Action Button: Switch Course
-                OutlinedButton(
-                    onClick = onOpenCourseSwitcher,
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SwapHoriz,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "কোর্স পরিবর্তন করো",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                    WeeklyRoutineSection(
+                        lessons = uiState.weeklyRoutine,
+                        isLoading = uiState.isRoutineLoading,
+                        onSeeAllClick = { onOpenFullRoutine() },
+                        onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) }
                     )
                 }
             }

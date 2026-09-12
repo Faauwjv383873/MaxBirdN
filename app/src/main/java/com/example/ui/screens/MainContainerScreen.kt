@@ -29,6 +29,7 @@ fun MainContainerScreen(
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToChangeSyllabus: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
+    onNavigateToFullRoutine: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -126,7 +127,8 @@ fun MainContainerScreen(
                                     courseViewModel.loadSubjects()
                                 }
                                 selectedIndex = 1
-                            }
+                            },
+                            onOpenFullRoutine = onNavigateToFullRoutine
                         )
                     }
                     1 -> {

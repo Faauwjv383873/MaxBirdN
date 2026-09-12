@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.R
+import com.example.utils.AvatarUtils
 
 /**
  * Home Header Component matching user design specifications
@@ -139,24 +140,25 @@ fun HomeHeader(
                 userName.trim().firstOrNull()?.toString()?.uppercase() ?: "U"
             }
 
+            val imageRequest = remember(avatarUrl, context) {
+                AvatarUtils.buildImageRequest(context, avatarUrl)
+            }
+
             Box(
                 modifier = Modifier
-                    .size(60.dp)
+                    .size(54.dp)
                     .clip(CircleShape)
                     .border(
                         2.dp,
-                        if (isPremium) Color(0xFFFFB800) else Color.Transparent,
+                        if (isPremium) Color(0xFFFFB800) else Color.White.copy(alpha = 0.2f),
                         CircleShape
                     )
                     .clickable { onAvatarClick() },
                 contentAlignment = Alignment.Center
             ) {
-                if (avatarUrl.isNotBlank()) {
+                if (imageRequest != null) {
                     SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(avatarUrl)
-                            .crossfade(true)
-                            .build(),
+                        model = imageRequest,
                         contentDescription = "Profile Avatar",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,

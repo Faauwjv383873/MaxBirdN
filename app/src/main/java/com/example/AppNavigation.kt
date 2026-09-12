@@ -42,6 +42,7 @@ object Routes {
     const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}"
     const val LESSON_DETAIL_PLAYER = "lesson_detail_player"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
+    const val ROUTINE_FULL = "routine_full"
 }
 
 @Composable
@@ -179,11 +180,26 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToProfile = {
                     navController.navigate(Routes.PROFILE)
                 },
+                onNavigateToFullRoutine = {
+                    navController.navigate(Routes.ROUTINE_FULL)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        composable(Routes.ROUTINE_FULL) {
+            FullRoutineScreen(
+                viewModel = homeViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onOpenLessonDetail = { lesson ->
+                    // Open lesson detail if needed
                 }
             )
         }
