@@ -28,6 +28,10 @@ data class SubjectWithProgress(
 }
 
 data class CourseUiState(
+    // Enrolled / Unlocked Programs list
+    val enrolledPrograms: List<EnrolledProgram> = emptyList(),
+    val selectedCourseProgram: EnrolledProgram? = null,
+
     // Active Program Info
     val programId: String = "",
     val programTitle: String = "",
@@ -67,23 +71,321 @@ class CourseViewModel(
     private val sessionManager: SessionManager
 ) : ViewModel() {
 
+    // Caching for instant sub-second loading
+    private val chaptersCache = java.util.concurrent.ConcurrentHashMap<String, List<AcademicChapterItem>>()
+    private val lessonsCache = java.util.concurrent.ConcurrentHashMap<String, List<StudentLessonItem>>()
+
     private val _uiState = MutableStateFlow(CourseUiState())
     val uiState: StateFlow<CourseUiState> = _uiState.asStateFlow()
 
     init {
+        fetchEnrolledPrograms()
         loadSubjects()
+    }
+
+    fun openCourse(program: EnrolledProgram) {
+        val title = program.title_bn ?: "প্রোগ্রাম"
+        _uiState.update { it.copy(selectedCourseProgram = program) }
+        switchProgram(
+            newProgramId = program.id,
+            newProgramTitle = title,
+            batchId = program.enrollment_details?.batch_id,
+            classCode = program.classes?.firstOrNull()
+        )
+    }
+
+    fun closeCourseDetails() {
+        _uiState.update { it.copy(selectedCourseProgram = null) }
+    }
+
+    fun fetchEnrolledPrograms() {
+        viewModelScope.launch {
+            try {
+                val query = GraphQlQuery(
+                    operationName = "GetAcademicProgram",
+                    query = """
+                        query GetAcademicProgram {
+                          listAcademicProgramByEnrollment {
+                            enrolled_programs {
+                              id
+                              classes
+                              title_bn
+                              banner_url
+                              color
+                              is_free
+                              trial_enabled
+                              enrollment_details {
+                                batch_id
+                                is_active
+                                trial_end_date
+                                type
+                                expiry_date
+                              }
+                              subjects {
+                                code
+                                display_bn
+                                color_code
+                                icon
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent()
+                )
+                val response = apiService.getAcademicProgram(query)
+                val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs
+                if (!list.isNullOrEmpty()) {
+                    DebugTerminalManager.log(
+                        "ENROLLED_PROGS",
+                        "কোর্স অপশনের জন্য ${list.size} টি এনরোল করা প্রোগ্রাম লোড করা হয়েছে",
+                        LogType.SUCCESS
+                    )
+                    _uiState.update { it.copy(enrolledPrograms = list) }
+                }
+            } catch (e: Exception) {
+                DebugTerminalManager.log(
+                    "ENROLLED_PROGS_ERR",
+                    "এনরোল করা কোর্স লোড করতে ত্রুটি: ${e.localizedMessage}",
+                    LogType.ERROR
+                )
+            }
+        }
     }
 
     fun selectLesson(lesson: StudentLessonItem) {
         val recUrl = lesson.resolvedVideoUrl ?: lesson.live_class?.resolvedVideoUrl ?: lesson.live_class?.recording_url ?: ""
         val isEnrolled = recUrl.isNotBlank()
+        val sessionId = lesson.live_class?.session_id ?: lesson.session_id ?: "N/A"
         DebugTerminalManager.log(
             "SELECT_LESSON",
-            "ক্লাস সিলেক্ট করা হয়েছে: '${lesson.title}' (ID: ${lesson.id})\n- স্ট্রিমিং URL: ${if (isEnrolled) recUrl else "নেই (ফ্রি বা আনএনরোল্ড কোর্স, ভিডিও প্লে হবে না)"}",
+            "ক্লাস সিলেক্ট করা হয়েছে: '${lesson.title}' (ID: ${lesson.id})\n- Session ID: $sessionId\n- স্ট্রিমিং URL: ${if (isEnrolled) recUrl else "নেই (ফ্রি বা আনএনরোল্ড কোর্স, ভিডিও প্লে হবে না)"}\n- Candidate URLs Count: ${lesson.candidateStreamUrls.size}",
             if (isEnrolled) LogType.SUCCESS else LogType.ERROR
         )
         _uiState.update {
             it.copy(selectedLesson = lesson)
+        }
+
+        val liveClassId = lesson.live_class?.id ?: lesson.content_id ?: lesson.id
+        if (liveClassId.isNotBlank()) {
+            viewModelScope.launch {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetAcademicLiveClassDetails",
+                        query = """
+                            query GetAcademicLiveClassDetails(${'$'}id: String!) {
+                              academicProgramLiveClass(id: ${'$'}id) {
+                                batch_ids
+                                create_practice_mcq
+                                chapter {
+                                  id
+                                  name
+                                  no
+                                }
+                                class_type
+                                end_time
+                                id
+                                on_going
+                                playback_url
+                                start_time
+                                study_materials {
+                                  file_url
+                                  id
+                                  name
+                                }
+                                subject {
+                                  attr
+                                  class
+                                  code
+                                  color_code
+                                  display
+                                  display_bn
+                                  group
+                                  icon
+                                  parent_code
+                                  ref
+                                }
+                                teacher {
+                                  bio
+                                  id
+                                  marketing_avatar
+                                  marketing_points
+                                  name
+                                  subjects
+                                  university_degree
+                                }
+                                title
+                                topics {
+                                  id
+                                  name
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("id" to liveClassId)
+                    )
+                    val res = apiService.getAcademicLiveClassDetails(query)
+                    val liveClassData = res.data?.academicProgramLiveClass
+                    if (liveClassData != null) {
+                        val pbUrl = liveClassData.playback_url
+                        val updatedLiveClass = (lesson.live_class ?: LiveClassDetails()).copy(
+                            id = liveClassData.id ?: lesson.live_class?.id,
+                            playback_url = pbUrl ?: lesson.live_class?.playback_url,
+                            recording_url = pbUrl ?: lesson.live_class?.recording_url,
+                            start_time = liveClassData.start_time ?: lesson.live_class?.start_time,
+                            end_time = liveClassData.end_time ?: lesson.live_class?.end_time,
+                            teacher = liveClassData.teacher ?: lesson.live_class?.teacher,
+                            topics = if (!liveClassData.topics.isNullOrEmpty()) liveClassData.topics else lesson.live_class?.topics
+                        )
+
+                        val newAttachments = mutableListOf<LessonAttachmentItem>()
+                        liveClassData.study_materials?.forEach { mat ->
+                            if (!mat.file_url.isNullOrBlank()) {
+                                newAttachments.add(LessonAttachmentItem(id = mat.id, title = mat.name ?: "লেকচার স্লাইড (PDF)", url = mat.file_url, file_type = "pdf"))
+                            }
+                        }
+                        lesson.attachments?.let { newAttachments.addAll(it) }
+
+                        val updatedLesson = lesson.copy(
+                            live_class = updatedLiveClass,
+                            attachments = newAttachments.distinctBy { it.downloadUrl }
+                        )
+
+                        var currentLessonState = updatedLesson
+
+                        // 1. Fetch Teacher Details if teacher_id exists
+                        val teacherId = liveClassData.teacher?.id
+                        if (!teacherId.isNullOrBlank()) {
+                            try {
+                                val tQuery = GraphQlQuery(
+                                    operationName = "GetTeacherDetails",
+                                    query = """
+                                        query GetTeacherDetails(${'$'}teacher_id: String!) {
+                                          teacher(teacher_id: ${'$'}teacher_id) {
+                                            id
+                                            first_name
+                                            last_name
+                                            avatar
+                                            marketing_avatar
+                                            university_degree
+                                            marketing_points
+                                            bio
+                                            cover_photo
+                                            subjects_taken {
+                                              code
+                                              icon
+                                              display_bn
+                                            }
+                                            color_code
+                                            teacher_experience
+                                            total_students_taught
+                                            consumed_video_hours
+                                          }
+                                        }
+                                    """.trimIndent(),
+                                    variables = mapOf("teacher_id" to teacherId)
+                                )
+                                val tRes = apiService.getTeacherDetails(tQuery)
+                                val fullTeacher = tRes.data?.teacher
+                                if (fullTeacher != null) {
+                                    val withTeacher = currentLessonState.live_class?.copy(teacher = fullTeacher)
+                                    currentLessonState = currentLessonState.copy(live_class = withTeacher)
+                                    DebugTerminalManager.log(
+                                        "TEACHER_DETAILS_RESP",
+                                        "Teacher details loaded for $teacherId: ${fullTeacher.displayName}",
+                                        LogType.SUCCESS
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                DebugTerminalManager.log(
+                                    "TEACHER_DETAILS_ERR",
+                                    "Error fetching teacher details ($teacherId): ${e.localizedMessage}",
+                                    LogType.ERROR
+                                )
+                            }
+                        }
+
+                        // 2. Fetch Topic Videos via GetTopics if playback_url is blank
+                        val chapterIdForTopics = lesson.chapter_id ?: liveClassData.chapter?.id
+                        val topicIds = liveClassData.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() }
+                        if (currentLessonState.resolvedVideoUrl.isNullOrBlank() && !chapterIdForTopics.isNullOrBlank() && !topicIds.isNullOrEmpty()) {
+                            try {
+                                val topQuery = GraphQlQuery(
+                                    operationName = "GetTopics",
+                                    query = """
+                                        query GetTopics(${'$'}chapter_id: String!, ${'$'}topic_ids: [String]) {
+                                          topics(chapter_id: ${'$'}chapter_id, topic_ids: ${'$'}topic_ids, filter: { limit: 150 } ) {
+                                            data {
+                                              id
+                                              no
+                                              name
+                                              description
+                                              subscription_type
+                                              session {
+                                                progress
+                                              }
+                                              videos {
+                                                data {
+                                                  id
+                                                  playback_url
+                                                  video_thumbnail_url
+                                                  category
+                                                }
+                                              }
+                                              header {
+                                                chapter_id
+                                                chapter_name
+                                              }
+                                            }
+                                          }
+                                        }
+                                    """.trimIndent(),
+                                    variables = mapOf("chapter_id" to chapterIdForTopics, "topic_ids" to topicIds)
+                                )
+                                val topRes = apiService.getTopics(topQuery)
+                                val topicVideos = topRes.data?.topics?.data?.flatMap { it.videos?.data ?: emptyList() }
+                                val fallbackTopicUrl = topicVideos?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
+                                if (!fallbackTopicUrl.isNullOrBlank()) {
+                                    val withTopicPb = currentLessonState.live_class?.copy(
+                                        playback_url = fallbackTopicUrl,
+                                        recording_url = fallbackTopicUrl
+                                    )
+                                    currentLessonState = currentLessonState.copy(
+                                        recording_url = fallbackTopicUrl,
+                                        live_class = withTopicPb
+                                    )
+                                    DebugTerminalManager.log(
+                                        "TOPICS_RESP",
+                                        "Topic video stream loaded for chapter $chapterIdForTopics: $fallbackTopicUrl",
+                                        LogType.SUCCESS
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                DebugTerminalManager.log(
+                                    "TOPICS_ERR",
+                                    "Error fetching topic videos ($chapterIdForTopics): ${e.localizedMessage}",
+                                    LogType.ERROR
+                                )
+                            }
+                        }
+
+                        if (_uiState.value.selectedLesson?.id == lesson.id) {
+                            _uiState.update { it.copy(selectedLesson = currentLessonState) }
+                        }
+                        DebugTerminalManager.log(
+                            "LIVE_CLASS_DETAILS_RESP",
+                            "Live Class Details loaded for $liveClassId:\n- Playback URL: ${currentLessonState.resolvedVideoUrl}\n- Teacher: ${currentLessonState.live_class?.teacher?.displayName}\n- Materials: ${liveClassData.study_materials?.size ?: 0}",
+                            LogType.SUCCESS
+                        )
+
+                    }
+                } catch (e: Exception) {
+                    DebugTerminalManager.log(
+                        "LIVE_CLASS_DETAILS_ERR",
+                        "Error fetching live class details for $liveClassId: ${e.localizedMessage}",
+                        LogType.ERROR
+                    )
+                }
+            }
         }
     }
 
@@ -97,7 +399,9 @@ class CourseViewModel(
         classCode: String? = null
     ) {
         val title = if (!newProgramTitle.isNullOrBlank()) newProgramTitle else "এইচএসসি কোর্স"
-        sessionManager.saveActiveProgram(newProgramId, title, batchId, classCode)
+        // NOTE: We deliberately DO NOT call sessionManager.saveActiveProgram here!
+        // Home Screen active program is persisted separately in SessionManager/DB and must never be mutated
+        // when browsing or exploring courses in the Course tab.
         _uiState.update {
             it.copy(
                 programId = newProgramId,
@@ -126,8 +430,10 @@ class CourseViewModel(
 
     fun loadSubjects(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            val programId = sessionManager.getActiveProgramId() ?: _uiState.value.programId
-            val programTitle = sessionManager.getActiveProgramTitleBn() ?: _uiState.value.programTitle.ifBlank { "এইচএসসি কোর্স" }
+            val currentProgId = _uiState.value.programId
+            val programId = if (currentProgId.isNotBlank()) currentProgId else (sessionManager.getActiveProgramId() ?: "")
+            val currentProgTitle = _uiState.value.programTitle
+            val programTitle = if (currentProgTitle.isNotBlank()) currentProgTitle else (sessionManager.getActiveProgramTitleBn() ?: "এইচএসসি কোর্স")
 
             val oldProgramId = _uiState.value.programId
             val isProgramChanged = oldProgramId.isNotBlank() && oldProgramId != programId
@@ -227,11 +533,12 @@ class CourseViewModel(
                                       icon
                                     }
                                     subjects_progress_bar {
+                                      completed_chapters
+                                      total_chapters
                                       code
                                       percentage
-                                      total_chapters
-                                      completed_chapters
                                     }
+                                    trial_subject_list
                                   }
                                 }
                             """.trimIndent(),
@@ -261,11 +568,12 @@ class CourseViewModel(
                                       icon
                                     }
                                     subjects_progress_bar {
+                                      completed_chapters
+                                      total_chapters
                                       code
                                       percentage
-                                      total_chapters
-                                      completed_chapters
                                     }
+                                    trial_subject_list
                                   }
                                 }
                             """.trimIndent(),
@@ -317,13 +625,17 @@ class CourseViewModel(
         subjectColor: String? = null,
         phaseId: String? = null
     ) {
-        val progId = sessionManager.getActiveProgramId() ?: _uiState.value.programId
+        val currentProgId = _uiState.value.programId
+        val progId = if (currentProgId.isNotBlank()) currentProgId else (sessionManager.getActiveProgramId() ?: "")
         val targetPhaseId = phaseId ?: _uiState.value.activePhaseId
         
         val matchedPhase = _uiState.value.phases.find { it.id == targetPhaseId }
             ?: _uiState.value.selectedPhase
             ?: _uiState.value.phases.firstOrNull { it.is_current == true }
             ?: _uiState.value.phases.firstOrNull()
+
+        val cacheKey = "${progId}_${subjectCode}_${matchedPhase?.id ?: targetPhaseId}"
+        val cachedChapters = chaptersCache[cacheKey]
 
         _uiState.update {
             it.copy(
@@ -334,7 +646,8 @@ class CourseViewModel(
                 selectedPhase = matchedPhase,
                 activePhaseId = matchedPhase?.id ?: targetPhaseId,
                 activePhaseTitle = matchedPhase?.title ?: it.activePhaseTitle,
-                isChaptersLoading = true,
+                chapters = cachedChapters ?: emptyList(),
+                isChaptersLoading = cachedChapters == null,
                 chaptersErrorMessage = null
             )
         }
@@ -406,10 +719,13 @@ class CourseViewModel(
                                   listAcademicProgramChapters(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id, subject_id: ${'$'}subject_id, show_chapter_progress_bar: true) {
                                     data {
                                       id
+                                      batch_id
                                       chapter_id
                                       chapter_name
                                       chapter_no
+                                      program_id
                                       status
+                                      subject_icon
                                       class_counter
                                       exam_counter
                                       chapters_progress_percentage
@@ -512,6 +828,34 @@ class CourseViewModel(
                     } catch (_: Exception) {}
                 }
 
+                if (chaptersList.isEmpty()) {
+                    val hierarchyChapters = fetchFallbackHierarchyChapters(subjectCode)
+                    if (hierarchyChapters.isNotEmpty()) {
+                        chaptersList = hierarchyChapters
+                    }
+                }
+
+                if (chaptersList.isNotEmpty()) {
+                    chaptersCache[cacheKey] = chaptersList
+                    // Pre-fetch lessons for chapters in background
+                    val pId = progId ?: ""
+                    val phId = effectivePhaseId ?: ""
+                    chaptersList.take(6).forEach { chapter ->
+                        val cid = (chapter.id ?: chapter.chapter_id ?: "").ifBlank { chapter.chapter_id ?: "" }
+                        if (cid.isNotBlank() && !lessonsCache.containsKey(cid)) {
+                            viewModelScope.launch {
+                                try {
+                                    val l1 = if (phId.isNotBlank()) fetchLessonsWithPhase(cid, pId, phId) else emptyList()
+                                    val l2 = if (l1.isEmpty()) fetchLessonsStandard(cid, pId) else l1
+                                    if (l2.isNotEmpty()) {
+                                        lessonsCache[cid] = l2
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                }
+
                 _uiState.update {
                     it.copy(
                         chapters = chaptersList,
@@ -560,10 +904,19 @@ class CourseViewModel(
         chapterName: String? = null,
         chapterStatus: String? = null
     ) {
+        val activeIctProgramId = "6862551806800acba2e22b27"
         val sessionProgId = sessionManager.getActiveProgramId()
         val stateProgId = _uiState.value.programId
         val phaseProgId = _uiState.value.selectedPhase?.academic_program_id
-        val candidateProgramIds = listOfNotNull(phaseProgId, sessionProgId, stateProgId).filter { it.isNotBlank() }.distinct()
+        val enrolledPhaseProgId = _uiState.value.phases.firstOrNull { it.has_enrolment == true }?.academic_program_id
+
+        val candidateProgramIds = listOfNotNull(
+            stateProgId,
+            phaseProgId,
+            enrolledPhaseProgId,
+            activeIctProgramId,
+            sessionProgId
+        ).filter { it.isNotBlank() }.distinct()
 
         val matchingChapter = _uiState.value.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
         val primaryChapterId = chapterId.ifBlank { matchingChapter?.id ?: matchingChapter?.chapter_id ?: "" }
@@ -580,12 +933,15 @@ class CourseViewModel(
             *_uiState.value.phases.map { it.id }.toTypedArray()
         ).filter { it.isNotBlank() }.distinct()
 
+        val cachedLessons = lessonsCache[primaryChapterId]
+
         _uiState.update {
             it.copy(
                 selectedChapterId = primaryChapterId,
                 selectedChapterName = chapterName ?: matchingChapter?.chapter_name ?: it.selectedChapterName,
                 selectedChapterStatus = chapterStatus ?: matchingChapter?.status ?: it.selectedChapterStatus,
-                isLessonsLoading = true,
+                lessons = cachedLessons ?: emptyList(),
+                isLessonsLoading = cachedLessons == null,
                 lessonsErrorMessage = null,
                 lessonsDiagnosticInfo = null
             )
@@ -647,6 +1003,10 @@ class CourseViewModel(
                     if (lessonList.isNotEmpty()) LogType.SUCCESS else LogType.WARNING
                 )
 
+                if (lessonList.isNotEmpty()) {
+                    lessonsCache[primaryChapterId] = lessonList
+                }
+
                 _uiState.update {
                     it.copy(
                         lessons = lessonList,
@@ -672,7 +1032,6 @@ class CourseViewModel(
         programId: String,
         phaseId: String
     ): List<StudentLessonItem> {
-        // Attempt 1: Rich query
         try {
             val q1 = GraphQlQuery(
                 operationName = "GetUpcomingLessonsPhaseWise",
@@ -680,45 +1039,47 @@ class CourseViewModel(
                     query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}program_id: String!, ${'$'}phase_id: String!) {
                       studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id) {
                         data {
-                          id
-                          title
-                          content_id
-                          content_type
-                          user_activity_state
+                          access_level
+                          subject_name
                           start_time
                           end_time
-                          slide_url
+                          content_type
+                          id
+                          content_id
+                          subject_id
+                          batch_id
+                          chapter_id
+                          icon
+                          color_code
+                          user_activity_state
+                          hw_type
+                          title
                           live_class {
-                            id
-                            recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            url
-                            hls_url
-                            start_time
+                            chapter_id
+                            chapter_name
                             end_time
-                            type
-                            slide_url
-                            attachments {
-                              id
-                              title
-                              name
-                              url
-                              link
-                              file_type
-                            }
+                            is_on_going
+                            recording_url
+                            start_time
+                            subject_name
                             topics {
                               id
-                              title
-                              description
-                            }
-                            teacher {
-                              id
                               name
-                              avatar
                             }
+                            subject_id
+                            id
+                            type
                           }
+                          model_test {
+                            type
+                            exam_category
+                            result_publish_time
+                          }
+                          topics {
+                            id
+                            name
+                          }
+                          phase_id
                         }
                       }
                     }
@@ -731,117 +1092,21 @@ class CourseViewModel(
             )
             val res = apiService.getStudentLessons(q1)
             val data = res.data?.studentSpecificLessons?.data
-            if (!data.isNullOrEmpty()) return data
-        } catch (_: Exception) {}
-
-        // Attempt 2: Query with slide_url & attachments
-        try {
-            val q2 = GraphQlQuery(
-                operationName = "GetUpcomingLessonsPhaseWise",
-                query = """
-                    query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}program_id: String!, ${'$'}phase_id: String!) {
-                      studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id) {
-                        data {
-                          id
-                          title
-                          content_id
-                          content_type
-                          user_activity_state
-                          live_class {
-                            id
-                            recording_url
-                            start_time
-                            type
-                            slide_url
-                            attachments {
-                              id
-                              title
-                              url
-                              file_type
-                            }
-                          }
-                        }
-                      }
-                    }
-                """.trimIndent(),
-                variables = mapOf(
-                    "chapter_id" to chapterId,
-                    "program_id" to programId,
-                    "phase_id" to phaseId
-                )
+            val detailsLog = data?.joinToString("\n") { item ->
+                "[Lesson ID=${item.id}, title=${item.title}, content_id=${item.content_id}, rec_url=${item.live_class?.recording_url}]"
+            } ?: "[]"
+            DebugTerminalManager.log(
+                "GQL_PHASE_RESP",
+                "Query PhaseWise (cid=$chapterId, pid=$programId, phId=$phaseId):\nData Count: ${data?.size ?: 0}\nItems:\n$detailsLog",
+                if (!data.isNullOrEmpty()) LogType.SUCCESS else LogType.WARNING
             )
-            val res = apiService.getStudentLessons(q2)
-            val data = res.data?.studentSpecificLessons?.data
-            if (!data.isNullOrEmpty()) return data
-        } catch (_: Exception) {}
-
-        // Attempt 3: Query with slide_url only
-        try {
-            val q3 = GraphQlQuery(
-                operationName = "GetUpcomingLessonsPhaseWise",
-                query = """
-                    query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}program_id: String!, ${'$'}phase_id: String!) {
-                      studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id) {
-                        data {
-                          id
-                          title
-                          content_id
-                          content_type
-                          user_activity_state
-                          live_class {
-                            id
-                            recording_url
-                            start_time
-                            type
-                            slide_url
-                          }
-                        }
-                      }
-                    }
-                """.trimIndent(),
-                variables = mapOf(
-                    "chapter_id" to chapterId,
-                    "program_id" to programId,
-                    "phase_id" to phaseId
-                )
+            return data ?: emptyList()
+        } catch (e: Exception) {
+            DebugTerminalManager.log(
+                "GQL_PHASE_ERR",
+                "Query PhaseWise Error (cid=$chapterId, pid=$programId, phId=$phaseId): ${e.localizedMessage}",
+                LogType.ERROR
             )
-            val res = apiService.getStudentLessons(q3)
-            val data = res.data?.studentSpecificLessons?.data
-            if (!data.isNullOrEmpty()) return data
-        } catch (_: Exception) {}
-
-        // Attempt 4: Base fallback query
-        try {
-            val q4 = GraphQlQuery(
-                operationName = "GetUpcomingLessonsPhaseWise",
-                query = """
-                    query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}program_id: String!, ${'$'}phase_id: String!) {
-                      studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id) {
-                        data {
-                          id
-                          title
-                          content_id
-                          content_type
-                          user_activity_state
-                          live_class {
-                            id
-                            recording_url
-                            start_time
-                            type
-                          }
-                        }
-                      }
-                    }
-                """.trimIndent(),
-                variables = mapOf(
-                    "chapter_id" to chapterId,
-                    "program_id" to programId,
-                    "phase_id" to phaseId
-                )
-            )
-            val res = apiService.getStudentLessons(q4)
-            return res.data?.studentSpecificLessons?.data ?: emptyList()
-        } catch (_: Exception) {
             return emptyList()
         }
     }
@@ -850,7 +1115,6 @@ class CourseViewModel(
         chapterId: String,
         programId: String
     ): List<StudentLessonItem> {
-        // Attempt 1: Rich standard query
         try {
             val q1 = GraphQlQuery(
                 operationName = "GetUpcomingLessons",
@@ -863,39 +1127,11 @@ class CourseViewModel(
                           content_id
                           content_type
                           user_activity_state
-                          start_time
-                          end_time
-                          slide_url
                           live_class {
                             id
                             recording_url
-                            stream_url
-                            video_url
-                            playback_url
-                            url
-                            hls_url
                             start_time
-                            end_time
                             type
-                            slide_url
-                            attachments {
-                              id
-                              title
-                              name
-                              url
-                              link
-                              file_type
-                            }
-                            topics {
-                              id
-                              title
-                              description
-                            }
-                            teacher {
-                              id
-                              name
-                              avatar
-                            }
                           }
                         }
                       }
@@ -908,80 +1144,80 @@ class CourseViewModel(
             )
             val res = apiService.getStudentLessons(q1)
             val data = res.data?.studentSpecificLessons?.data
-            if (!data.isNullOrEmpty()) return data
-        } catch (_: Exception) {}
+            val detailsLog = data?.joinToString("\n") { item ->
+                "[Lesson ID=${item.id}, title=${item.title}, content_id=${item.content_id}, rec_url=${item.live_class?.recording_url}]"
+            } ?: "[]"
+            DebugTerminalManager.log(
+                "GQL_STD_RESP",
+                "Query Standard (cid=$chapterId, pid=$programId):\nData Count: ${data?.size ?: 0}\nItems:\n$detailsLog",
+                if (!data.isNullOrEmpty()) LogType.SUCCESS else LogType.WARNING
+            )
+            return data ?: emptyList()
+        } catch (e: Exception) {
+            DebugTerminalManager.log(
+                "GQL_STD_ERR",
+                "Query Standard Error (cid=$chapterId, pid=$programId): ${e.localizedMessage}",
+                LogType.ERROR
+            )
+            return emptyList()
+        }
+    }
 
-        // Attempt 2: Standard with slide_url & attachments
+    private suspend fun fetchFallbackHierarchyChapters(subjectCode: String): List<AcademicChapterItem> {
         try {
-            val q2 = GraphQlQuery(
-                operationName = "GetUpcomingLessons",
+            val query = GraphQlQuery(
+                operationName = "GetSubjectHierarchyWithQuestionCounts",
                 query = """
-                    query GetUpcomingLessons(${'$'}chapter_id: String!, ${'$'}program_id: String!) {
-                      studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id) {
+                    query GetSubjectHierarchyWithQuestionCounts(${'$'}class: ClassEnum, ${'$'}group: StudyGroupTypeEnum) {
+                      subjectHierarchyWithQuestionCounts(class: ${'$'}class, group: ${'$'}group) {
                         data {
-                          id
-                          title
-                          content_id
-                          content_type
-                          user_activity_state
-                          live_class {
+                          chapters {
                             id
-                            recording_url
-                            start_time
-                            type
-                            slide_url
-                            attachments {
-                              id
-                              title
-                              url
-                              file_type
-                            }
+                            name
+                            no
+                            should_render
+                            total_active_questions
                           }
+                          should_render
+                          display_bn
+                          display
+                          code
+                          icon
+                          color_code
+                          total_active_questions
                         }
                       }
                     }
                 """.trimIndent(),
-                variables = mapOf(
-                    "chapter_id" to chapterId,
-                    "program_id" to programId
-                )
+                variables = mapOf("class" to "HSC", "group" to "Humanities")
             )
-            val res = apiService.getStudentLessons(q2)
-            val data = res.data?.studentSpecificLessons?.data
-            if (!data.isNullOrEmpty()) return data
-        } catch (_: Exception) {}
+            val res = apiService.getSubjectHierarchyWithQuestionCounts(query)
+            val subjectsData = res.data?.subjectHierarchyWithQuestionCounts?.data ?: emptyList()
+            val matchedSubject = subjectsData.find { it.code == subjectCode }
+                ?: subjectsData.find { it.display_bn?.trim() == _uiState.value.selectedSubjectTitle?.trim() }
 
-        // Attempt 3: Base standard query
-        try {
-            val q3 = GraphQlQuery(
-                operationName = "GetUpcomingLessons",
-                query = """
-                    query GetUpcomingLessons(${'$'}chapter_id: String!, ${'$'}program_id: String!) {
-                      studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id) {
-                        data {
-                          id
-                          title
-                          content_id
-                          content_type
-                          user_activity_state
-                          live_class {
-                            id
-                            recording_url
-                            start_time
-                            type
-                          }
-                        }
-                      }
-                    }
-                """.trimIndent(),
-                variables = mapOf(
-                    "chapter_id" to chapterId,
-                    "program_id" to programId
+            val foundChapters = matchedSubject?.chapters?.filter { it.should_render != false }?.map { ch ->
+                AcademicChapterItem(
+                    id = ch.id,
+                    chapter_id = ch.id,
+                    chapter_name = ch.name,
+                    chapter_no = ch.no,
+                    status = "IN_PROGRESS"
                 )
+            } ?: emptyList()
+
+            DebugTerminalManager.log(
+                "HIERARCHY_CHAPTERS_RESP",
+                "Hierarchy Fallback (code=$subjectCode): Found ${foundChapters.size} chapters",
+                if (foundChapters.isNotEmpty()) LogType.SUCCESS else LogType.WARNING
             )
-            val res = apiService.getStudentLessons(q3)
-            return res.data?.studentSpecificLessons?.data ?: emptyList()
-        } catch (_: Exception) {
+            return foundChapters
+        } catch (e: Exception) {
+            DebugTerminalManager.log(
+                "HIERARCHY_CHAPTERS_ERR",
+                "Hierarchy Fallback Error (code=$subjectCode): ${e.localizedMessage}",
+                LogType.ERROR
+            )
             return emptyList()
         }
     }

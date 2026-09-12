@@ -1875,10 +1875,12 @@ private fun formatBanglaDateTime(isoDateStr: String?): String {
     }
 }
 
-private fun toBengaliDigits(input: String): String {
+fun toBengaliDigits(input: Any?): String {
+    if (input == null) return "০"
+    val str = input.toString()
     val banglaDigits = charArrayOf('০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯')
     val sb = StringBuilder()
-    for (char in input) {
+    for (char in str) {
         if (char in '0'..'9') {
             sb.append(banglaDigits[char - '0'])
         } else {

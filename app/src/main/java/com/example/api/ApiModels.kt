@@ -81,7 +81,8 @@ data class LogoutResponse(
 data class GraphQlQuery(
     val operationName: String,
     val query: String,
-    val variables: Map<String, Any?> = emptyMap()
+    val variables: Map<String, Any?> = emptyMap(),
+    val extensions: Map<String, Any?>? = mapOf("clientLibrary" to mapOf("name" to "apollo-kotlin", "version" to "5.0.1"))
 )
 
 @JsonClass(generateAdapter = true)
@@ -309,6 +310,8 @@ data class StudentLessonItem(
     val end_time: String? = null,
     val subject_id: String? = null,
     val subject_name: String? = null,
+    val chapter_id: String? = null,
+    val batch_id: String? = null,
     val color_code: String? = null,
     val icon: String? = null,
     val user_activity_state: String?, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
@@ -319,6 +322,7 @@ data class StudentLessonItem(
     val video_url: String? = null,
     val stream_url: String? = null,
     val recording_url: String? = null,
+    val session_id: String? = null,
     val is_free: Boolean? = false,
     val is_locked: Boolean? = false
 ) {
@@ -330,24 +334,35 @@ data class StudentLessonItem(
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()
-            val direct = live_class?.resolvedVideoUrl
-                ?: recording_url?.takeIf { it.isNotBlank() && it != "null" }
-                ?: video_url?.takeIf { it.isNotBlank() && it != "null" }
-                ?: stream_url?.takeIf { it.isNotBlank() && it != "null" }
-            if (!direct.isNullOrBlank()) {
-                list.add(direct)
-            }
-            live_class?.candidateStreamUrls?.let { list.addAll(it) }
 
-            // 2. Tenbyte CDN Reconstruction
-            val targets = listOfNotNull(content_id, live_class?.id, id)
-                .map { it.trim() }
-                .filter { it.isNotBlank() && it != "null" }
-                .distinct()
+            // 1. Direct recording / video URLs from API response (if provided directly by Shikho)
+            val directUrls = listOfNotNull(
+                live_class?.recording_url,
+                live_class?.stream_url,
+                live_class?.video_url,
+                live_class?.playback_url,
+                live_class?.hls_url,
+                recording_url,
+                stream_url,
+                video_url
+            ).map { it.trim() }.filter { it.isNotBlank() && it != "null" }
+
+            for (url in directUrls) {
+                if (!list.contains(url)) list.add(url)
+            }
+
+            // 2. Session ID & Class ID based Tenbyte CDN URLs (prioritizing Session ID)
+            val targets = listOfNotNull(
+                session_id,
+                live_class?.session_id,
+                content_id,
+                live_class?.id,
+                id
+            ).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
 
             for (target in targets) {
-                // Primary Shikho CDN Endpoint
-                list.add("https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8")
+                val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
+                if (!list.contains(cdnUrl)) list.add(cdnUrl)
             }
 
             return list.filter { it.isNotBlank() && it != "null" }.distinct()
@@ -394,15 +409,19 @@ data class TeacherItem(
     val first_name: String? = null,
     val last_name: String? = null,
     val avatar: String? = null,
+    val marketing_avatar: String? = null,
     val image: String? = null,
     val subject: String? = null,
-    val designation: String? = null
+    val designation: String? = null,
+    val bio: String? = null,
+    val marketing_points: List<String>? = emptyList(),
+    val university_degree: List<String>? = emptyList()
 ) {
     val displayName: String
         get() = name ?: listOfNotNull(first_name, last_name).joinToString(" ").ifBlank { "শিক্ষক" }
 
     val displayAvatar: String?
-        get() = avatar ?: image
+        get() = marketing_avatar ?: avatar ?: image
 }
 
 @JsonClass(generateAdapter = true)
@@ -427,6 +446,7 @@ data class LessonAttachmentItem(
 @JsonClass(generateAdapter = true)
 data class LiveClassDetails(
     val id: String? = null,
+    val session_id: String? = null,
     val recording_url: String? = null,
     val stream_url: String? = null,
     val video_url: String? = null,
@@ -450,6 +470,8 @@ data class LiveClassDetails(
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()
+
+            // 1. Direct URLs from API
             val direct = recording_url?.takeIf { it.isNotBlank() && it != "null" }
                 ?: stream_url?.takeIf { it.isNotBlank() && it != "null" }
                 ?: video_url?.takeIf { it.isNotBlank() && it != "null" }
@@ -458,9 +480,11 @@ data class LiveClassDetails(
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
 
-            val target = id?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-            if (target != null) {
-                list.add("https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8")
+            // 2. Session ID & Class ID CDN Reconstruction
+            val targets = listOfNotNull(session_id, id).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
+            for (target in targets) {
+                val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
+                if (!list.contains(cdnUrl)) list.add(cdnUrl)
             }
 
             return list.filter { it.isNotBlank() && it != "null" }.distinct()
@@ -506,7 +530,8 @@ data class AcademicSubjectsData(
 data class AcademicProgramDetail(
     val id: String? = null,
     val subjects: List<AcademicSubjectItem>? = emptyList(),
-    val subjects_progress_bar: List<SubjectProgressBarItem>? = emptyList()
+    val subjects_progress_bar: List<SubjectProgressBarItem>? = emptyList(),
+    val trial_subject_list: List<String>? = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
@@ -565,6 +590,45 @@ data class AcademicChapterItem(
                 status?.equals("ON_GOING", ignoreCase = true) == true ||
                 (displayProgress in 1..99)
 }
+
+// ==========================================
+// 3.7. Subject Hierarchy With Question Counts
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class SubjectHierarchyWithQuestionCountsResponse(
+    val data: SubjectHierarchyWithQuestionCountsData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubjectHierarchyWithQuestionCountsData(
+    val subjectHierarchyWithQuestionCounts: SubjectHierarchyInnerData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubjectHierarchyInnerData(
+    val data: List<SubjectHierarchyItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class SubjectHierarchyItem(
+    val code: String? = null,
+    val color_code: String? = null,
+    val display: String? = null,
+    val display_bn: String? = null,
+    val icon: String? = null,
+    val should_render: Boolean? = true,
+    val total_active_questions: Int? = null,
+    val chapters: List<HierarchyChapterItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class HierarchyChapterItem(
+    val id: String = "",
+    val name: String? = null,
+    val no: Any? = null,
+    val should_render: Boolean? = true,
+    val total_active_questions: Int? = null
+)
 
 // ==========================================
 // 4. Program Phases / Course Progress Quarters
@@ -806,3 +870,97 @@ data class UpdateExamYearData(
 data class UpdateProfilePayload(
     val passing_year: String? = null
 )
+
+// ==========================================
+// Live Class Details Response
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class AcademicLiveClassDetailsResponse(
+    val data: AcademicLiveClassDetailsData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicLiveClassDetailsData(
+    val academicProgramLiveClass: AcademicProgramLiveClassItem? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AcademicProgramLiveClassItem(
+    val id: String? = null,
+    val title: String? = null,
+    val class_type: String? = null,
+    val playback_url: String? = null,
+    val start_time: String? = null,
+    val end_time: String? = null,
+    val on_going: Boolean? = false,
+    val chapter: HierarchyChapterItem? = null,
+    val study_materials: List<StudyMaterialItem>? = emptyList(),
+    val teacher: TeacherItem? = null,
+    val topics: List<TopicItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class StudyMaterialItem(
+    val id: String? = null,
+    val name: String? = null,
+    val file_url: String? = null
+)
+
+// ==========================================
+// Teacher Details & Topics Response
+// ==========================================
+@JsonClass(generateAdapter = true)
+data class TeacherDetailsResponse(
+    val data: TeacherDetailsData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TeacherDetailsData(
+    val teacher: TeacherItem? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetTopicsResponse(
+    val data: TopicsDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicsDataContainer(
+    val topics: TopicsListContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicsListContainer(
+    val data: List<TopicFullItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicFullItem(
+    val id: String? = null,
+    val no: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val subscription_type: String? = null,
+    val videos: TopicVideosContainer? = null,
+    val header: TopicHeaderItem? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicVideosContainer(
+    val data: List<TopicVideoData>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicVideoData(
+    val id: String? = null,
+    val playback_url: String? = null,
+    val video_thumbnail_url: List<String>? = emptyList(),
+    val category: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicHeaderItem(
+    val chapter_id: String? = null,
+    val chapter_name: String? = null
+)
+

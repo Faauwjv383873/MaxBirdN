@@ -109,12 +109,8 @@ fun MainContainerScreen(
                             onNavigateToProfile = { selectedIndex = 3 },
                             onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
                             onCourseSelected = { program ->
-                                courseViewModel.switchProgram(
-                                    newProgramId = program.id,
-                                    newProgramTitle = program.title_bn ?: "",
-                                    batchId = program.enrollment_details?.batch_id,
-                                    classCode = program.classes?.firstOrNull()
-                                )
+                                homeViewModel.switchActiveCourse(program)
+                                courseViewModel.openCourse(program)
                                 selectedIndex = 1
                             },
                             onOpenCourse = {

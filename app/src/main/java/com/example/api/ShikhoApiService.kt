@@ -52,7 +52,19 @@ interface ShikhoApiService {
     suspend fun getPhaseWiseChapters(@Body query: GraphQlQuery): AcademicChaptersResponse
 
     @POST("/graphql")
+    suspend fun getSubjectHierarchyWithQuestionCounts(@Body query: GraphQlQuery): SubjectHierarchyWithQuestionCountsResponse
+
+    @POST("/graphql")
     suspend fun getStudentLessons(@Body query: GraphQlQuery): StudentSpecificLessonsResponse
+
+    @POST("/graphql")
+    suspend fun getAcademicLiveClassDetails(@Body query: GraphQlQuery): AcademicLiveClassDetailsResponse
+
+    @POST("/graphql")
+    suspend fun getTeacherDetails(@Body query: GraphQlQuery): TeacherDetailsResponse
+
+    @POST("/graphql")
+    suspend fun getTopics(@Body query: GraphQlQuery): GetTopicsResponse
 
     @POST("/graphql")
     suspend fun getPracticeQuizAccess(@Body query: GraphQlQuery): PracticeQuizAccessResponse
@@ -112,8 +124,8 @@ interface ShikhoApiService {
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
                     .header("X-User-Timezone", "Asia/Dhaka")
-                    .header("Build-Version", "(605) 6.0.5")
-                    .header("User-Agent", "Shikho/(605) 6.0.5 (Android 12; V2029; vivo 2027; en; WIFI; )")
+                    .header("Build-Version", "(607) 6.0.7")
+                    .header("User-Agent", "Shikho/(607) 6.0.7 (Android 12; V2029; vivo 2027; en; WIFI; edac7970-6299-4e14-9b98-8c64d3ca4c09)")
                     .header("Authorization", authHeader)
                     .build()
                 
