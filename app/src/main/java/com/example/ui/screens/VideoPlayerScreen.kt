@@ -47,18 +47,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.player.ShikhoPlayerManager
+import com.example.player.VideoTrackQuality
 import kotlinx.coroutines.delay
 import java.util.Locale
-
-// Quality track model
-data class VideoTrackQuality(
-    val id: String,
-    val label: String,
-    val height: Int,
-    val bitrate: Int,
-    val trackGroup: Tracks.Group? = null,
-    val trackIndex: Int = 0
-)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -583,47 +574,121 @@ fun VideoPlayerScreen(
 
         // Speed Selector Dialog
         if (showSpeedDialog) {
-            val speedOptions = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+            val formattedSpeed = String.format(java.util.Locale.US, "%.2f", playbackSpeed)
+            val presets = listOf(0.5f, 0.75f, 1.0f, 1.05f, 1.10f, 1.15f, 1.20f, 1.25f, 1.35f, 1.5f, 1.75f, 2.0f, 2.5f)
             AlertDialog(
                 onDismissRequest = { showSpeedDialog = false },
-                title = { Text("প্লেব্যাক স্পিড নির্বাচন করো", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                title = { Text("প্লেব্যাক স্পিড (Speed Control)", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
                 text = {
-                    Column {
-                        speedOptions.forEach { speed ->
-                            val isSelected = playbackSpeed == speed
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        playbackSpeed = speed
-                                        exoPlayer.playbackParameters = PlaybackParameters(speed)
-                                        showSpeedDialog = false
-                                    }
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "${formattedSpeed}x",
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val next = (playbackSpeed - 0.10f).coerceAtLeast(0.25f)
+                                    playbackSpeed = (Math.round(next * 100) / 100f)
+                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Text(
-                                    text = if (speed == 1.0f) "1.0x (স্বাভাবিক)" else "${speed}x",
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                Text("-0.10", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val next = (playbackSpeed - 0.05f).coerceAtLeast(0.25f)
+                                    playbackSpeed = (Math.round(next * 100) / 100f)
+                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("-0.05", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val next = (playbackSpeed + 0.05f).coerceAtMost(3.00f)
+                                    playbackSpeed = (Math.round(next * 100) / 100f)
+                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("+0.05", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val next = (playbackSpeed + 0.10f).coerceAtMost(3.00f)
+                                    playbackSpeed = (Math.round(next * 100) / 100f)
+                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("+0.10", fontSize = 11.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Slider(
+                            value = playbackSpeed,
+                            onValueChange = { raw ->
+                                val stepped = Math.round(raw / 0.05f) * 0.05f
+                                playbackSpeed = (Math.round(stepped * 100) / 100f).coerceIn(0.25f, 3.00f)
+                                exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                            },
+                            valueRange = 0.25f..3.00f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "দ্রুত নির্বাচন (Presets):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.align(Alignment.Start)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            presets.take(5).forEach { p ->
+                                val isSel = Math.abs(playbackSpeed - p) < 0.02f
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = {
+                                        playbackSpeed = p
+                                        exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                                    },
+                                    label = { Text("${p}x", fontSize = 11.sp) }
                                 )
-                                if (isSelected) {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
                             }
                         }
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = { showSpeedDialog = false }) {
-                        Text("বন্ধ করো")
+                        Text("সম্পূর্ণ")
                     }
                 }
             )

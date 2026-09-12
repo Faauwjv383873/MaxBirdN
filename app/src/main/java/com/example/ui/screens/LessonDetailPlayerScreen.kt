@@ -2,14 +2,18 @@ package com.example.ui.screens
 
 import android.app.Activity
 import android.app.DownloadManager
+import android.app.PictureInPictureParams
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.util.Rational
 import android.view.ViewGroup
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -25,6 +29,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +48,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -57,9 +64,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -70,6 +80,7 @@ import coil.request.ImageRequest
 import com.example.api.LessonAttachmentItem
 import com.example.api.StudentLessonItem
 import com.example.player.ShikhoPlayerManager
+import com.example.player.VideoTrackQuality
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
@@ -141,6 +152,9 @@ fun LessonDetailPlayerScreen(
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
     var showSpeedDialog by remember { mutableStateOf(false) }
+    var showQualityDialog by remember { mutableStateOf(false) }
+    var availableQualities by remember { mutableStateOf<List<VideoTrackQuality>>(emptyList()) }
+    var selectedQualityLabel by remember { mutableStateOf("অটো") }
 
     // Slide viewing state
     var viewingSlideItem by remember { mutableStateOf<LessonAttachmentItem?>(null) }
@@ -182,6 +196,35 @@ fun LessonDetailPlayerScreen(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                val qualities = mutableListOf<VideoTrackQuality>()
+                qualities.add(VideoTrackQuality(id = "auto", label = "অটো (Auto)", height = 0, bitrate = 0))
+
+                for (group in tracks.groups) {
+                    if (group.type == C.TRACK_TYPE_VIDEO) {
+                        for (i in 0 until group.length) {
+                            val format = group.getTrackFormat(i)
+                            val height = format.height
+                            val bitrate = format.bitrate
+                            if (height > 0) {
+                                val label = "${height}p" + if (bitrate > 0) " (${bitrate / 1000} kbps)" else ""
+                                qualities.add(
+                                    VideoTrackQuality(
+                                        id = "${height}_${bitrate}",
+                                        label = label,
+                                        height = height,
+                                        bitrate = bitrate,
+                                        trackGroup = group,
+                                        trackIndex = i
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+                availableQualities = qualities.distinctBy { it.label }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -280,6 +323,44 @@ fun LessonDetailPlayerScreen(
         }
     }
 
+    val isPipMode = com.example.LocalPictureInPictureMode.current
+    val configuration = LocalConfiguration.current
+
+    // Handle device physical orientation rotation dynamically
+    LaunchedEffect(configuration.orientation) {
+        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE && !isFullscreen) {
+            isFullscreen = true
+            activity?.let { act ->
+                val window = act.window
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else if (configuration.orientation == Configuration.ORIENTATION_PORTRAIT && isFullscreen) {
+            isFullscreen = false
+            activity?.let { act ->
+                val window = act.window
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    fun enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                activity?.enterPictureInPictureMode(params)
+            } catch (e: Exception) {
+                Toast.makeText(context, "PiP মোড চালু করা সম্ভব হয়নি", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "আপনার ডিভাইসে PiP মোড সমর্থিত নয়", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Fullscreen Screen Orientation & Immersive Sticky System Bars
     fun toggleFullscreen() {
         val newFullscreen = !isFullscreen
@@ -288,12 +369,12 @@ fun LessonDetailPlayerScreen(
             val window = act.window
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             if (newFullscreen) {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
                 insetsController.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             } else {
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
             }
         }
@@ -313,12 +394,42 @@ fun LessonDetailPlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             activity?.let { act ->
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                val window = act.window
-                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-                insetsController.show(WindowInsetsCompat.Type.systemBars())
+                if (act.isFinishing) {
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    val window = act.window
+                    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                    insetsController.show(WindowInsetsCompat.Type.systemBars())
+                }
             }
         }
+    }
+
+    // Picture In Picture View Mode
+    if (isPipMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                update = { pv ->
+                    pv.player = exoPlayer
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
     }
 
     // UI Structure
@@ -381,6 +492,9 @@ fun LessonDetailPlayerScreen(
                 onToggleFullscreen = { toggleFullscreen() },
                 onToggleControls = { areControlsVisible = !areControlsVisible },
                 onSpeedClick = { showSpeedDialog = true },
+                onQualityClick = { showQualityDialog = true },
+                selectedQualityLabel = selectedQualityLabel,
+                onPipClick = { enterPipMode() },
                 onBack = { toggleFullscreen() }
             )
         }
@@ -576,6 +690,9 @@ fun LessonDetailPlayerScreen(
                                 onToggleFullscreen = { toggleFullscreen() },
                                 onToggleControls = { areControlsVisible = !areControlsVisible },
                                 onSpeedClick = { showSpeedDialog = true },
+                                onQualityClick = { showQualityDialog = true },
+                                selectedQualityLabel = selectedQualityLabel,
+                                onPipClick = { enterPipMode() },
                                 onBack = {
                                     exoPlayer.stop()
                                     onBack()
@@ -1386,46 +1503,190 @@ fun LessonDetailPlayerScreen(
 
     // Playback Speed Selection Dialog
     if (showSpeedDialog) {
-        val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+        val formattedSpeed = String.format(java.util.Locale.US, "%.2f", playbackSpeed)
+        val presets = listOf(0.5f, 0.75f, 1.0f, 1.05f, 1.10f, 1.15f, 1.20f, 1.25f, 1.35f, 1.5f, 1.75f, 2.0f, 2.5f)
         AlertDialog(
             onDismissRequest = { showSpeedDialog = false },
             title = {
-                Text("প্লেব্যাক স্পিড", fontWeight = FontWeight.Bold)
+                Text("প্লেব্যাক স্পিড (Speed Control)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             },
             text = {
-                Column {
-                    speeds.forEach { speed ->
-                        val isSelected = playbackSpeed == speed
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    playbackSpeed = speed
-                                    exoPlayer.playbackParameters = PlaybackParameters(speed)
-                                    showSpeedDialog = false
-                                }
-                                .padding(vertical = 12.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "${formattedSpeed}x",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val next = (playbackSpeed - 0.10f).coerceAtLeast(0.25f)
+                                playbackSpeed = (Math.round(next * 100) / 100f)
+                                exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text(
-                                text = "${speed}x" + if (speed == 1.0f) " (স্বাভাবিক)" else "",
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            Text("-0.10", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val next = (playbackSpeed - 0.05f).coerceAtLeast(0.25f)
+                                playbackSpeed = (Math.round(next * 100) / 100f)
+                                exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("-0.05", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val next = (playbackSpeed + 0.05f).coerceAtMost(3.00f)
+                                playbackSpeed = (Math.round(next * 100) / 100f)
+                                exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("+0.05", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val next = (playbackSpeed + 0.10f).coerceAtMost(3.00f)
+                                playbackSpeed = (Math.round(next * 100) / 100f)
+                                exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("+0.10", fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Slider(
+                        value = playbackSpeed,
+                        onValueChange = { raw ->
+                            val stepped = Math.round(raw / 0.05f) * 0.05f
+                            playbackSpeed = (Math.round(stepped * 100) / 100f).coerceIn(0.25f, 3.00f)
+                            exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                        },
+                        valueRange = 0.25f..3.00f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "দ্রুত নির্বাচন (Presets):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(presets) { p ->
+                            val isSel = Math.abs(playbackSpeed - p) < 0.02f
+                            FilterChip(
+                                selected = isSel,
+                                onClick = {
+                                    playbackSpeed = p
+                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
+                                },
+                                label = { Text("${p}x") }
                             )
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showSpeedDialog = false }) {
+                    Text("সম্পূর্ণ")
+                }
+            }
+        )
+    }
+
+    // Video Quality Selection Dialog
+    if (showQualityDialog) {
+        AlertDialog(
+            onDismissRequest = { showQualityDialog = false },
+            title = {
+                Text("ভিডিও রেজোলিউশন / কোয়ালিটি", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column {
+                    if (availableQualities.isEmpty()) {
+                        Text(
+                            "অটো রেজোলিউশন চলছে (বা সিলেক্টেড স্ট্রিমে একটাই কোয়ালিটি লভ্য)",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    } else {
+                        availableQualities.forEach { quality ->
+                            val isSelected = selectedQualityLabel == quality.label
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedQualityLabel = quality.label
+                                        if (quality.id == "auto") {
+                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                                .buildUpon()
+                                                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                                .build()
+                                        } else if (quality.trackGroup != null) {
+                                            val override = TrackSelectionOverride(
+                                                quality.trackGroup.mediaTrackGroup,
+                                                listOf(quality.trackIndex)
+                                            )
+                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                                .buildUpon()
+                                                .setOverrideForType(override)
+                                                .build()
+                                        }
+                                        showQualityDialog = false
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = quality.label,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showQualityDialog = false }) {
                     Text("বন্ধ করুন")
                 }
             }
@@ -1605,6 +1866,9 @@ private fun PlayerControlsOverlay(
     onToggleFullscreen: () -> Unit,
     onToggleControls: () -> Unit,
     onSpeedClick: () -> Unit,
+    onQualityClick: () -> Unit = {},
+    selectedQualityLabel: String = "অটো",
+    onPipClick: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -1688,19 +1952,72 @@ private fun PlayerControlsOverlay(
                         }
                     }
 
-                    // Speed and Settings Button
+                    // Quality, Speed and PiP Buttons
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        // Picture in Picture (PiP) Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onPipClick() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureInPictureAlt,
+                                    contentDescription = "PiP",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "PiP",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Quality Tag Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onQualityClick() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.HighQuality,
+                                    contentDescription = "কোয়ালিটি",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = selectedQualityLabel,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         // Playback Speed Tag Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.White.copy(alpha = 0.2f),
                             modifier = Modifier.clickable { onSpeedClick() }
                         ) {
+                            val displaySpeed = String.format(java.util.Locale.US, "%.2f", playbackSpeed).removeSuffix(".00")
                             Text(
-                                text = "${playbackSpeed}x",
+                                text = "${displaySpeed}x",
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,

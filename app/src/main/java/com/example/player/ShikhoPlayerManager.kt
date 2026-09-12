@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -12,6 +13,16 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import java.util.Locale
+
+@OptIn(UnstableApi::class)
+data class VideoTrackQuality(
+    val id: String,
+    val label: String,
+    val height: Int,
+    val bitrate: Int,
+    val trackGroup: Tracks.Group? = null,
+    val trackIndex: Int = 0
+)
 
 @OptIn(UnstableApi::class)
 object ShikhoPlayerManager {
