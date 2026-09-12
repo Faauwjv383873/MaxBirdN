@@ -1,11 +1,14 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -314,19 +317,39 @@ private fun CourseBannerCard(
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Top Badge
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = badge.containerColor,
+                // Top Badge with Shikho Logo
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(bottom = 12.dp)
                 ) {
-                    Text(
-                        text = badge.text,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = badge.textColor,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.maxbird_logo),
+                            contentDescription = "MaxBird",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = badge.containerColor
+                    ) {
+                        Text(
+                            text = badge.text,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = badge.textColor,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

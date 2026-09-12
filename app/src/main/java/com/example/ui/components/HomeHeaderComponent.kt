@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -82,31 +83,53 @@ fun HomeHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                // হ্যালো, নাম 👋
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // App Logo Badge
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.maxbird_logo),
+                        contentDescription = "MaxBird Logo",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column {
+                    // হ্যালো, নাম 👋
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "হ্যালো, $userName",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "👋", fontSize = 16.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // ক্লাস, গ্রুপ, শিক্ষাপ্রতিষ্ঠান
                     Text(
-                        text = "হ্যালো, $userName",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = subtitle,
+                        color = Color.White.copy(alpha = 0.88f),
+                        fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "👋", fontSize = 18.sp)
                 }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // ক্লাস, গ্রুপ, শিক্ষাপ্রতিষ্ঠান
-                Text(
-                    text = subtitle,
-                    color = Color.White.copy(alpha = 0.88f),
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
 
             Spacer(modifier = Modifier.width(12.dp))
