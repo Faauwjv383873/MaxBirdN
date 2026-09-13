@@ -33,6 +33,8 @@ import com.example.api.PhaseItem
 import com.example.api.TopicFullItem
 import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
+import com.example.utils.AcademicLocalizationUtils
+import com.example.utils.EmptyQuestionsCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,26 +121,6 @@ fun SubjectChaptersScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-
-                        // Refresh button
-                        IconButton(
-                            onClick = {
-                                viewModel.loadChaptersForSubject(
-                                    subjectCode = subjectCode,
-                                    subjectTitle = subjectTitle,
-                                    subjectColor = subjectColorHex,
-                                    phaseId = uiState.activePhaseId
-                                )
-                            },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
                     }
 
                     // Dynamic Phase / Quarter Tabs (Shown ONLY if more than 1 phase exists)
@@ -342,9 +324,9 @@ fun SubjectChaptersScreen(
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text(
                                                 text = when (selectedMode) {
-                                                    1 -> "অ্যানিমেটেড মোড — অধ্যায় সিলেক্ট করে ক্লাস দেখুন"
-                                                    2 -> "প্র্যাকটিস কুইজ মোড — অধ্যায় সিলেক্ট করে পরীক্ষা দিন"
-                                                    else -> "ই-বুক মোড — অধ্যায় সিলেক্ট করে নোটস পড়ুন"
+                                                    1 -> "${AcademicLocalizationUtils.translateContentType("Video")} মোড — অধ্যায় সিলেক্ট করে ক্লাস দেখুন"
+                                                    2 -> "${AcademicLocalizationUtils.translateContentType("Exam")} মোড — অধ্যায় সিলেক্ট করে পরীক্ষা দিন"
+                                                    else -> "${AcademicLocalizationUtils.translateContentType("SmartNotes")} মোড — অধ্যায় সিলেক্ট করে নোটস পড়ুন"
                                                 },
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold,
@@ -382,9 +364,9 @@ fun SubjectChaptersScreen(
                             ) {
                                 Text(
                                     text = when (selectedMode) {
-                                        1 -> "অ্যানিমেটেড অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
-                                        2 -> "কুইজ অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
-                                        3 -> "ই-বুক অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                        1 -> "${AcademicLocalizationUtils.translateContentType("Video")} অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                        2 -> "${AcademicLocalizationUtils.translateContentType("Exam")} অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                        3 -> "${AcademicLocalizationUtils.translateContentType("SmartNotes")} অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
                                         else -> "অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
                                     },
                                     fontSize = 15.sp,
@@ -403,7 +385,16 @@ fun SubjectChaptersScreen(
                             }
                         }
 
-                        if (uiState.chapters.isEmpty()) {
+                        val isQuizModeWithNoExams = selectedMode == 2 && (uiState.chapters.isEmpty() || uiState.chapters.none { (it.exam_counter ?: 0) > 0 })
+                        if (isQuizModeWithNoExams) {
+                            item {
+                                EmptyQuestionsCard(
+                                    ordinal = 0,
+                                    onOkClick = { selectedMode = 0 },
+                                    onAllChaptersClick = { selectedMode = 0 }
+                                )
+                            }
+                        } else if (uiState.chapters.isEmpty()) {
                             item {
                                 Card(
                                     shape = RoundedCornerShape(16.dp),
@@ -481,7 +472,7 @@ fun CourseFeatureShortcuts(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         ShortcutButton(
-            title = "অ্যানিমেটেড লেসন",
+            title = AcademicLocalizationUtils.translateContentType("Video"),
             icon = Icons.Default.SlowMotionVideo,
             color = Color(0xFF8B5CF6),
             isSelected = selectedMode == 1,
@@ -489,7 +480,7 @@ fun CourseFeatureShortcuts(
             onClick = { onSelectMode(1) }
         )
         ShortcutButton(
-            title = "প্র্যাকটিস কুইজ",
+            title = AcademicLocalizationUtils.translateContentType("Exam"),
             icon = Icons.Default.FactCheck,
             color = Color(0xFF10B981),
             isSelected = selectedMode == 2,
@@ -497,7 +488,7 @@ fun CourseFeatureShortcuts(
             onClick = { onSelectMode(2) }
         )
         ShortcutButton(
-            title = "ই-বুক",
+            title = AcademicLocalizationUtils.translateContentType("SmartNotes"),
             icon = Icons.Default.MenuBook,
             color = Color(0xFFF59E0B),
             isSelected = selectedMode == 3,
@@ -633,48 +624,48 @@ fun ChapterCard(
                     when {
                         chapter.isCompleted -> {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFF10B981).copy(alpha = 0.12f)
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.14f)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.CheckCircle,
                                         contentDescription = null,
                                         tint = Color(0xFF10B981),
-                                        modifier = Modifier.size(10.dp)
+                                        modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        text = "পড়ানো শেষ",
-                                        fontSize = 10.sp,
+                                        text = "শেষ",
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF10B981)
+                                        color = Color(0xFF059669)
                                     )
                                 }
                             }
                         }
                         chapter.isInProgress -> {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = subjectColor.copy(alpha = 0.12f)
+                                shape = RoundedCornerShape(6.dp),
+                                color = subjectColor.copy(alpha = 0.14f)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(5.dp)
+                                            .size(6.dp)
                                             .clip(CircleShape)
                                             .background(subjectColor)
                                     )
                                     Text(
-                                        text = "পড়ানো হচ্ছে",
-                                        fontSize = 10.sp,
+                                        text = "হচ্ছে",
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = subjectColor
                                     )
@@ -683,15 +674,15 @@ fun ChapterCard(
                         }
                         else -> {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
+                                shape = RoundedCornerShape(6.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                             ) {
                                 Text(
-                                    text = "আসন্ন",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    text = "হবে",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -699,7 +690,7 @@ fun ChapterCard(
 
                     if (chapter.effectiveNo != null) {
                         Text(
-                            text = "• অধ্যায় ${toBengaliDigits(chapter.effectiveNo.toString())}",
+                            text = "• ${AcademicLocalizationUtils.CHAPTER_PREFIX}${toBengaliDigits(chapter.effectiveNo.toString())}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

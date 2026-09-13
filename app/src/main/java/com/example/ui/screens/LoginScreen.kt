@@ -10,8 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -20,22 +19,20 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.PlayCircleFilled
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -82,14 +79,26 @@ fun LoginScreen(
         }
     }
 
-    val backgroundGradient = remember {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFF0F172A), // Deep Slate Navy
-                Color(0xFF020617), // Midnight Dark
-                Color(0xFF090D16)
+    val isDark = isSystemInDarkTheme()
+
+    val backgroundGradient = remember(isDark) {
+        if (isDark) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFF0B1120),
+                    Color(0xFF020617),
+                    Color(0xFF0F172A)
+                )
             )
-        )
+        } else {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFFF8FAFC),
+                    Color(0xFFEFF6FF),
+                    Color(0xFFF1F5F9)
+                )
+            )
+        }
     }
 
     Box(
@@ -97,16 +106,16 @@ fun LoginScreen(
             .fillMaxSize()
             .background(backgroundGradient)
     ) {
-        // Decorative background subtle accent circle
+        // Decorative background subtle accent halos (adaptive for light/dark)
         Box(
             modifier = Modifier
-                .size(320.dp)
-                .offset(x = (-80).dp, y = (-80).dp)
+                .size(340.dp)
+                .offset(x = (-80).dp, y = (-60).dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF7C3AED).copy(alpha = 0.20f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.18f else 0.12f),
                             Color.Transparent
                         )
                     )
@@ -117,12 +126,12 @@ fun LoginScreen(
             modifier = Modifier
                 .size(280.dp)
                 .align(Alignment.BottomEnd)
-                .offset(x = 100.dp, y = 100.dp)
+                .offset(x = 80.dp, y = 80.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF0284C7).copy(alpha = 0.18f),
+                            MaterialTheme.colorScheme.secondary.copy(alpha = if (isDark) 0.15f else 0.10f),
                             Color.Transparent
                         )
                     )
@@ -138,9 +147,9 @@ fun LoginScreen(
                 .padding(horizontal = 22.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // App Header & Logo
+            // App Header & Logo: MaxBird Brand
             AnimatedVisibility(
                 visible = visible,
                 enter = fadeIn(animationSpec = tween(600)) + slideInVertically(
@@ -151,101 +160,105 @@ fun LoginScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
-                            .size(76.dp)
-                            .clip(RoundedCornerShape(22.dp))
+                            .size(84.dp)
+                            .shadow(
+                                elevation = if (isDark) 12.dp else 6.dp,
+                                shape = RoundedCornerShape(26.dp),
+                                spotColor = MaterialTheme.colorScheme.primary
+                            )
+                            .clip(RoundedCornerShape(26.dp))
                             .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF1E293B), Color(0xFF0F172A))
-                                )
+                                if (isDark) {
+                                    Brush.linearGradient(listOf(Color(0xFF1E293B), Color(0xFF0F172A)))
+                                } else {
+                                    Brush.linearGradient(listOf(Color.White, Color(0xFFE2E8F0)))
+                                }
                             )
                             .border(
                                 width = 1.5.dp,
                                 brush = Brush.linearGradient(
-                                    listOf(Color(0xFF38BDF8), Color(0xFF818CF8))
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.secondary
+                                    )
                                 ),
-                                shape = RoundedCornerShape(22.dp)
+                                shape = RoundedCornerShape(26.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         Image(
                             painter = painterResource(id = R.drawable.maxbird_logo),
-                            contentDescription = "Shikho Logo",
+                            contentDescription = "MaxBird Logo",
                             modifier = Modifier
-                                .size(54.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .size(60.dp)
+                                .clip(RoundedCornerShape(18.dp))
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     Text(
-                        text = "শিখো ডিজিটাল একাডেমি",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        text = "MaxBird",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground,
                         letterSpacing = 0.5.sp
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "সহজ ও আনন্দদায়ক শেখার নতুন অভিজ্ঞতা",
-                        fontSize = 13.sp,
-                        color = Color(0xFF94A3B8),
+                        text = "সহজ ও আনন্দদায়ক শেখার ডিজিটাল একাডেমি",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
-            // Bento Grid UI Layout
+            // Phone Input Card (Modern Luxe Theme-Adaptive Style)
             AnimatedVisibility(
                 visible = visible,
-                enter = fadeIn(animationSpec = tween(700, delayMillis = 150)) + slideInVertically(
-                    initialOffsetY = { 30 },
-                    animationSpec = tween(700, delayMillis = 150, easing = FastOutSlowInEasing)
-                )
-            ) {
-                BentoGridSection()
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Phone Input Card (Linear Modern Luxe Style)
-            AnimatedVisibility(
-                visible = visible,
-                enter = fadeIn(animationSpec = tween(800, delayMillis = 300)) + slideInVertically(
+                enter = fadeIn(animationSpec = tween(800, delayMillis = 200)) + slideInVertically(
                     initialOffsetY = { 40 },
-                    animationSpec = tween(800, delayMillis = 300, easing = FastOutSlowInEasing)
+                    animationSpec = tween(800, delayMillis = 200, easing = FastOutSlowInEasing)
                 )
             ) {
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(
+                            elevation = if (isDark) 10.dp else 4.dp,
+                            shape = RoundedCornerShape(24.dp)
+                        ),
                     shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF1E293B).copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, Color(0xFF334155)),
-                    shadowElevation = 8.dp
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.8f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp)
+                            .padding(22.dp)
                     ) {
                         Text(
                             text = "মোবাইল নম্বর লিখুন",
-                            fontSize = 16.sp,
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "লগইন বা একাউন্ট খুলতে ১১ ডিজিটের নম্বর দিন",
-                            fontSize = 12.sp,
-                            color = Color(0xFF94A3B8)
+                            text = "লগইন করতে বা নতুন অ্যাকাউন্ট তৈরি করতে ১১ ডিজিটের নম্বর দিন",
+                            fontSize = 12.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
 
                         // Custom Phone Input Container
                         Row(
@@ -253,19 +266,23 @@ fun LoginScreen(
                                 .fillMaxWidth()
                                 .height(56.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFF0F172A))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.5f else 0.7f))
                                 .border(
                                     width = if (phoneInput.length == 11) 1.5.dp else 1.dp,
-                                    color = if (phoneInput.length == 11) Color(0xFF38BDF8) else Color(0xFF334155),
+                                    color = if (phoneInput.length == 11) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                    },
                                     shape = RoundedCornerShape(16.dp)
                                 ),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Country Code Badge (+880)
+                            // Country Code Badge (+880 with BD Flag)
                             Row(
                                 modifier = Modifier
                                     .fillMaxHeight()
-                                    .background(Color(0xFF1E293B))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -273,14 +290,14 @@ fun LoginScreen(
                                 Icon(
                                     imageVector = Icons.Default.PhoneAndroid,
                                     contentDescription = null,
-                                    tint = Color(0xFF38BDF8),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
                                     text = "+880",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
@@ -288,7 +305,7 @@ fun LoginScreen(
                                 modifier = Modifier
                                     .width(1.dp)
                                     .fillMaxHeight()
-                                    .background(Color(0xFF334155))
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             )
 
                             // Input Field
@@ -310,14 +327,14 @@ fun LoginScreen(
                                     errorContainerColor = Color.Transparent,
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White,
-                                    cursorColor = Color(0xFF38BDF8)
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    cursorColor = MaterialTheme.colorScheme.primary
                                 ),
                                 placeholder = {
                                     Text(
-                                        "17XXXXXXXX",
-                                        color = Color(0xFF64748B),
+                                        "০১XXXXXXXXX",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                         fontSize = 15.sp
                                     )
                                 },
@@ -327,7 +344,7 @@ fun LoginScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Clear,
                                                 contentDescription = "Clear",
-                                                tint = Color(0xFF94A3B8),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
@@ -350,22 +367,52 @@ fun LoginScreen(
                         }
 
                         if (errorMessage != null) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = errorMessage!!,
-                                color = Color(0xFFF87171),
-                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 12.5.sp,
                                 modifier = Modifier.padding(start = 4.dp)
                             )
                         }
 
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // New Account Completion Helper Banner
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDark) 0.35f else 0.45f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "নতুন অ্যাকাউন্ট হলে ওটিপি ভেরিফিকেশনের পর আপনার নাম ও শিক্ষা প্রতিষ্ঠানের তথ্য দিয়ে অ্যাকাউন্ট কমপ্লিট করার সুযোগ থাকবে।",
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Animated Action Button: "পরবর্তী" / "এগিয়ে যাও"
+                        // Animated Action Button: "এগিয়ে যান"
                         val isEnabled = authState != AuthState.Loading && phoneInput.length >= 10
                         val buttonScale by animateFloatAsState(
                             targetValue = if (isEnabled) 1.0f else 0.98f,
-                            animationSpec = springAnimationSpec()
+                            animationSpec = springAnimationSpec(),
+                            label = "buttonScale"
                         )
 
                         Button(
@@ -376,11 +423,11 @@ fun LoginScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(54.dp)
-                                .scale(buttonScale)
-                                .clip(RoundedCornerShape(16.dp)),
+                                .scale(buttonScale),
+                            shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isEnabled) Color(0xFF0284C7) else Color(0xFF334155),
-                                disabledContainerColor = Color(0xFF1E293B)
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
                             ),
                             enabled = isEnabled
                         ) {
@@ -396,15 +443,15 @@ fun LoginScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = "এগিয়ে যাও",
+                                        text = "এগিয়ে যান",
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isEnabled) Color.White else Color(0xFF64748B)
+                                        color = if (isEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Icon(
-                                        imageVector = Icons.Default.ArrowForward,
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                         contentDescription = null,
-                                        tint = if (isEnabled) Color.White else Color(0xFF64748B),
+                                        tint = if (isEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -415,136 +462,32 @@ fun LoginScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
 
-// Bento Grid Component (Linear Modern Luxe Style)
-@Composable
-private fun BentoGridSection() {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        // Row 1: Main Feature Card (Span 2)
-        BentoTile(
-            title = "১০০K+ শিক্ষার্থীর বিশ্বস্ত প্ল্যাটফর্ম",
-            subtitle = "স্মার্ট লার্নিং টুলস দিয়ে নিজের প্রস্তুতি যাচাই করো",
-            icon = Icons.Default.School,
-            iconTint = Color(0xFF38BDF8),
-            gradientColors = listOf(Color(0xFF0F172A), Color(0xFF1E293B)),
-            borderColor = Color(0xFF38BDF8).copy(alpha = 0.4f),
-            badgeText = "জনপ্রিয়"
-        )
-
-        // Row 2: Two Equal Bento Tiles
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(modifier = Modifier.weight(1f)) {
-                BentoTile(
-                    title = "লাইভ ক্লাস",
-                    subtitle = "সেরা শিক্ষকদের রেকর্ডেড ও লাইভ ক্লাস",
-                    icon = Icons.Default.PlayCircleFilled,
-                    iconTint = Color(0xFFF43F5E),
-                    gradientColors = listOf(Color(0xFF881337).copy(alpha = 0.4f), Color(0xFF1E293B)),
-                    borderColor = Color(0xFFF43F5E).copy(alpha = 0.3f)
+            // Terms & Privacy Agreement Footer
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(14.dp)
                 )
-            }
-
-            Box(modifier = Modifier.weight(1f)) {
-                BentoTile(
-                    title = "Think AI",
-                    subtitle = "তাৎক্ষণিক এআই সমাধান ও কুইজ",
-                    icon = Icons.Default.Psychology,
-                    iconTint = Color(0xFFA855F7),
-                    gradientColors = listOf(Color(0xFF581C87).copy(alpha = 0.4f), Color(0xFF1E293B)),
-                    borderColor = Color(0xFFA855F7).copy(alpha = 0.3f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BentoTile(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconTint: Color,
-    gradientColors: List<Color>,
-    borderColor: Color,
-    badgeText: String? = null
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, borderColor)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.linearGradient(gradientColors))
-                .padding(16.dp)
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(iconTint.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = iconTint,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    if (badgeText != null) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = iconTint.copy(alpha = 0.2f)
-                        ) {
-                            Text(
-                                text = badgeText,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = iconTint,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = subtitle,
-                    fontSize = 11.sp,
-                    color = Color(0xFF94A3B8),
-                    lineHeight = 15.sp,
-                    maxLines = 2
+                    text = "এগিয়ে যাওয়ার মাধ্যমে আপনি MaxBird এর শর্তাবলী ও গোপনীয়তা নীতি মেনে নিচ্ছেন।",
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 16.sp
                 )
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

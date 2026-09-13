@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.api.StudentLessonItem
 import com.example.home.HomeViewModel
+import com.example.utils.ClassTypeUtils
 import com.example.ui.components.SubjectFilterDialog
 import com.example.ui.components.calculateDurationText
 import com.example.ui.components.formatTimeRange
@@ -733,17 +734,15 @@ private fun RoutineTimelineCard(
     
     val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
 
+    val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
     val typeText = when {
         isLiveNow -> "🔴 লাইভ চলছে"
         isExam -> "✍️ পরীক্ষা (Exam)"
-        isLive -> "🔴 লাইভ ক্লাস"
-        isRecorded -> "🎥 রেকর্ড করা ক্লাস"
-        lesson.live_class?.type == "EXTRA" -> "👨‍🏫 এক্সট্রা ক্লাস"
-        else -> "👨‍🏫 লেকচার ক্লাস"
+        else -> classTypeBadge.label
     }
 
     val subjectName = lesson.subject_name ?: "বিষয়"
-    val titleText = lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস"
+    val titleText = ClassTypeUtils.formatLessonTitle(lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস")
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
 
     val titleFontSize = when {

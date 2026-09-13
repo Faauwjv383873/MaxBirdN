@@ -148,6 +148,49 @@ class SessionManager(context: Context) {
         return sharedPreferences.getStringSet("priority_subjects_$programId", null)
     }
 
+    // Theme Mode Management ("system", "light", "dark")
+    private val _themeModeFlow = kotlinx.coroutines.flow.MutableStateFlow(getThemeMode())
+    val themeModeFlow: kotlinx.coroutines.flow.StateFlow<String> = _themeModeFlow
+
+    fun getThemeMode(): String {
+        return sharedPreferences.getString("app_theme_mode", "system") ?: "system"
+    }
+
+    fun setThemeMode(mode: String) {
+        sharedPreferences.edit().putString("app_theme_mode", mode).apply()
+        _themeModeFlow.value = mode
+    }
+
+    // Account Completion Status
+    fun isAccountComplete(): Boolean {
+        val firstName = getUserFirstName()?.trim()
+        return !firstName.isNullOrBlank() && firstName != "শিক্ষার্থী"
+    }
+
+    fun isAccountIncomplete(): Boolean = !isAccountComplete()
+
+    fun setJustSignedUp(isNew: Boolean) {
+        sharedPreferences.edit().putBoolean("just_signed_up", isNew).apply()
+    }
+
+    // Watched / Completed Lessons Tracking
+    fun markLessonCompleted(lessonId: String) {
+        if (lessonId.isBlank()) return
+        val current = sharedPreferences.getStringSet("completed_lessons", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(lessonId)
+        sharedPreferences.edit().putStringSet("completed_lessons", current).apply()
+    }
+
+    fun isLessonCompleted(lessonId: String): Boolean {
+        if (lessonId.isBlank()) return false
+        val set = sharedPreferences.getStringSet("completed_lessons", emptySet()) ?: emptySet()
+        return set.contains(lessonId)
+    }
+
+    fun getJustSignedUp(): Boolean {
+        return sharedPreferences.getBoolean("just_signed_up", false)
+    }
+
     fun clearSession() {
         sharedPreferences.edit()
             .remove("access_token")
@@ -162,6 +205,7 @@ class SessionManager(context: Context) {
             .remove("user_first_name")
             .remove("user_last_name")
             .remove("user_avatar")
+            .remove("just_signed_up")
             .apply()
     }
 }

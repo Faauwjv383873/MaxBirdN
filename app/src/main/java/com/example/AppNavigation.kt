@@ -101,8 +101,15 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onLoginSuccess = {
                     homeViewModel.loadData()
                     courseViewModel.loadSubjects(forceRefresh = true)
-                    navController.navigate(Routes.HOME) {
-                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    if (sessionManager.getJustSignedUp() || sessionManager.isAccountIncomplete()) {
+                        sessionManager.setJustSignedUp(false)
+                        navController.navigate(Routes.EDIT_PROFILE) {
+                            popUpTo(Routes.LOGIN) { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(Routes.LOGIN) { inclusive = true }
+                        }
                     }
                 },
                 onForgotPasswordNavigate = { authType ->

@@ -46,6 +46,8 @@ import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
 import com.example.course.SubjectWithProgress
 import com.example.ui.components.getProgramBadge
+import com.example.utils.SubjectIconBadge
+import com.example.utils.SubjectColorUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -755,125 +757,48 @@ private fun CourseSubjectsDetailView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Active Course Card Bar
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    val badge = getProgramBadge(activeProgram)
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = badge.containerColor,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    ) {
-                        Text(
-                            text = badge.text,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = badge.textColor,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
-                    Text(
-                        text = activeProgram.title_bn ?: "কোর্স",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onSwitchCourse,
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    modifier = Modifier.height(34.dp)
-                ) {
-                    Text(
-                        text = "অন্য কোর্স",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // 3-Step Flow Indicator Badge: 1. সকল সাবজেক্ট ➔ 2. অধ্যায় ➔ 3. ক্লাস
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFFEEF2FF),
-            border = BorderStroke(1.dp, Color(0xFFC7D2FE)),
+        // Clean, Compact Header (No redundant bulky cards)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "🎬 অ্যানিমেটেড লেসন:",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF4338CA)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "১. সকল সাবজেক্ট ➔ ২. অধ্যায় ➔ ৩. ক্লাস",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF3730A3)
-                    )
-                }
-            }
-        }
-
-        // Subjects Section Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
+                .padding(top = 14.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "কোর্সের বিষয়সমূহ",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1E293B)
-            )
-            if (uiState.subjects.isNotEmpty()) {
+            Column {
                 Text(
-                    text = "${toBengaliDigits(uiState.subjects.size)} টি বিষয়",
+                    text = "কোর্সের বিষয়সমূহ",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (uiState.subjects.isNotEmpty()) {
+                    Text(
+                        text = "মোট ${toBengaliDigits(uiState.subjects.size)} টি বিষয় অন্তর্ভুক্ত",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            OutlinedButton(
+                onClick = onSwitchCourse,
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Text(
+                    text = "অন্য কোর্স",
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
 
         // Main Grid or Loading / Error State
         Box(
@@ -1000,136 +925,141 @@ fun SubjectGridCard(
     modifier: Modifier = Modifier
 ) {
     val subject = item.subject
-    val context = LocalContext.current
 
-    val parsedColor = remember(subject.color_code) {
+    val parsedColor = remember(subject.color_code, subject.display_bn) {
         try {
             if (!subject.color_code.isNullOrBlank()) {
                 Color(android.graphics.Color.parseColor(subject.color_code))
             } else {
-                Color(0xFF0072EC)
+                SubjectColorUtils.getColorScheme(subject.display_bn).textColor
             }
         } catch (_: Exception) {
-            Color(0xFF0072EC)
+            SubjectColorUtils.getColorScheme(subject.display_bn).textColor
         }
     }
 
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(18.dp))
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(20.dp)
+                color = parsedColor.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(18.dp)
             )
             .clickable(onClick = onClick)
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .background(parsedColor.copy(alpha = 0.04f))
+                .padding(14.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = parsedColor.copy(alpha = 0.12f),
-                    modifier = Modifier.size(46.dp)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize()
+                    SubjectIconBadge(
+                        iconUrl = subject.icon,
+                        subjectName = subject.display_bn,
+                        subjectCode = subject.code,
+                        color = parsedColor,
+                        size = 44.dp,
+                        iconSize = 24.dp
+                    )
+
+                    Surface(
+                        shape = CircleShape,
+                        color = parsedColor.copy(alpha = 0.12f),
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        if (!subject.icon.isNullOrBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(subject.icon)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = subject.display_bn,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        } else {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Default.AutoStories,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = null,
                                 tint = parsedColor,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(13.dp)
                             )
                         }
                     }
                 }
 
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    modifier = Modifier.size(26.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(12.dp)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = subject.display_bn ?: subject.code ?: "বিষয়",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.heightIn(min = 38.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Chapter count pill / Progress
+                if (item.totalChapters > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = parsedColor.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = "${toBengaliDigits(item.completedChapters)}/${toBengaliDigits(item.totalChapters)} অধ্যায়",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = parsedColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "${toBengaliDigits(item.progressPercentage)}%",
+                            fontSize = 11.sp,
+                            color = parsedColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val progress = (item.progressPercentage / 100f).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        color = parsedColor,
+                        trackColor = parsedColor.copy(alpha = 0.15f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                    )
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = parsedColor.copy(alpha = 0.10f)
+                    ) {
+                        Text(
+                            text = "অধ্যায়সমূহ দেখুন",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = parsedColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = subject.display_bn ?: subject.code ?: "বিষয়",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 19.sp,
-                modifier = Modifier.heightIn(min = 38.dp)
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            val progress = (item.progressPercentage / 100f).coerceIn(0f, 1f)
-            LinearProgressIndicator(
-                progress = { progress },
-                color = parsedColor,
-                trackColor = parsedColor.copy(alpha = 0.15f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "মোট অগ্রগতি",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
-                Text(
-                    text = "${toBengaliDigits(item.progressPercentage)}%",
-                    fontSize = 11.sp,
-                    color = parsedColor,
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
     }

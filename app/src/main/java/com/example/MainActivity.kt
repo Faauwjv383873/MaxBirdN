@@ -18,6 +18,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import com.example.auth.SessionManager
 import com.example.ui.theme.MyApplicationTheme
 
 val LocalPictureInPictureMode = compositionLocalOf { false }
@@ -32,8 +37,17 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionOnStartup()
 
         setContent {
+            val sessionManager = remember { SessionManager(applicationContext) }
+            val themeMode by sessionManager.themeModeFlow.collectAsState()
+            val systemInDark = isSystemInDarkTheme()
+            val isDarkTheme = when (themeMode) {
+                "light" -> false
+                "dark" -> true
+                else -> systemInDark
+            }
+
             CompositionLocalProvider(LocalPictureInPictureMode provides isPipModeState.value) {
-                MyApplicationTheme {
+                MyApplicationTheme(darkTheme = isDarkTheme) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background

@@ -22,11 +22,17 @@ private val DarkColorScheme = darkColorScheme(
     tertiary = ShikhoAmber,
     background = ShikhoNavyDark,
     surface = ShikhoNavyCard,
+    surfaceVariant = ShikhoNavySurface,
     onPrimary = Color.White,
     onSecondary = Color.White,
     onTertiary = Color.White,
     onBackground = Color.White,
     onSurface = Color.White,
+    onSurfaceVariant = Color(0xFF94A3B8),
+    outline = Color(0xFF475569),
+    outlineVariant = Color(0xFF334155),
+    primaryContainer = Color(0xFF1E293B),
+    onPrimaryContainer = ShikhoSkyBlue
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -35,11 +41,17 @@ private val LightColorScheme = lightColorScheme(
     tertiary = ShikhoAmber,
     background = CanvasLight,
     surface = CanvasWhite,
+    surfaceVariant = Color(0xFFF1F5F9),
     onPrimary = Color.White,
     onSecondary = Color.White,
     onTertiary = Color.White,
     onBackground = TextNavyDark,
     onSurface = TextNavyDark,
+    onSurfaceVariant = TextSlateMuted,
+    outline = Color(0xFFCBD5E1),
+    outlineVariant = BorderSubtle,
+    primaryContainer = Color(0xFFE0F2FE),
+    onPrimaryContainer = ShikhoElectricBlue
 )
 
 @Composable

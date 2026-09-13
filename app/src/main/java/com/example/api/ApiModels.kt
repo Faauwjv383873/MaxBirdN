@@ -420,6 +420,9 @@ data class StudentLessonItem(
     val color_code: String? = null,
     val icon: String? = null,
     val user_activity_state: String? = null, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"
+    val class_type: String? = null,
+    val type: String? = null,
+    val tag: String? = null,
     val live_class: LiveClassDetails? = null,
     val model_test: ModelTestDetails? = null,
     val slide_url: String? = null,
@@ -703,6 +706,7 @@ data class LiveClassDetails(
     val start_time: String? = null,
     val end_time: String? = null,
     val type: String? = null,
+    val class_type: String? = null,
     val topics: List<TopicItem>? = emptyList(),
     val teacher: TeacherItem? = null,
     val instructor: TeacherItem? = null,

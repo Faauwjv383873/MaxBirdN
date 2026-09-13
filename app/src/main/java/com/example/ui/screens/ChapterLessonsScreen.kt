@@ -29,8 +29,12 @@ import androidx.compose.ui.unit.sp
 import com.example.api.StudentLessonItem
 import com.example.api.TopicFullItem
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import com.example.auth.SessionManager
 import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
+import com.example.utils.AcademicLocalizationUtils
+import com.example.utils.ClassTypeUtils
+import com.example.utils.EmptyQuestionsCard
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -78,6 +82,8 @@ fun ChapterLessonsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
+    var lessonCompletionCounter by remember { mutableIntStateOf(0) }
     val uiState by viewModel.uiState.collectAsState()
 
     val subjectColor = remember(uiState.selectedSubjectColor) {
@@ -151,26 +157,6 @@ fun ChapterLessonsScreen(
                                 color = subjectColor
                             )
                         }
-                    }
-
-                    // Refresh Button
-                    IconButton(
-                        onClick = {
-                            viewModel.loadLessonsForChapter(
-                                chapterId = chapterId,
-                                chapterName = chapterName,
-                                chapterStatus = chapterStatus
-                            )
-                            viewModel.loadAnimatedLessonsForChapter(chapterId)
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
                 }
             }
@@ -290,62 +276,6 @@ fun ChapterLessonsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Chapter Summary Header Card
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = subjectColor.copy(alpha = 0.08f),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    subjectColor.copy(alpha = 0.2f)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = chapterName,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "মোট ক্লাস ও কন্টেন্ট: ${toBengaliDigits(uiState.lessons.size)}টি",
-                                            fontSize = 12.sp,
-                                            color = subjectColor,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-
-                                    if (chapterStatus.isNotBlank()) {
-                                        Surface(
-                                            shape = RoundedCornerShape(20.dp),
-                                            color = if (chapterStatus.equals("COMPLETED", ignoreCase = true)) {
-                                                Color(0xFF10B981).copy(alpha = 0.15f)
-                                            } else {
-                                                subjectColor.copy(alpha = 0.15f)
-                                            }
-                                        ) {
-                                            Text(
-                                                text = if (chapterStatus.equals("COMPLETED", ignoreCase = true)) "পড়ানো শেষ" else "চলছে",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (chapterStatus.equals("COMPLETED", ignoreCase = true)) Color(0xFF10B981) else subjectColor,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book (Matching SubjectChaptersScreen)
                         item {
                             ChapterFeatureShortcuts(
@@ -407,9 +337,9 @@ fun ChapterLessonsScreen(
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text(
                                                 text = when (selectedTab) {
-                                                    1 -> "অ্যানিমেটেড ক্লাসসমূহ (${toBengaliDigits(uiState.chapterAnimatedLessons.size)}টি)"
-                                                    2 -> "প্র্যাকটিস কুইজ ও পরীক্ষা"
-                                                    else -> "ই-বুক ও লেকচার নোটস"
+                                                    1 -> "${AcademicLocalizationUtils.translateContentType("Video")}সমূহ (${toBengaliDigits(uiState.chapterAnimatedLessons.size)}টি)"
+                                                    2 -> AcademicLocalizationUtils.translateContentType("Exam")
+                                                    else -> "${AcademicLocalizationUtils.translateContentType("SmartNotes")} ও লেকচার নোটস"
                                                 },
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold,
@@ -486,12 +416,21 @@ fun ChapterLessonsScreen(
                                     items = uiState.lessons,
                                     key = { it.id }
                                 ) { lesson ->
+                                    val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
+                                            lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
+                                            lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
+                                    // Reference counter so recomposition occurs when marked completed
+                                    val currentCompletionCounter = lessonCompletionCounter
+
                                     LessonCard(
                                         lesson = lesson,
+                                        isCompleted = isCompleted,
                                         subjectName = uiState.selectedSubjectTitle,
                                         subjectColorHex = uiState.selectedSubjectColor,
                                         subjectColor = subjectColor,
                                         onClick = {
+                                            sessionManager.markLessonCompleted(lesson.id)
+                                            lessonCompletionCounter++
                                             viewModel.selectLesson(lesson)
                                             if (onOpenLessonDetail != null) {
                                                 onOpenLessonDetail(lesson)
@@ -500,7 +439,7 @@ fun ChapterLessonsScreen(
                                                     ?: lesson.live_class?.resolvedVideoUrl
                                                     ?: lesson.live_class?.recording_url
                                                     ?: ""
-                                                val title = lesson.title ?: "ক্লাস লেকচার"
+                                                val title = ClassTypeUtils.formatLessonTitle(lesson.title)
                                                 val isLive = lesson.isLiveNow ||
                                                         lesson.live_class?.is_on_going == true ||
                                                         lesson.isLive ||
@@ -595,35 +534,11 @@ fun ChapterLessonsScreen(
                             val examLessons = uiState.lessons.filter { it.isExam }
                             if (examLessons.isEmpty()) {
                                 item {
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surface
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(32.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FactCheck,
-                                                contentDescription = null,
-                                                tint = Color(0xFF10B981).copy(alpha = 0.6f),
-                                                modifier = Modifier.size(44.dp)
-                                            )
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Text(
-                                                text = "এই অধ্যায়ে বর্তমানে কোনো প্র্যাকটিস কুইজ পাওয়া যায়নি",
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                    }
+                                    EmptyQuestionsCard(
+                                        ordinal = 1,
+                                        onOkClick = { selectedTab = 0 },
+                                        onAllChaptersClick = onBack
+                                    )
                                 }
                             } else {
                                 items(items = examLessons, key = { it.id }) { examLesson ->
@@ -684,6 +599,7 @@ fun ChapterLessonsScreen(
 @Composable
 fun LessonCard(
     lesson: StudentLessonItem,
+    isCompleted: Boolean = false,
     subjectName: String,
     subjectColorHex: String,
     subjectColor: Color,
@@ -696,21 +612,15 @@ fun LessonCard(
     val isRecorded = lesson.isRecorded
 
     val state = lesson.user_activity_state?.uppercase() ?: ""
+    val isCompletedEffective = isCompleted || state == "COMPLETED" || state == "ATTENDED"
+
     val (statusText, statusBgColor, statusTextColor) = when {
-        isLive -> Triple("🔴 লাইভ চলছে", Color(0xFFEF4444).copy(alpha = 0.15f), Color(0xFFEF4444))
-        isExam && isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
-        isExam -> Triple("পরীক্ষা", Color(0xFFF59E0B).copy(alpha = 0.12f), Color(0xFFD97706))
-        isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
-        state == "COMPLETED" || state == "ATTENDED" -> Triple("সম্পন্ন", Color(0xFF10B981).copy(alpha = 0.12f), Color(0xFF10B981))
-        state == "MISSED" -> Triple("মিসড", Color(0xFFEF4444).copy(alpha = 0.12f), Color(0xFFEF4444))
-        else -> Triple(
-            when {
-                isRecorded -> "রেকর্ডেড"
-                else -> "ক্লাস"
-            },
-            subjectColor.copy(alpha = 0.12f),
-            subjectColor
-        )
+        isCompletedEffective -> Triple("সম্পন্ন", Color(0xFF10B981).copy(alpha = 0.14f), Color(0xFF059669))
+        isLive -> Triple("🔴 লাইভ চলছে", Color(0xFFEF4444).copy(alpha = 0.15f), Color(0xFFDC2626))
+        isExam && isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF2563EB))
+        isExam -> Triple("পরীক্ষা", Color(0xFFF59E0B).copy(alpha = 0.14f), Color(0xFFD97706))
+        isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF2563EB))
+        else -> Triple("রেকর্ড ক্লাস", Color(0xFF6366F1).copy(alpha = 0.12f), Color(0xFF4F46E5))
     }
 
     val startTimeFormatted = remember(lesson.live_class?.start_time ?: lesson.start_time) {
@@ -728,7 +638,7 @@ fun LessonCard(
             .clip(RoundedCornerShape(16.dp))
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                color = if (isCompletedEffective) Color(0xFF10B981).copy(alpha = 0.25f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable(onClick = onClick)
@@ -743,6 +653,7 @@ fun LessonCard(
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = when {
+                    isCompletedEffective -> Color(0xFF10B981).copy(alpha = 0.14f)
                     isExam -> Color(0xFFF59E0B).copy(alpha = 0.12f)
                     isLive -> Color(0xFFEF4444).copy(alpha = 0.12f)
                     else -> subjectColor.copy(alpha = 0.12f)
@@ -752,17 +663,19 @@ fun LessonCard(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = when {
+                            isCompletedEffective -> Icons.Default.CheckCircle
                             isExam -> Icons.Default.Assignment
                             isLive -> Icons.Default.LiveTv
                             else -> Icons.Default.PlayCircleFilled
                         },
                         contentDescription = "Icon",
                         tint = when {
+                            isCompletedEffective -> Color(0xFF059669)
                             isExam -> Color(0xFFD97706)
                             isLive -> Color(0xFFEF4444)
                             else -> subjectColor
                         },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
@@ -805,30 +718,32 @@ fun LessonCard(
                         }
                     }
 
-                    val typeLabel = when {
-                        isExam -> "চ্যাপ্টার এক্সাম"
-                        isUpcoming -> "লেকচার ক্লাস"
-                        isLive -> "লাইভ ক্লাস"
-                        isRecorded -> "রেকর্ড করা ক্লাস"
-                        else -> "লেকচার ক্লাস"
+                    // Class Type Badge in Bengali (ডাউট ক্লাস, লেকচার ক্লাস, ওরিয়েনটেশন ক্লাস, এক্সট্রা ক্লাস, সলভিং ক্লাস, কনসেপ্ট ক্লাস, অ্যানালাইসিস ক্লাস)
+                    val classTypeBadge = remember(lesson) {
+                        ClassTypeUtils.getClassTypeBadgeStyle(lesson)
                     }
-                    Text(
-                        text = typeLabel,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = when {
-                            isExam -> Color(0xFFD97706)
-                            isLive -> Color(0xFFEF4444)
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        }
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = classTypeBadge.backgroundColor
+                    ) {
+                        Text(
+                            text = classTypeBadge.label,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = classTypeBadge.textColor,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
 
-                // Lesson Title
+                // Lesson Title (formatted with Bengali class type words and digits)
+                val formattedTitle = remember(lesson.title) {
+                    ClassTypeUtils.formatLessonTitle(lesson.title)
+                }
                 Text(
-                    text = lesson.title ?: "ক্লাস লেকচার",
+                    text = formattedTitle,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -932,7 +847,7 @@ fun AnimatedLessonCard(
                     color = Color(0xFF8B5CF6).copy(alpha = 0.12f)
                 ) {
                     Text(
-                        text = "অ্যানিমেটেড লেসন",
+                        text = AcademicLocalizationUtils.translateContentType("Video"),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF8B5CF6),
@@ -943,7 +858,7 @@ fun AnimatedLessonCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "${topic.no ?: ""} ${topic.name ?: "অধ্যায় কন্টেন্ট"}",
+                    text = "${topic.no ?: ""} ${topic.name ?: "${AcademicLocalizationUtils.CHAPTER_PREFIX}কন্টেন্ট"}",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -995,7 +910,7 @@ fun ChapterFeatureShortcuts(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         ChapterShortcutButton(
-            title = "অ্যানিমেটেড লেসন",
+            title = AcademicLocalizationUtils.translateContentType("Video"),
             icon = Icons.Default.SlowMotionVideo,
             color = Color(0xFF8B5CF6),
             isSelected = selectedTab == 1,
@@ -1003,7 +918,7 @@ fun ChapterFeatureShortcuts(
             onClick = { onTabSelected(1) }
         )
         ChapterShortcutButton(
-            title = "প্র্যাকটিস কুইজ",
+            title = AcademicLocalizationUtils.translateContentType("Exam"),
             icon = Icons.Default.FactCheck,
             color = Color(0xFF10B981),
             isSelected = selectedTab == 2,
@@ -1011,7 +926,7 @@ fun ChapterFeatureShortcuts(
             onClick = { onTabSelected(2) }
         )
         ChapterShortcutButton(
-            title = "ই-বুক",
+            title = AcademicLocalizationUtils.translateContentType("SmartNotes"),
             icon = Icons.Default.MenuBook,
             color = Color(0xFFF59E0B),
             isSelected = selectedTab == 3,

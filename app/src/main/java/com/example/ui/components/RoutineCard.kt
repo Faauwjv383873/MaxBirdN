@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.StudentLessonItem
+import com.example.utils.ClassTypeUtils
 import com.example.utils.SubjectColorUtils
 import java.text.SimpleDateFormat
 import java.util.*
@@ -220,7 +221,7 @@ fun WeeklyRoutineSection(
                 Icon(
                     imageVector = Icons.Default.CalendarToday,
                     contentDescription = null,
-                    tint = Color(0xFF0F172A),
+                    tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -228,7 +229,7 @@ fun WeeklyRoutineSection(
                     text = "রুটিন",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF0F172A)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
@@ -353,7 +354,7 @@ fun WeeklyRoutineSection(
                     Icon(
                         imageVector = Icons.Default.CalendarToday,
                         contentDescription = null,
-                        tint = Color(0xFF0F172A),
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -361,7 +362,7 @@ fun WeeklyRoutineSection(
                         text = selectedDay.fullDateBn,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
@@ -377,7 +378,7 @@ fun WeeklyRoutineSection(
                         text = "ক্লাস ${selectedDay.classCount.toString().toBengaliDigits()}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -399,7 +400,7 @@ fun WeeklyRoutineSection(
                         text = "এক্সাম ${selectedDay.examCount.toString().toBengaliDigits()}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -608,7 +609,7 @@ fun WeeklyRoutineSection(
                         itemsIndexed(selectedSubjectNames) { index, subName ->
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF0F172A),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
                                 border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.3f))
                             ) {
                                 Row(
@@ -667,16 +668,15 @@ fun ShikhoRoutineCard(
     
     val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
 
+    val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
     val classTypeLabel = when {
         isLiveNow -> "🔴 লাইভ চলছে"
         isExam -> "✍️ পরীক্ষা (Exam)"
-        isLive -> "🔴 লাইভ ক্লাস"
-        isRecorded -> "🎥 রেকর্ড করা ক্লাস"
-        else -> "👨‍🏫 লেকচার ক্লাস"
+        else -> classTypeBadge.label
     }
 
     val subjectName = lesson.subject_name ?: "বিষয়"
-    val titleText = lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস"
+    val titleText = ClassTypeUtils.formatLessonTitle(lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস")
     
     // Server Subject Dynamic Color
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
@@ -774,7 +774,7 @@ fun ShikhoRoutineCard(
                         text = titleText,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )

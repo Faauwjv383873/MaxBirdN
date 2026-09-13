@@ -87,6 +87,7 @@ import com.example.api.LessonAttachmentItem
 import com.example.api.StudentLessonItem
 import com.example.player.ShikhoPlayerManager
 import com.example.player.VideoTrackQuality
+import com.example.utils.ClassTypeUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
@@ -3230,7 +3231,7 @@ fun UpcomingCountdownScreen(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = lesson.title ?: subjectName,
+                        text = ClassTypeUtils.formatLessonTitle(lesson.title ?: subjectName),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -3301,15 +3302,33 @@ fun UpcomingCountdownScreen(
                         .fillMaxWidth()
                         .padding(20.dp)
                 ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = subjectName,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2563EB)
+                        )
+                        val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = classTypeBadge.backgroundColor
+                        ) {
+                            Text(
+                                text = classTypeBadge.label,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = classTypeBadge.textColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = subjectName,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF2563EB)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = lesson.title ?: "ক্লাস লেকচার",
+                        text = ClassTypeUtils.formatLessonTitle(lesson.title),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF0F172A)

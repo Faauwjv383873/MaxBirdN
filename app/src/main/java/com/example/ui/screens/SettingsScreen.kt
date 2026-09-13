@@ -25,7 +25,11 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +45,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Palette
 import com.example.MainActivity
 import com.example.auth.SessionManager
 
@@ -56,6 +62,9 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val currentThemeMode by sessionManager.themeModeFlow.collectAsState()
+    var showThemeDialog by remember { mutableStateOf(false) }
+
     val userName = remember { sessionManager.getUserFullName() ?: "শিক্ষার্থী" }
     val userClass = remember { sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "একাদশ শ্রেণি" }
     val userGroup = remember { sessionManager.getUserGroup() ?: "মানবিক" }
@@ -246,6 +255,27 @@ fun SettingsScreen(
                 )
             }
 
+            // App Preferences & Theme Section
+            SettingsSection(title = "অ্যাপ প্রেফারেন্স ও থিম") {
+                SettingsRowItem(
+                    icon = Icons.Default.DarkMode,
+                    iconTint = Color(0xFF6366F1),
+                    iconBg = Color(0xFFEEF2FF),
+                    title = "অ্যাপ থিম (Dark & Light Mode)",
+                    subtitle = when (currentThemeMode) {
+                        "light" -> "লাইট মোড"
+                        "dark" -> "ডার্ক মোড"
+                        else -> "সিস্টেম ডিফল্ট (মোবাইল অনুযায়ী)"
+                    },
+                    badge = when (currentThemeMode) {
+                        "light" -> "Light"
+                        "dark" -> "Dark"
+                        else -> "System"
+                    },
+                    onClick = { showThemeDialog = true }
+                )
+            }
+
             // Account & Preferences Section
             SettingsSection(title = "অ্যাকাউন্ট ও নিরাপত্তা") {
                 SettingsRowItem(
@@ -280,12 +310,85 @@ fun SettingsScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Shikho App v6.0.5",
+                    text = "MaxBird App v6.0.5",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
         }
+    }
+
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = {
+                Text(
+                    text = "অ্যাপ থিম নির্বাচন করুন",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        Triple("system", "সিস্টেম ডিফল্ট (মোবাইল অনুযায়ী)", "মোবাইলের সিস্টেম থিম সেটিংস অনুযায়ী স্বয়ংক্রিয়ভাবে পরিবর্তিত হবে"),
+                        Triple("light", "লাইট মোড", "উজ্জ্বল ও পরিষ্কার সাদা থিম"),
+                        Triple("dark", "ডার্ক মোড", "চোখের জন্য আরামদায়ক ডার্ক থিম")
+                    ).forEach { (modeKey, modeTitle, modeDesc) ->
+                        val isSelected = currentThemeMode == modeKey
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    sessionManager.setThemeMode(modeKey)
+                                    showThemeDialog = false
+                                },
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+                            border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        sessionManager.setThemeMode(modeKey)
+                                        showThemeDialog = false
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = modeTitle,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = modeDesc,
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) {
+                    Text("ঠিক আছে")
+                }
+            }
+        )
     }
 }
 
@@ -396,7 +499,7 @@ private fun sendTestPushNotification(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val channel = NotificationChannel(
             channelId,
-            "Shikho Course Notifications",
+            "MaxBird Course Notifications",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Live class and course updates notifications"
@@ -418,7 +521,7 @@ private fun sendTestPushNotification(context: Context) {
 
     val notification = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(android.R.drawable.ic_dialog_info)
-        .setContentTitle("Shikho - টেস্ট পুশ নোটিফিকেশন 🔔")
+        .setContentTitle("MaxBird - টেস্ট পুশ নোটিফিকেশন 🔔")
         .setContentText("আপনার কোর্স নোটিফিকেশন সাবস্ক্রিপশন সক্রিয় আছে!")
         .setStyle(
             NotificationCompat.BigTextStyle()

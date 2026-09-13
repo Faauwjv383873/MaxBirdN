@@ -15,8 +15,8 @@ sealed class AuthState {
     object Loading : AuthState()
     data class NavigateToPin(val phone: String) : AuthState()
     data class NavigateToOtp(val phone: String, val authType: String) : AuthState()
-    data class NavigateToSetPin(val phone: String) : AuthState()
-    data class PinSetSuccess(val phone: String) : AuthState()
+    data class NavigateToSetPin(val phone: String, val isSignup: Boolean = false) : AuthState()
+    data class PinSetSuccess(val phone: String, val isSignup: Boolean = false) : AuthState()
     object LoginSuccess : AuthState()
     data class ProfileLoaded(val profile: UserProfile) : AuthState()
     data class Error(val message: String) : AuthState()
@@ -129,8 +129,12 @@ class AuthViewModel(
                         userId = loginRes.tokens.user_id
                     )
                     
+                    val isSignup = authType.equals("signup", ignoreCase = true)
+                    if (isSignup) {
+                        sessionManager.setJustSignedUp(true)
+                    }
                     // Route to SetPinScreen for both Signup & Forgot Password Reset
-                    _authState.value = AuthState.NavigateToSetPin(phone)
+                    _authState.value = AuthState.NavigateToSetPin(phone, isSignup = isSignup)
                 } else {
                     _authState.value = AuthState.Error(verifyRes.message ?: "Invalid OTP")
                 }
@@ -140,7 +144,7 @@ class AuthViewModel(
         }
     }
 
-    fun setPin(phone: String, pin: String) {
+    fun setPin(phone: String, pin: String, isSignup: Boolean = false) {
         _authState.value = AuthState.Loading
         viewModelScope.launch {
             try {
@@ -153,13 +157,17 @@ class AuthViewModel(
                 val response = apiService.setPin(queryBody)
                 val msg = response.data?.setUserPin?.message
                 if (msg != null && msg.contains("successfully", ignoreCase = true)) {
+                    val wasJustSignedUp = isSignup || sessionManager.getJustSignedUp()
                     // Auto-logout & Clear session
                     try {
                         apiService.logout()
                     } catch (_: Exception) { }
                     sessionManager.clearSession()
+                    if (wasJustSignedUp) {
+                        sessionManager.setJustSignedUp(true)
+                    }
                     
-                    _authState.value = AuthState.PinSetSuccess(phone)
+                    _authState.value = AuthState.PinSetSuccess(phone, isSignup = wasJustSignedUp)
                 } else {
                     _authState.value = AuthState.Error(msg ?: "Failed to set PIN. Please try again.")
                 }

@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -25,14 +27,26 @@ fun ResetSuccessScreen(
     phone: String,
     onLoginClick: (String) -> Unit
 ) {
-    val backgroundGradient = remember {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFF0F172A),
-                Color(0xFF020617),
-                Color(0xFF090D16)
+    val isDark = isSystemInDarkTheme()
+
+    val backgroundGradient = remember(isDark) {
+        if (isDark) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFF0B1120),
+                    Color(0xFF020617),
+                    Color(0xFF0F172A)
+                )
             )
-        )
+        } else {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFFF8FAFC),
+                    Color(0xFFEFF6FF),
+                    Color(0xFFF1F5F9)
+                )
+            )
+        }
     }
 
     Box(
@@ -43,34 +57,48 @@ fun ResetSuccessScreen(
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(
+                    elevation = if (isDark) 10.dp else 4.dp,
+                    shape = RoundedCornerShape(24.dp)
+                ),
             shape = RoundedCornerShape(24.dp),
-            color = Color(0xFF1E293B).copy(alpha = 0.7f),
-            border = BorderStroke(1.dp, Color(0xFF334155)),
-            shadowElevation = 8.dp
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.5f else 0.8f)
+            )
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Success Emerald Circle Icon
+                // Success Emerald Circle Icon with soft pulsing glow
                 Box(
                     modifier = Modifier
-                        .size(80.dp)
+                        .size(84.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF10B981).copy(alpha = 0.2f))
-                        .background(Color(0xFF10B981)),
+                        .background(Color(0xFF10B981).copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Success",
-                        tint = Color.White,
-                        modifier = Modifier.size(44.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Success",
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -78,19 +106,19 @@ fun ResetSuccessScreen(
                 Text(
                     text = "অভিনন্দন!",
                     fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "আপনার পিন সফলভাবে পরিবর্তন করা হয়েছে। নতুন পিন ব্যবহার করে লগ ইন করুন।",
+                    text = "আপনার অ্যাকাউন্ট সফলভাবে সম্পন্ন হয়েছে। পিন দিয়ে লগ ইন করে আপনার প্রোফাইল সম্পূর্ণ করুন।",
                     fontSize = 14.sp,
-                    color = Color(0xFF94A3B8),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    lineHeight = 22.sp
                 )
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -99,10 +127,10 @@ fun ResetSuccessScreen(
                     onClick = { onLoginClick(phone) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(16.dp)),
+                        .height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF0284C7)
+                        containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
                     Text(
