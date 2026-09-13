@@ -70,6 +70,7 @@ fun ChapterLessonsScreen(
     chapterId: String,
     chapterName: String,
     chapterStatus: String,
+    initialTab: Int = 0,
     viewModel: CourseViewModel,
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
@@ -91,7 +92,7 @@ fun ChapterLessonsScreen(
         }
     }
 
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
 
     LaunchedEffect(chapterId) {
         val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
@@ -345,21 +346,109 @@ fun ChapterLessonsScreen(
                             }
                         }
 
-                        // Top Shortcuts: Lecture Classes, Animated Lessons, Practice Quiz, E-Book
+                        // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book (Matching SubjectChaptersScreen)
                         item {
                             ChapterFeatureShortcuts(
                                 selectedTab = selectedTab,
                                 onTabSelected = { newTab ->
-                                    selectedTab = newTab
-                                    if (newTab == 1 && uiState.chapterAnimatedLessons.isEmpty()) {
+                                    selectedTab = if (selectedTab == newTab) 0 else newTab
+                                    if (selectedTab == 1 && uiState.chapterAnimatedLessons.isEmpty()) {
                                         viewModel.loadAnimatedLessonsForChapter(chapterId)
                                     }
-                                },
-                                subjectColor = subjectColor
+                                }
                             )
                         }
 
+                        // Active Filter Banner if a shortcut is selected
+                        if (selectedTab > 0) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = when (selectedTab) {
+                                        1 -> Color(0xFF8B5CF6).copy(alpha = 0.12f)
+                                        2 -> Color(0xFF10B981).copy(alpha = 0.12f)
+                                        else -> Color(0xFFF59E0B).copy(alpha = 0.12f)
+                                    },
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        when (selectedTab) {
+                                            1 -> Color(0xFF8B5CF6).copy(alpha = 0.3f)
+                                            2 -> Color(0xFF10B981).copy(alpha = 0.3f)
+                                            else -> Color(0xFFF59E0B).copy(alpha = 0.3f)
+                                        }
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = when (selectedTab) {
+                                                    1 -> Icons.Default.SlowMotionVideo
+                                                    2 -> Icons.Default.FactCheck
+                                                    else -> Icons.Default.MenuBook
+                                                },
+                                                contentDescription = null,
+                                                tint = when (selectedTab) {
+                                                    1 -> Color(0xFF8B5CF6)
+                                                    2 -> Color(0xFF10B981)
+                                                    else -> Color(0xFFF59E0B)
+                                                },
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = when (selectedTab) {
+                                                    1 -> "অ্যানিমেটেড ক্লাসসমূহ (${toBengaliDigits(uiState.chapterAnimatedLessons.size)}টি)"
+                                                    2 -> "প্র্যাকটিস কুইজ ও পরীক্ষা"
+                                                    else -> "ই-বুক ও লেকচার নোটস"
+                                                },
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = when (selectedTab) {
+                                                    1 -> Color(0xFF8B5CF6)
+                                                    2 -> Color(0xFF10B981)
+                                                    else -> Color(0xFFD97706)
+                                                }
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { selectedTab = 0 },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("সব ক্লাস ✕", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if (selectedTab == 0) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp, bottom = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "ক্লাস ও পরীক্ষা তালিকা (${toBengaliDigits(uiState.lessons.size)}টি)",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+
                             if (uiState.lessons.isEmpty()) {
                                 item {
                                     Card(
@@ -899,21 +988,12 @@ fun AnimatedLessonCard(
 fun ChapterFeatureShortcuts(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
-    subjectColor: Color,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ChapterShortcutButton(
-            title = "লেকচার ক্লাস",
-            icon = Icons.Default.PlayLesson,
-            color = subjectColor,
-            isSelected = selectedTab == 0,
-            modifier = Modifier.weight(1f),
-            onClick = { onTabSelected(0) }
-        )
         ChapterShortcutButton(
             title = "অ্যানিমেটেড লেসন",
             icon = Icons.Default.SlowMotionVideo,
@@ -931,7 +1011,7 @@ fun ChapterFeatureShortcuts(
             onClick = { onTabSelected(2) }
         )
         ChapterShortcutButton(
-            title = "ই-বুক / নোটস",
+            title = "ই-বুক",
             icon = Icons.Default.MenuBook,
             color = Color(0xFFF59E0B),
             isSelected = selectedTab == 3,
@@ -951,27 +1031,28 @@ fun ChapterShortcutButton(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = if (isSelected) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(
             width = if (isSelected) 1.5.dp else 1.dp,
             color = if (isSelected) color else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
+        shadowElevation = if (isSelected) 2.dp else 1.dp,
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier
-                .padding(vertical = 10.dp, horizontal = 4.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (isSelected) color.copy(alpha = 0.2f) else color.copy(alpha = 0.1f),
-                modifier = Modifier.size(32.dp)
+                shape = CircleShape,
+                color = if (isSelected) color.copy(alpha = 0.25f) else color.copy(alpha = 0.12f),
+                modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -986,7 +1067,7 @@ fun ChapterShortcutButton(
             Text(
                 text = title,
                 fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                 color = if (isSelected) color else MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
                 maxLines = 1,

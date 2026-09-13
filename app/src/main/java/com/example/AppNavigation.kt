@@ -39,7 +39,7 @@ object Routes {
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
-    const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}"
+    const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}&initialTab={initialTab}"
     const val LESSON_DETAIL_PLAYER = "lesson_detail_player"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
     const val ROUTINE_FULL = "routine_full"
@@ -267,10 +267,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onBack = {
                     navController.popBackStack()
                 },
-                onChapterClick = { chapterId, chapterName, chapterStatus ->
+                onChapterClick = { chapterId, chapterName, chapterStatus, initialTab ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
-                    navController.navigate("chapter_lessons/$chapterId?name=$encodedName&status=$encodedStatus")
+                    navController.navigate("chapter_lessons/$chapterId?name=$encodedName&status=$encodedStatus&initialTab=$initialTab")
                 },
                 onPlayVideo = { videoUrl, videoTitle, subjectName, subjectColor, isLive ->
                     val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
@@ -287,17 +287,20 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             arguments = listOf(
                 navArgument("chapterId") { type = NavType.StringType },
                 navArgument("name") { type = NavType.StringType; defaultValue = "" },
-                navArgument("status") { type = NavType.StringType; defaultValue = "" }
+                navArgument("status") { type = NavType.StringType; defaultValue = "" },
+                navArgument("initialTab") { type = NavType.IntType; defaultValue = 0 }
             )
         ) { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val name = backStackEntry.arguments?.getString("name")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
             val status = backStackEntry.arguments?.getString("status")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val initialTab = backStackEntry.arguments?.getInt("initialTab") ?: 0
 
             ChapterLessonsScreen(
                 chapterId = chapterId,
                 chapterName = name,
                 chapterStatus = status,
+                initialTab = initialTab,
                 viewModel = courseViewModel,
                 onBack = {
                     navController.popBackStack()

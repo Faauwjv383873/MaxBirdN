@@ -17,6 +17,8 @@ import android.util.Rational
 import android.view.ViewGroup
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -127,26 +129,49 @@ fun LessonDetailPlayerScreen(
     val liveProvider = lesson?.live_class?.provider ?: "100ms Live"
 
     val effectiveMeetingUrl = remember(lesson?.live_class?.liveMeetingUrl, joinLink, hmsRoomId, lesson?.live_class?.hms_token) {
-        val url = lesson?.live_class?.liveMeetingUrl
-            ?: joinLink
-            ?: if (!hmsRoomId.isNullOrBlank()) {
+        val url = when {
+            !joinLink.isNullOrBlank() && !lesson?.live_class?.hms_token.isNullOrBlank() && !joinLink.contains("token=") -> {
+                val separator = if (joinLink.contains("?")) "&" else "?"
+                "$joinLink${separator}token=${lesson.live_class.hms_token}"
+            }
+            !joinLink.isNullOrBlank() -> joinLink
+            lesson?.live_class?.liveMeetingUrl != null -> lesson.live_class.liveMeetingUrl
+            !hmsRoomId.isNullOrBlank() -> {
                 val tokenParam = if (!lesson?.live_class?.hms_token.isNullOrBlank()) "?token=${lesson.live_class.hms_token}" else ""
                 "https://live.shikho.com/meeting/${hmsRoomId.trim()}$tokenParam"
-            } else ""
+            }
+            else -> ""
+        }
         url ?: ""
     }
 
-    var livePlayerMode by remember { mutableStateOf(if (isLive && effectiveMeetingUrl.isNotBlank()) "MEETING" else "STREAM") } // "STREAM" or "MEETING"
-    var isJoiningLiveState by remember { mutableStateOf(false) }
+    // Live Join State: "JOIN_PORTAL" (Get Started Screen) -> "LIVE_ROOM" (Full 100ms Room/Chat/Stream)
+    var isLiveJoined by remember(lesson?.id) { mutableStateOf(false) }
 
     // Auto trigger joinLiveClass if it's a live class and joinLink or hmsRoomId is missing
     LaunchedEffect(lesson?.id, isLive) {
         if (isLive && lesson != null && (lesson.live_class?.join_link.isNullOrBlank() || lesson.live_class?.hms_room_id.isNullOrBlank()) && onJoinLiveClass != null) {
-            isJoiningLiveState = true
             onJoinLiveClass.invoke(lesson)
-            isJoiningLiveState = false
         }
     }
+
+    // If it is a live class and user hasn't tapped "Join Now", show the exact "Get Started" screen from Screenshot 1!
+    if (isLive && !isLiveJoined) {
+        LiveGetStartedScreen(
+            lesson = lesson,
+            effectiveMeetingUrl = effectiveMeetingUrl,
+            onJoinClick = {
+                if (lesson != null && (lesson.live_class?.join_link.isNullOrBlank() || lesson.live_class?.hms_room_id.isNullOrBlank()) && onJoinLiveClass != null) {
+                    onJoinLiveClass.invoke(lesson)
+                }
+                isLiveJoined = true
+            },
+            onBack = onBack
+        )
+        return
+    }
+
+    var livePlayerMode by remember { mutableStateOf(if (isLive) "MEETING" else "STREAM") }
 
     // Parse Subject Color
     val subjectThemeColor = remember(subjectColorHex) {
@@ -596,6 +621,30 @@ fun LessonDetailPlayerScreen(
                 )
             }
         }
+    } else if (isLive && livePlayerMode == "MEETING" && effectiveMeetingUrl.isNotBlank()) {
+        // FULL HEIGHT LIVE ROOM (Matching Screenshot 2)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0B0E15))
+        ) {
+            LiveMeetingWebView(
+                meetingUrl = effectiveMeetingUrl,
+                onBackToStream = {
+                    livePlayerMode = "STREAM"
+                    exoPlayer.play()
+                },
+                onOpenExternal = {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     } else {
         // PORTRAIT DETAIL SCREEN
         Scaffold(
@@ -791,7 +840,7 @@ fun LessonDetailPlayerScreen(
                                 isFullscreen = false,
                                 playbackSpeed = playbackSpeed,
                                 isLive = isLive,
-                                hasMeeting = !joinLink.isNullOrBlank(),
+                                hasMeeting = effectiveMeetingUrl.isNotBlank(),
                                 onSwitchToMeeting = {
                                     exoPlayer.pause()
                                     livePlayerMode = "MEETING"
@@ -3340,6 +3389,7 @@ fun LiveMeetingWebView(
     modifier: Modifier = Modifier
 ) {
     var isLoading by remember { mutableStateOf(true) }
+    var hasError by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
     Box(
@@ -3375,6 +3425,17 @@ fun LiveMeetingWebView(
                             super.onPageFinished(view, url)
                             isLoading = false
                         }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?
+                        ) {
+                            if (request?.isForMainFrame == true) {
+                                isLoading = false
+                                hasError = true
+                            }
+                        }
                     }
                     loadUrl(meetingUrl)
                     webViewInstance = this
@@ -3382,13 +3443,83 @@ fun LiveMeetingWebView(
             },
             update = { wv ->
                 if (wv.url != meetingUrl && meetingUrl.isNotBlank()) {
+                    hasError = false
+                    isLoading = true
                     wv.loadUrl(meetingUrl)
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        if (isLoading) {
+        if (hasError) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF0F172A)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(20.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                        modifier = Modifier.size(54.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.LiveTv,
+                                contentDescription = null,
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "ওয়েব লাইভ রুম সংযোগ ব্যর্থ হয়েছে",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "সরাসরি HLS ভিডিও স্ট্রিম প্লেয়ারে ক্লাস উপভোগ করুন",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onBackToStream,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("HLS প্লেয়ারে যান", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = onOpenExternal,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF475569)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("ব্রাউজার", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        } else if (isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -3455,7 +3586,11 @@ fun LiveMeetingWebView(
                     color = Color.Black.copy(alpha = 0.75f),
                     modifier = Modifier.size(34.dp)
                 ) {
-                    IconButton(onClick = { webViewInstance?.reload() }) {
+                    IconButton(onClick = { 
+                        hasError = false
+                        isLoading = true
+                        webViewInstance?.reload() 
+                    }) {
                         Icon(Icons.Default.Refresh, contentDescription = "রিফ্রেশ", tint = Color.White, modifier = Modifier.size(16.dp))
                     }
                 }
@@ -3480,6 +3615,183 @@ fun LiveMeetingWebView(
                         Icon(Icons.Default.LiveTv, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("HLS প্লেয়ার", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 100ms Prebuilt Live Class "Get Started" Screen (Exact replica of Screenshot 1)
+ */
+@Composable
+fun LiveGetStartedScreen(
+    lesson: StudentLessonItem?,
+    effectiveMeetingUrl: String,
+    onJoinClick: () -> Unit,
+    onBack: () -> Unit
+) {
+    var userName by remember { mutableStateOf("Fahim Miya_7191") }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF080B11))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            // Top App Bar with circular back button and report icon
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFF191B23),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF191B23),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Assignment,
+                            contentDescription = "Report/Feedback",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
+            // Center Content: "Get Started", subtitle, and "350 others in session" badge
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Get Started",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Enter your name before joining",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFF9EABB8),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Session participants badge
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF191B23),
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    Text(
+                        text = "350 others in session",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                    )
+                }
+            }
+
+            // Bottom Section: Wifi network indicator + Name Input Box + "Join Now" Button
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                // Wifi indicator chip on left
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF191B23),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Wifi,
+                            contentDescription = "Network Status",
+                            tint = Color(0xFF34D399),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Name text field box
+                    OutlinedTextField(
+                        value = userName,
+                        onValueChange = { userName = it },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF11131B),
+                            unfocusedContainerColor = Color(0xFF11131B),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF2572ED),
+                            unfocusedBorderColor = Color(0xFF272932)
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        singleLine = true,
+                        modifier = Modifier.weight(1.3f)
+                    )
+
+                    // "Join Now" Button matching Screenshot 1
+                    Button(
+                        onClick = onJoinClick,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2572ED)
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(54.dp)
+                    ) {
+                        Text(
+                            text = "Join Now",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                 }
             }

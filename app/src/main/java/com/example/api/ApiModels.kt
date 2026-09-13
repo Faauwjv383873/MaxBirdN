@@ -679,11 +679,11 @@ data class LiveClassDetails(
 ) {
     val liveMeetingUrl: String?
         get() {
-            if (!join_link.isNullOrBlank()) return join_link
+            if (!join_link.isNullOrBlank() && (join_link.startsWith("http://") || join_link.startsWith("https://"))) return join_link
             if (!hms_room_id.isNullOrBlank()) {
                 val cleanId = hms_room_id.trim()
                 val tokenParam = if (!hms_token.isNullOrBlank()) "?token=$hms_token" else ""
-                return "https://live.shikho.com/meeting/$cleanId$tokenParam"
+                return "https://live.100ms.live/meeting/$cleanId$tokenParam"
             }
             return null
         }
@@ -703,13 +703,17 @@ data class LiveClassDetails(
             // 2. 100ms / Shikho Live HLS Streams from HMS Room ID
             if (!hms_room_id.isNullOrBlank()) {
                 val cleanRoomId = hms_room_id.trim()
-                // beam3 master & variant playlists (Observed directly in official Shikho app network traffic)
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/master.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_0/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_1/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_2/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_3/stream.m3u8")
-                // beam1 fallback stream
+                val appId = "6507e56768111f6fe4b574c7"
+                // beam3 master & variant playlists
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_2/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_3/stream.m3u8")
+                // beam1 direct & date-indexed streams
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_1/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/stream_1/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/master.m3u8")
             }

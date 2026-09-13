@@ -42,12 +42,12 @@ fun SubjectChaptersScreen(
     subjectColorHex: String?,
     viewModel: CourseViewModel,
     onBack: () -> Unit,
-    onChapterClick: (chapterId: String, chapterName: String, chapterStatus: String) -> Unit,
+    onChapterClick: (chapterId: String, chapterName: String, chapterStatus: String, initialTab: Int) -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var showAnimatedLessonsSheet by remember { mutableStateOf(false) }
+    var selectedMode by remember { mutableStateOf(0) } // 0: All, 1: Animated, 2: Quiz, 3: E-Book
 
     val subjectColor = remember(subjectColorHex) {
         try {
@@ -287,11 +287,88 @@ fun SubjectChaptersScreen(
                         item {
                             CourseFeatureShortcuts(
                                 subjectColor = subjectColor,
-                                onAnimatedLessonsClick = {
-                                    showAnimatedLessonsSheet = true
-                                    viewModel.loadAnimatedLessonsForSubject()
+                                selectedMode = selectedMode,
+                                onSelectMode = { mode ->
+                                    selectedMode = if (selectedMode == mode) 0 else mode
                                 }
                             )
+                        }
+
+                        // Active Mode Banner
+                        if (selectedMode > 0) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = when (selectedMode) {
+                                        1 -> Color(0xFF8B5CF6).copy(alpha = 0.12f)
+                                        2 -> Color(0xFF10B981).copy(alpha = 0.12f)
+                                        else -> Color(0xFFF59E0B).copy(alpha = 0.12f)
+                                    },
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        when (selectedMode) {
+                                            1 -> Color(0xFF8B5CF6).copy(alpha = 0.3f)
+                                            2 -> Color(0xFF10B981).copy(alpha = 0.3f)
+                                            else -> Color(0xFFF59E0B).copy(alpha = 0.3f)
+                                        }
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = when (selectedMode) {
+                                                    1 -> Icons.Default.SlowMotionVideo
+                                                    2 -> Icons.Default.FactCheck
+                                                    else -> Icons.Default.MenuBook
+                                                },
+                                                contentDescription = null,
+                                                tint = when (selectedMode) {
+                                                    1 -> Color(0xFF8B5CF6)
+                                                    2 -> Color(0xFF10B981)
+                                                    else -> Color(0xFFF59E0B)
+                                                },
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = when (selectedMode) {
+                                                    1 -> "অ্যানিমেটেড মোড — অধ্যায় সিলেক্ট করে ক্লাস দেখুন"
+                                                    2 -> "প্র্যাকটিস কুইজ মোড — অধ্যায় সিলেক্ট করে পরীক্ষা দিন"
+                                                    else -> "ই-বুক মোড — অধ্যায় সিলেক্ট করে নোটস পড়ুন"
+                                                },
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = when (selectedMode) {
+                                                    1 -> Color(0xFF8B5CF6)
+                                                    2 -> Color(0xFF10B981)
+                                                    else -> Color(0xFFD97706)
+                                                }
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { selectedMode = 0 },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Clear",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Section Header
@@ -299,12 +376,17 @@ fun SubjectChaptersScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 8.dp, bottom = 4.dp),
+                                    .padding(top = 4.dp, bottom = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)",
+                                    text = when (selectedMode) {
+                                        1 -> "অ্যানিমেটেড অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                        2 -> "কুইজ অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                        3 -> "ই-বুক অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                        else -> "অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
+                                    },
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -361,6 +443,7 @@ fun SubjectChaptersScreen(
                                 ChapterCard(
                                     chapter = chapter,
                                     subjectColor = subjectColor,
+                                    activeMode = selectedMode,
                                     onClick = {
                                         val primaryId = chapter.id.ifBlank { chapter.chapter_id ?: "" }
                                         val altId = chapter.chapter_id?.takeIf { it != primaryId }
@@ -373,143 +456,8 @@ fun SubjectChaptersScreen(
                                             chapterName = targetName,
                                             chapterStatus = targetStatus
                                         )
-                                        onChapterClick(primaryId, targetName, targetStatus)
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showAnimatedLessonsSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showAnimatedLessonsSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface,
-            dragHandle = { BottomSheetDefaults.DragHandle() }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.85f)
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "অ্যানিমেটেড লেসনসমূহ",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (subjectTitle.isNotBlank()) {
-                            Text(
-                                text = subjectTitle,
-                                fontSize = 12.sp,
-                                color = subjectColor,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { showAnimatedLessonsSheet = false }
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                when {
-                    uiState.isSubjectAnimationsLoading -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = subjectColor)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    "কোর্সের অ্যানিমেটেড লেসন লোড হচ্ছে...",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    uiState.subjectAnimatedLessons.isEmpty() -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SlowMotionVideo,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(64.dp)
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "দুঃখিত, এই কোর্সের কোনো অ্যানিমেটেড লেসন পাওয়া যায়নি।",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    textAlign = TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "অন্যান্য চ্যাপ্টার বা কোর্সগুলোতে অ্যানিমেটেড লেসন রয়েছে কিনা তা দেখতে পারেন।",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
-
-                    else -> {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        ) {
-                            items(
-                                items = uiState.subjectAnimatedLessons,
-                                key = { it.id ?: "" }
-                            ) { topic ->
-                                val video = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }
-                                AnimatedLessonCardInSheet(
-                                    topic = topic,
-                                    subjectColor = subjectColor,
-                                    onClick = {
-                                        showAnimatedLessonsSheet = false
-                                        val videoUrl = video?.playback_url ?: ""
-                                        val title = "${topic.no ?: ""} ${topic.name ?: "অ্যানিমেটেড লেসন"}".trim()
-                                        onPlayVideo(
-                                            videoUrl,
-                                            title,
-                                            subjectTitle,
-                                            subjectColorHex ?: "#0072EC",
-                                            false
-                                        )
+                                        viewModel.loadAnimatedLessonsForChapter(primaryId)
+                                        onChapterClick(primaryId, targetName, targetStatus, selectedMode)
                                     }
                                 )
                             }
@@ -524,7 +472,8 @@ fun SubjectChaptersScreen(
 @Composable
 fun CourseFeatureShortcuts(
     subjectColor: Color,
-    onAnimatedLessonsClick: () -> Unit,
+    selectedMode: Int = 0,
+    onSelectMode: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -535,20 +484,25 @@ fun CourseFeatureShortcuts(
             title = "অ্যানিমেটেড লেসন",
             icon = Icons.Default.SlowMotionVideo,
             color = Color(0xFF8B5CF6),
+            isSelected = selectedMode == 1,
             modifier = Modifier.weight(1f),
-            onClick = onAnimatedLessonsClick
+            onClick = { onSelectMode(1) }
         )
         ShortcutButton(
             title = "প্র্যাকটিস কুইজ",
             icon = Icons.Default.FactCheck,
             color = Color(0xFF10B981),
-            modifier = Modifier.weight(1f)
+            isSelected = selectedMode == 2,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelectMode(2) }
         )
         ShortcutButton(
             title = "ই-বুক",
             icon = Icons.Default.MenuBook,
             color = Color(0xFFF59E0B),
-            modifier = Modifier.weight(1f)
+            isSelected = selectedMode == 3,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelectMode(3) }
         )
     }
 }
@@ -558,17 +512,18 @@ fun ShortcutButton(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     color: Color,
+    isSelected: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = if (isSelected) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            width = if (isSelected) 1.5.dp else 1.dp,
+            color = if (isSelected) color else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
-        shadowElevation = 1.dp,
+        shadowElevation = if (isSelected) 2.dp else 1.dp,
         modifier = if (onClick != null) {
             modifier.clickable(onClick = onClick)
         } else {
@@ -584,7 +539,7 @@ fun ShortcutButton(
         ) {
             Surface(
                 shape = CircleShape,
-                color = color.copy(alpha = 0.12f),
+                color = if (isSelected) color.copy(alpha = 0.25f) else color.copy(alpha = 0.12f),
                 modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -600,8 +555,8 @@ fun ShortcutButton(
             Text(
                 text = title,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (isSelected) color else MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
@@ -613,6 +568,7 @@ fun ShortcutButton(
 fun ChapterCard(
     chapter: AcademicChapterItem,
     subjectColor: Color,
+    activeMode: Int = 0,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -628,8 +584,13 @@ fun ChapterCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                width = if (activeMode > 0) 1.5.dp else 1.dp,
+                color = when (activeMode) {
+                    1 -> Color(0xFF8B5CF6).copy(alpha = 0.4f)
+                    2 -> Color(0xFF10B981).copy(alpha = 0.4f)
+                    3 -> Color(0xFFF59E0B).copy(alpha = 0.4f)
+                    else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                },
                 shape = RoundedCornerShape(18.dp)
             )
             .clickable(onClick = onClick)
@@ -813,106 +774,6 @@ fun ChapterCard(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                 modifier = Modifier.size(14.dp)
             )
-        }
-    }
-}
-
-@Composable
-fun AnimatedLessonCardInSheet(
-    topic: com.example.api.TopicFullItem,
-    subjectColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF8B5CF6).copy(alpha = 0.12f),
-                modifier = Modifier.size(46.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.SlowMotionVideo,
-                        contentDescription = "Animated Lesson",
-                        tint = Color(0xFF8B5CF6),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                if (!topic.header?.chapter_name.isNullOrBlank()) {
-                    Text(
-                        text = topic.header?.chapter_name ?: "",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = subjectColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                }
-
-                Text(
-                    text = "${topic.no ?: ""} ${topic.name ?: "অধ্যায় কন্টেন্ট"}",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (!topic.description.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = topic.description,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            IconButton(
-                onClick = onClick,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = Color(0xFF8B5CF6).copy(alpha = 0.1f)
-                ),
-                modifier = Modifier.size(34.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play Animation",
-                    tint = Color(0xFF8B5CF6),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
         }
     }
 }
