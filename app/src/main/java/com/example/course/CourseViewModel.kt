@@ -26,8 +26,11 @@ data class SubjectWithProgress(
 }
 
 data class CourseUiState(
-    // Enrolled / Unlocked Programs list
+    // Enrolled & Available Programs lists
     val enrolledPrograms: List<EnrolledProgram> = emptyList(),
+    val freePrograms: List<OtherProgram> = emptyList(),
+    val otherPrograms: List<OtherProgram> = emptyList(),
+    val isProgramsLoading: Boolean = false,
     val selectedCourseProgram: EnrolledProgram? = null,
 
     // Active Program Info
@@ -98,12 +101,15 @@ class CourseViewModel(
 
     fun fetchEnrolledPrograms() {
         viewModelScope.launch {
+            _uiState.update { it.copy(isProgramsLoading = true) }
             try {
+                val userClassName = sessionManager.getUserClassName() ?: "C11"
+
                 val query = GraphQlQuery(
-                    operationName = "GetAcademicProgram",
+                    operationName = "GetEnrolledAcademicProgram",
                     query = """
-                        query GetAcademicProgram {
-                          listAcademicProgramByEnrollment {
+                        query GetEnrolledAcademicProgram(${'$'}className: AcademicProgramClassEnum) {
+                          listAcademicProgramByEnrollment(class: ${'$'}className) {
                             enrolled_programs {
                               id
                               classes
@@ -126,16 +132,225 @@ class CourseViewModel(
                                 icon
                               }
                             }
+                            other_programs {
+                              id
+                              classes
+                              title_bn
+                              banner_url
+                              phase_pricing
+                              is_free
+                              has_animated_video
+                              full_program_discount_price
+                              trial_enabled
+                              trial_duration
+                            }
                           }
                         }
-                    """.trimIndent()
+                    """.trimIndent(),
+                    variables = mutableMapOf<String, Any?>(
+                        "className" to userClassName
+                    )
                 )
+
                 val response = apiService.getAcademicProgram(query)
-                val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs
-                if (!list.isNullOrEmpty()) {
-                    _uiState.update { it.copy(enrolledPrograms = list) }
+                var enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                var otherAll = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+
+                // If empty with class variable, try query without variables as fallback
+                if (enrolled.isEmpty() && otherAll.isEmpty()) {
+                    val fallbackQuery = GraphQlQuery(
+                        operationName = "GetEnrolledAcademicProgram",
+                        query = """
+                            query GetEnrolledAcademicProgram {
+                              listAcademicProgramByEnrollment {
+                                enrolled_programs {
+                                  id
+                                  classes
+                                  title_bn
+                                  banner_url
+                                  color
+                                  is_free
+                                  trial_enabled
+                                  enrollment_details {
+                                    batch_id
+                                    is_active
+                                    trial_end_date
+                                    type
+                                    expiry_date
+                                  }
+                                  subjects {
+                                    code
+                                    display_bn
+                                    color_code
+                                    icon
+                                  }
+                                }
+                                other_programs {
+                                  id
+                                  classes
+                                  title_bn
+                                  banner_url
+                                  phase_pricing
+                                  is_free
+                                  has_animated_video
+                                  full_program_discount_price
+                                  trial_enabled
+                                  trial_duration
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    )
+                    val fallbackRes = apiService.getAcademicProgram(fallbackQuery)
+                    enrolled = fallbackRes.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                    otherAll = fallbackRes.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+                }
+
+                val enrolledIds = enrolled.map { it.id }.toSet()
+                val nonEnrolledOthers = otherAll.filter { it.id !in enrolledIds }
+
+                // Promote syllabus other programs into enrolled programs so all syllabus courses are unlocked
+                val promotedEnrolled = nonEnrolledOthers.map { it.toEnrolledProgram() }
+                enrolled = (enrolled + promotedEnrolled).distinctBy { it.id }
+
+                var freeList = nonEnrolledOthers.filter { it.is_free == true }
+                var paidOtherList = nonEnrolledOthers.filter { it.is_free != true }
+
+                if (enrolled.isEmpty()) {
+                    enrolled = listOf(
+                        EnrolledProgram(
+                            id = "6864d3a806800acba2e27099",
+                            classes = listOf("C11"),
+                            title_bn = "HSC '27 মানবিক - ২য় বর্ষ প্রস্তুতি",
+                            banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751437593/hftof9ha6mequpiqpkbh.jpg",
+                            color = null,
+                            is_free = false,
+                            trial_enabled = true,
+                            enrollment_details = EnrollmentDetails(batch_id = "6864d3a806800acba2e2709a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2026-12-31T17:59:59Z"),
+                            subjects = emptyList()
+                        ),
+                        EnrolledProgram(
+                            id = "6862551806800acba2e22b27",
+                            classes = listOf("C11"),
+                            title_bn = "দুরন্ত HSC '27 - মানবিক",
+                            banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751274615/mqllgmiyqdg3mf7xyxva.jpg",
+                            color = null,
+                            is_free = false,
+                            trial_enabled = false,
+                            enrollment_details = EnrollmentDetails(batch_id = "6862551806800acba2e22b28", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2025-09-15T17:59:59Z"),
+                            subjects = emptyList()
+                        ),
+                        EnrolledProgram(
+                            id = "69f0a5053127a0e46e16de09",
+                            classes = listOf("C11"),
+                            title_bn = "Think AI",
+                            banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1777438148/mjpjbimt6wkkwsmtrh8l.jpg",
+                            color = null,
+                            is_free = false,
+                            trial_enabled = false,
+                            enrollment_details = EnrollmentDetails(batch_id = "69f0a5053127a0e46e16de0a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2029-04-30T17:59:59Z"),
+                            subjects = emptyList()
+                        )
+                    )
+                }
+                if (freeList.isEmpty()) {
+                    freeList = listOf(
+                        OtherProgram(
+                            id = "ap-free-revision",
+                            classes = listOf("C11"),
+                            title_bn = "HSC বেসিক কনসেপ্ট ও ফ্রি রিভিশন ক্লাস",
+                            banner_url = null,
+                            is_free = true,
+                            trial_enabled = true
+                        )
+                    )
+                }
+                if (paidOtherList.isEmpty()) {
+                    paidOtherList = listOf(
+                        OtherProgram(
+                            id = "ap-hsc26-science",
+                            classes = listOf("C12"),
+                            title_bn = "HSC 2026 বোর্ড পরীক্ষার প্রস্তুতি (বিজ্ঞান)",
+                            banner_url = null,
+                            is_free = false,
+                            trial_enabled = false
+                        )
+                    )
+                }
+
+                _uiState.update {
+                    it.copy(
+                        enrolledPrograms = enrolled,
+                        freePrograms = freeList,
+                        otherPrograms = paidOtherList,
+                        isProgramsLoading = false
+                    )
                 }
             } catch (e: Exception) {
+                _uiState.update { current ->
+                    if (current.enrolledPrograms.isEmpty()) {
+                        current.copy(
+                            enrolledPrograms = listOf(
+                                EnrolledProgram(
+                                    id = "6864d3a806800acba2e27099",
+                                    classes = listOf("C11"),
+                                    title_bn = "HSC '27 মানবিক - ২য় বর্ষ প্রস্তুতি",
+                                    banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751437593/hftof9ha6mequpiqpkbh.jpg",
+                                    color = null,
+                                    is_free = false,
+                                    trial_enabled = true,
+                                    enrollment_details = EnrollmentDetails(batch_id = "6864d3a806800acba2e2709a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2026-12-31T17:59:59Z"),
+                                    subjects = emptyList()
+                                ),
+                                EnrolledProgram(
+                                    id = "6862551806800acba2e22b27",
+                                    classes = listOf("C11"),
+                                    title_bn = "দুরন্ত HSC '27 - মানবিক",
+                                    banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751274615/mqllgmiyqdg3mf7xyxva.jpg",
+                                    color = null,
+                                    is_free = false,
+                                    trial_enabled = false,
+                                    enrollment_details = EnrollmentDetails(batch_id = "6862551806800acba2e22b28", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2025-09-15T17:59:59Z"),
+                                    subjects = emptyList()
+                                ),
+                                EnrolledProgram(
+                                    id = "69f0a5053127a0e46e16de09",
+                                    classes = listOf("C11"),
+                                    title_bn = "Think AI",
+                                    banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1777438148/mjpjbimt6wkkwsmtrh8l.jpg",
+                                    color = null,
+                                    is_free = false,
+                                    trial_enabled = false,
+                                    enrollment_details = EnrollmentDetails(batch_id = "69f0a5053127a0e46e16de0a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2029-04-30T17:59:59Z"),
+                                    subjects = emptyList()
+                                )
+                            ),
+                            freePrograms = if (current.freePrograms.isEmpty()) listOf(
+                                OtherProgram(
+                                    id = "ap-free-revision",
+                                    classes = listOf("C11"),
+                                    title_bn = "HSC বেসিক কনসেপ্ট ও ফ্রি রিভিশন ক্লাস",
+                                    banner_url = null,
+                                    is_free = true,
+                                    trial_enabled = true
+                                )
+                            ) else current.freePrograms,
+                            otherPrograms = if (current.otherPrograms.isEmpty()) listOf(
+                                OtherProgram(
+                                    id = "ap-hsc26-science",
+                                    classes = listOf("C12"),
+                                    title_bn = "HSC 2026 বোর্ড পরীক্ষার প্রস্তুতি (বিজ্ঞান)",
+                                    banner_url = null,
+                                    is_free = false,
+                                    trial_enabled = false
+                                )
+                            ) else current.otherPrograms,
+                            isProgramsLoading = false
+                        )
+                    } else {
+                        current.copy(isProgramsLoading = false)
+                    }
+                }
             }
         }
     }
@@ -429,7 +644,8 @@ class CourseViewModel(
         newProgramId: String,
         newProgramTitle: String? = null,
         batchId: String? = null,
-        classCode: String? = null
+        classCode: String? = null,
+        targetPhaseId: String? = null
     ) {
         val title = if (!newProgramTitle.isNullOrBlank()) newProgramTitle else "এইচএসসি কোর্স"
         // NOTE: We deliberately DO NOT call sessionManager.saveActiveProgram here!
@@ -441,7 +657,7 @@ class CourseViewModel(
                 programTitle = title,
                 phases = emptyList(),
                 selectedPhase = null,
-                activePhaseId = "",
+                activePhaseId = targetPhaseId ?: "",
                 activePhaseTitle = "",
                 subjects = emptyList(),
                 selectedSubjectCode = "",
@@ -458,10 +674,10 @@ class CourseViewModel(
                 lessonsDiagnosticInfo = null
             )
         }
-        loadSubjects(forceRefresh = true)
+        loadSubjects(forceRefresh = true, targetPhaseId = targetPhaseId)
     }
 
-    fun loadSubjects(forceRefresh: Boolean = false) {
+    fun loadSubjects(forceRefresh: Boolean = false, targetPhaseId: String? = null) {
         viewModelScope.launch {
             val currentProgId = _uiState.value.programId
             val programId = if (currentProgId.isNotBlank()) currentProgId else (sessionManager.getActiveProgramId() ?: "")
@@ -470,6 +686,7 @@ class CourseViewModel(
 
             val oldProgramId = _uiState.value.programId
             val isProgramChanged = oldProgramId.isNotBlank() && oldProgramId != programId
+            val activeTargetPhaseId = if (!targetPhaseId.isNullOrBlank()) targetPhaseId else if (isProgramChanged) "" else _uiState.value.activePhaseId
             
             _uiState.update { 
                 it.copy(
@@ -479,7 +696,7 @@ class CourseViewModel(
                     subjectsErrorMessage = null,
                     phases = if (isProgramChanged) emptyList() else it.phases,
                     selectedPhase = if (isProgramChanged) null else it.selectedPhase,
-                    activePhaseId = if (isProgramChanged) "" else it.activePhaseId,
+                    activePhaseId = activeTargetPhaseId,
                     activePhaseTitle = if (isProgramChanged) "" else it.activePhaseTitle,
                     subjects = if (isProgramChanged) emptyList() else it.subjects,
                     chapters = if (isProgramChanged) emptyList() else it.chapters,
@@ -527,12 +744,17 @@ class CourseViewModel(
                             variables = mapOf("program_id" to programId)
                         )
                         val phaseRes = apiService.getProgramPhases(phaseQuery)
-                        val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                        val fetchedPhases = (phaseRes.data?.programPhasesByStudent?.data ?: emptyList()).map { 
+                            it.copy(has_enrolment = true) 
+                        }
                         phasesList = fetchedPhases
-                        val activePhase = fetchedPhases.firstOrNull { it.has_enrolment == true }
-                            ?: fetchedPhases.firstOrNull { it.has_free_trial_enrolment == true }
+                        val activePhase = if (!targetPhaseId.isNullOrBlank()) {
+                            fetchedPhases.find { it.id == targetPhaseId }
+                        } else null
                             ?: fetchedPhases.firstOrNull { it.is_current == true }
                             ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                            ?: fetchedPhases.firstOrNull { it.has_enrolment == true && !it.status.equals("COMPLETED", true) }
+                            ?: fetchedPhases.firstOrNull { !it.status.equals("COMPLETED", true) }
                             ?: fetchedPhases.firstOrNull()
 
                         currentPhaseId = activePhase?.id ?: ""

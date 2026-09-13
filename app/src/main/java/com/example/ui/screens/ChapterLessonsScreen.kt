@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +74,7 @@ fun ChapterLessonsScreen(
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
 
     val subjectColor = remember(uiState.selectedSubjectColor) {
@@ -418,18 +420,24 @@ fun LessonCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isLive = lesson.live_class?.is_on_going == true ||
-            lesson.content_type?.contains("LIVE", ignoreCase = true) == true
-    val recordingUrl = lesson.resolvedVideoUrl ?: lesson.live_class?.resolvedVideoUrl ?: lesson.live_class?.recording_url
-    val hasPlayableVideo = !recordingUrl.isNullOrBlank() || isLive || !lesson.id.isNullOrBlank()
+    val isExam = lesson.isExam
+    val isUpcoming = lesson.isUpcoming
+    val isLive = lesson.isLive
+    val isRecorded = lesson.isRecorded
 
     val state = lesson.user_activity_state?.uppercase() ?: ""
-    val (statusText, statusBgColor, statusTextColor) = when (state) {
-        "COMPLETED", "ATTENDED" -> Triple("সম্পন্ন", Color(0xFF10B981).copy(alpha = 0.12f), Color(0xFF10B981))
-        "MISSED" -> Triple("মিসড", Color(0xFFEF4444).copy(alpha = 0.12f), Color(0xFFEF4444))
-        "UPCOMING" -> Triple("আসন্ন", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
+    val (statusText, statusBgColor, statusTextColor) = when {
+        isExam && isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
+        isExam -> Triple("পরীক্ষা", Color(0xFFF59E0B).copy(alpha = 0.12f), Color(0xFFD97706))
+        isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
+        state == "COMPLETED" || state == "ATTENDED" -> Triple("সম্পন্ন", Color(0xFF10B981).copy(alpha = 0.12f), Color(0xFF10B981))
+        state == "MISSED" -> Triple("মিসড", Color(0xFFEF4444).copy(alpha = 0.12f), Color(0xFFEF4444))
         else -> Triple(
-            if (isLive) "লাইভ" else "রেকর্ডেড",
+            when {
+                isLive -> "লাইভ"
+                isRecorded -> "রেকর্ডেড"
+                else -> "ক্লাস"
+            },
             subjectColor.copy(alpha = 0.12f),
             subjectColor
         )
@@ -461,17 +469,29 @@ fun LessonCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Video Icon / Play Badge
+            // Left: Icon
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = if (isLive) Color(0xFFEF4444).copy(alpha = 0.12f) else subjectColor.copy(alpha = 0.12f),
+                color = when {
+                    isExam -> Color(0xFFF59E0B).copy(alpha = 0.12f)
+                    isLive -> Color(0xFFEF4444).copy(alpha = 0.12f)
+                    else -> subjectColor.copy(alpha = 0.12f)
+                },
                 modifier = Modifier.size(50.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (isLive) Icons.Default.LiveTv else Icons.Default.PlayCircleFilled,
-                        contentDescription = "Play",
-                        tint = if (isLive) Color(0xFFEF4444) else subjectColor,
+                        imageVector = when {
+                            isExam -> Icons.Default.Assignment
+                            isLive -> Icons.Default.LiveTv
+                            else -> Icons.Default.PlayCircleFilled
+                        },
+                        contentDescription = "Icon",
+                        tint = when {
+                            isExam -> Color(0xFFD97706)
+                            isLive -> Color(0xFFEF4444)
+                            else -> subjectColor
+                        },
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -486,7 +506,7 @@ fun LessonCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Status Badge (সম্পন্ন / মিসড / লাইভ)
+                    // Status Badge
                     Surface(
                         shape = RoundedCornerShape(4.dp),
                         color = statusBgColor
@@ -515,13 +535,23 @@ fun LessonCard(
                         }
                     }
 
-                    if (!lesson.content_type.isNullOrBlank() && !isLive) {
-                        Text(
-                            text = if (lesson.content_type.contains("LiveExam", ignoreCase = true)) "এক্সাম" else "ভিডিও ক্লাস",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        )
+                    val typeLabel = when {
+                        isExam -> "চ্যাপ্টার এক্সাম"
+                        isUpcoming -> "লেকচার ক্লাস"
+                        isLive -> "লাইভ ক্লাস"
+                        isRecorded -> "রেকর্ড করা ক্লাস"
+                        else -> "লেকচার ক্লাস"
                     }
+                    Text(
+                        text = typeLabel,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = when {
+                            isExam -> Color(0xFFD97706)
+                            isLive -> Color(0xFFEF4444)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

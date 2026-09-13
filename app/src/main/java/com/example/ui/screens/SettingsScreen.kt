@@ -1,5 +1,16 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,8 +37,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.example.MainActivity
 import com.example.auth.SessionManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +51,7 @@ fun SettingsScreen(
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToChangeSyllabus: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    onNavigateToCourseEnrollment: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -46,6 +61,28 @@ fun SettingsScreen(
     val userGroup = remember { sessionManager.getUserGroup() ?: "মানবিক" }
     val userBatch = remember { sessionManager.getUserBatchId() ?: "" }
     val userAvatar = remember { sessionManager.getUserAvatar() }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            sendTestPushNotification(context)
+        } else {
+            Toast.makeText(context, "নোটিফিকেশন পারমিশন প্রয়োজন", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onTestNotificationClick = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                sendTestPushNotification(context)
+            } else {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            sendTestPushNotification(context)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -194,17 +231,31 @@ fun SettingsScreen(
                     subtitle = "নাম, প্রতিষ্ঠান ও অ্যাকাউন্টের তথ্য",
                     onClick = onNavigateToProfile
                 )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 4. কোর্সে ভর্তি (Course Enrollment / Admission Details)
+                SettingsRowItem(
+                    icon = Icons.Default.CardMembership,
+                    iconTint = Color(0xFF16A34A),
+                    iconBg = Color(0xFFDCFCE7),
+                    title = "কোর্সে ভর্তি",
+                    subtitle = "ভর্তি হওয়া কোর্স, কোয়ার্টার ও মেয়াদের বিবরণ",
+                    badge = "বিস্তারিত",
+                    onClick = onNavigateToCourseEnrollment
+                )
             }
 
             // Account & Preferences Section
             SettingsSection(title = "অ্যাকাউন্ট ও নিরাপত্তা") {
                 SettingsRowItem(
-                    icon = Icons.Default.Notifications,
+                    icon = Icons.Default.NotificationsActive,
                     iconTint = Color(0xFFD97706),
                     iconBg = Color(0xFFFEF3C7),
-                    title = "নোটিফিকেশন",
-                    subtitle = "ক্লাস ও পরীক্ষার অ্যালার্ট সেটিংস",
-                    onClick = {}
+                    title = "টেস্ট পুশ নোটিফিকেশন",
+                    subtitle = "লাইভ কোর্স নোটিফিকেশন সাবস্ক্রিপশন পরোক্ষভাবে টেস্ট করুন",
+                    badge = "টেস্ট করুন",
+                    onClick = onTestNotificationClick
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -336,4 +387,51 @@ private fun SettingsRowItem(
             modifier = Modifier.size(14.dp)
         )
     }
+}
+
+private fun sendTestPushNotification(context: Context) {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val channelId = "shikho_push_notifications"
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channel = NotificationChannel(
+            channelId,
+            "Shikho Course Notifications",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Live class and course updates notifications"
+            enableVibration(true)
+            enableLights(true)
+        }
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    val intent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+    }
+    val pendingIntent = PendingIntent.getActivity(
+        context,
+        0,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val notification = NotificationCompat.Builder(context, channelId)
+        .setSmallIcon(android.R.drawable.ic_dialog_info)
+        .setContentTitle("Shikho - টেস্ট পুশ নোটিফিকেশন 🔔")
+        .setContentText("আপনার কোর্স নোটিফিকেশন সাবস্ক্রিপশন সক্রিয় আছে!")
+        .setStyle(
+            NotificationCompat.BigTextStyle()
+                .bigText("আপনার কোর্সের নোটিফিকেশন সাবস্ক্রিপশন সফলভাবে সক্রিয় রয়েছে! লাইভ ক্লাস শুরু হওয়ার সময়ে এবং কোর্সের গুরুত্বপূর্ণ আপডেটের সাথে সাথে সরাসরি আপনার মোবাইলে পুশ নোটিফিকেশন চলে আসবে।")
+        )
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setDefaults(NotificationCompat.DEFAULT_ALL)
+        .setAutoCancel(true)
+        .setContentIntent(pendingIntent)
+        .build()
+
+    val notificationId = (System.currentTimeMillis() % 10000).toInt()
+    notificationManager.notify(notificationId, notification)
+
+    Toast.makeText(context, "টেস্ট পুশ নোটিফিকেশন পাঠানো হয়েছে! 🔔", Toast.LENGTH_LONG).show()
 }

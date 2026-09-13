@@ -29,7 +29,9 @@ fun MainContainerScreen(
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToChangeSyllabus: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
+    onNavigateToCourseEnrollment: () -> Unit = {},
     onNavigateToFullRoutine: () -> Unit = {},
+    onOpenLessonDetail: (com.example.api.StudentLessonItem) -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -114,21 +116,23 @@ fun MainContainerScreen(
                                 courseViewModel.openCourse(program)
                                 selectedIndex = 1
                             },
-                            onOpenCourse = {
+                            onOpenCourse = { phaseId ->
                                 val activeProg = homeViewModel.uiState.value.activeProgram
                                 if (activeProg != null) {
                                     courseViewModel.switchProgram(
                                         newProgramId = activeProg.id,
                                         newProgramTitle = activeProg.title_bn ?: "",
                                         batchId = activeProg.enrollment_details?.batch_id,
-                                        classCode = activeProg.classes?.firstOrNull()
+                                        classCode = activeProg.classes?.firstOrNull(),
+                                        targetPhaseId = phaseId
                                     )
                                 } else {
-                                    courseViewModel.loadSubjects()
+                                    courseViewModel.loadSubjects(targetPhaseId = phaseId)
                                 }
                                 selectedIndex = 1
                             },
-                            onOpenFullRoutine = onNavigateToFullRoutine
+                            onOpenFullRoutine = onNavigateToFullRoutine,
+                            onOpenLessonDetail = onOpenLessonDetail
                         )
                     }
                     1 -> {
@@ -143,6 +147,7 @@ fun MainContainerScreen(
                             onNavigateToEditProfile = onNavigateToEditProfile,
                             onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
                             onNavigateToProfile = onNavigateToProfile,
+                            onNavigateToCourseEnrollment = onNavigateToCourseEnrollment,
                             onLogout = onLogout
                         )
                     }

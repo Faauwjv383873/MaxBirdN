@@ -43,6 +43,7 @@ object Routes {
     const val LESSON_DETAIL_PLAYER = "lesson_detail_player"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
     const val ROUTINE_FULL = "routine_full"
+    const val COURSE_ENROLLMENT_DETAILS = "course_enrollment_details"
 }
 
 @Composable
@@ -180,8 +181,15 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToProfile = {
                     navController.navigate(Routes.PROFILE)
                 },
+                onNavigateToCourseEnrollment = {
+                    navController.navigate(Routes.COURSE_ENROLLMENT_DETAILS)
+                },
                 onNavigateToFullRoutine = {
                     navController.navigate(Routes.ROUTINE_FULL)
+                },
+                onOpenLessonDetail = { lesson ->
+                    courseViewModel.selectLesson(lesson)
+                    navController.navigate(Routes.LESSON_DETAIL_PLAYER)
                 },
                 onLogout = {
                     authViewModel.logout()
@@ -199,7 +207,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.popBackStack()
                 },
                 onOpenLessonDetail = { lesson ->
-                    // Open lesson detail if needed
+                    courseViewModel.selectLesson(lesson)
+                    navController.navigate(Routes.LESSON_DETAIL_PLAYER)
                 }
             )
         }
@@ -222,6 +231,16 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
             ChangeSyllabusScreen(
                 viewModel = changeSyllabusViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Routes.COURSE_ENROLLMENT_DETAILS) {
+            com.example.ui.screens.CourseEnrollmentDetailsScreen(
+                apiService = apiService,
+                sessionManager = sessionManager,
                 onBack = {
                     navController.popBackStack()
                 }

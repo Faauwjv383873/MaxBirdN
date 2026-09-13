@@ -37,7 +37,8 @@ data class HomeUiState(
     val courseSubjects: List<AcademicSubjectItem> = emptyList(),
     val isCourseSubjectsLoading: Boolean = false,
     val selectedSubjectCodes: Set<String> = emptySet(),
-    val isSavingSubjectFilter: Boolean = false
+    val isSavingSubjectFilter: Boolean = false,
+    val programPhases: List<PhaseItem> = emptyList()
 ) {
     /**
      * Filtered weekly routine containing only lessons matching the selected subjects
@@ -634,6 +635,9 @@ class HomeViewModel(
                     )
                     val phaseRes = apiService.getProgramPhases(phaseQuery)
                     fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                    if (fetchedPhases.isNotEmpty()) {
+                        _uiState.value = _uiState.value.copy(programPhases = fetchedPhases)
+                    }
                 } catch (_: Exception) {}
 
                 // Calculate exact month range in Asia/Dhaka (1st day 00:00:00 to last day 23:59:59)

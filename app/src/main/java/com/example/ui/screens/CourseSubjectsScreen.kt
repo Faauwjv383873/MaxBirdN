@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.api.EnrolledProgram
+import com.example.api.OtherProgram
+import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
 import com.example.course.SubjectWithProgress
 import com.example.ui.components.getProgramBadge
@@ -53,9 +55,9 @@ fun CourseSubjectsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val selectedProgram = uiState.selectedCourseProgram
 
-    // Fetch enrolled programs on launch if empty
+    // Fetch enrolled programs on launch if all lists are empty
     LaunchedEffect(Unit) {
-        if (uiState.enrolledPrograms.isEmpty()) {
+        if (uiState.enrolledPrograms.isEmpty() && uiState.freePrograms.isEmpty() && uiState.otherPrograms.isEmpty()) {
             viewModel.fetchEnrolledPrograms()
         }
     }
@@ -157,12 +159,18 @@ fun CourseSubjectsScreen(
             ) { activeProgram ->
                 if (activeProgram == null) {
                     // ==========================================
-                    // VIEW 1: "আমার কোর্স" (My Courses) List View
+                    // VIEW 1: All Courses List View ("আমার কোর্স", "ফ্রি কোর্স", "সকল কোর্স")
                     // ==========================================
                     MyCoursesListView(
-                        enrolledPrograms = uiState.enrolledPrograms,
-                        onOpenCourse = { program ->
+                        uiState = uiState,
+                        onOpenEnrolledCourse = { program ->
                             viewModel.openCourse(program)
+                        },
+                        onOpenOtherCourse = { otherProgram ->
+                            viewModel.openCourse(otherProgram.toEnrolledProgram())
+                        },
+                        onRefresh = {
+                            viewModel.fetchEnrolledPrograms()
                         }
                     )
                 } else {
@@ -183,55 +191,153 @@ fun CourseSubjectsScreen(
 }
 
 /**
- * "আমার কোর্স" List View matching the exact layout in the user's screenshot
+ * Course List View showing "আমার কোর্স", "ফ্রি কোর্স", and "সকল কোর্স" matching the user's screenshots!
  */
 @Composable
 private fun MyCoursesListView(
-    enrolledPrograms: List<EnrolledProgram>,
-    onOpenCourse: (EnrolledProgram) -> Unit
+    uiState: CourseUiState,
+    onOpenEnrolledCourse: (EnrolledProgram) -> Unit,
+    onOpenOtherCourse: (OtherProgram) -> Unit,
+    onRefresh: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp)
-    ) {
-        Spacer(modifier = Modifier.height(16.dp))
+    val enrolled = uiState.enrolledPrograms
+    val free = uiState.freePrograms
+    val other = uiState.otherPrograms
+    val isLoading = uiState.isProgramsLoading
 
-        Text(
-            text = "আমার কোর্স",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF1E293B)
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        if (enrolledPrograms.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentAlignment = Alignment.Center
+    if (isLoading && enrolled.isEmpty() && free.isEmpty() && other.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 40.dp),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 CircularProgressIndicator(
                     color = MaterialTheme.colorScheme.primary,
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(36.dp)
                 )
+                Text(
+                    text = "কোর্স লোড হচ্ছে...",
+                    fontSize = 14.sp,
+                    color = Color(0xFF64748B)
+                )
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                modifier = Modifier.fillMaxSize()
+        }
+    } else if (!isLoading && enrolled.isEmpty() && free.isEmpty() && other.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp)
+                )
+                Text(
+                    text = "কোনো কোর্স পাওয়া যায়নি",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1E293B)
+                )
+                Button(
+                    onClick = onRefresh,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text("পুনরায় চেষ্টা করুন")
+                }
+            }
+        }
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 32.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // ==========================================
+            // 1. "আমার কোর্স" (My Enrolled Courses)
+            // ==========================================
+            if (enrolled.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "আমার কোর্স",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+
                 items(
-                    items = enrolledPrograms,
-                    key = { it.id }
+                    items = enrolled,
+                    key = { "enrolled_${it.id}" }
                 ) { program ->
-                    CourseBannerCard(
+                    EnrolledCourseBannerCard(
                         program = program,
-                        onClick = { onOpenCourse(program) }
+                        onClick = { onOpenEnrolledCourse(program) }
+                    )
+                }
+            }
+
+            // ==========================================
+            // 2. "ফ্রি কোর্স" (Free Available Courses)
+            // ==========================================
+            if (free.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "ফ্রি কোর্স",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+
+                items(
+                    items = free,
+                    key = { "free_${it.id}" }
+                ) { program ->
+                    FreeCourseBannerCard(
+                        program = program,
+                        onOpen = { onOpenOtherCourse(program) }
+                    )
+                }
+            }
+
+            // ==========================================
+            // 3. "সকল কোর্স" (All Other Courses)
+            // ==========================================
+            if (other.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "সকল কোর্স",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+
+                items(
+                    items = other,
+                    key = { "other_${it.id}" }
+                ) { program ->
+                    OtherCourseBannerCard(
+                        program = program,
+                        onOpen = { onOpenOtherCourse(program) }
                     )
                 }
             }
@@ -239,42 +345,39 @@ private fun MyCoursesListView(
     }
 }
 
-/**
- * Single Course Banner Card design matching the uploaded screenshot!
- */
+private fun getCourseGradient(title: String): Brush {
+    return when {
+        title.contains("Think", ignoreCase = true) -> Brush.linearGradient(
+            listOf(Color(0xFF080D27), Color(0xFF11184A), Color(0xFF1A1F5E))
+        )
+        title.contains("মানবিক", ignoreCase = true) -> Brush.linearGradient(
+            listOf(Color(0xFF500F1F), Color(0xFF8B1A2F), Color(0xFF3B0B14))
+        )
+        title.contains("বিজ্ঞান", ignoreCase = true) -> Brush.linearGradient(
+            listOf(Color(0xFF0F3854), Color(0xFF0A2540), Color(0xFF001220))
+        )
+        title.contains("Next Champ", ignoreCase = true) -> Brush.linearGradient(
+            listOf(Color(0xFF0284C7), Color(0xFF0369A1), Color(0xFF0C4A6E))
+        )
+        else -> Brush.linearGradient(
+            listOf(Color(0xFF065F46), Color(0xFF047857), Color(0xFF064E3B))
+        )
+    }
+}
+
 @Composable
-private fun CourseBannerCard(
+private fun EnrolledCourseBannerCard(
     program: EnrolledProgram,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val badge = getProgramBadge(program)
-    val title = program.title_bn ?: "কোর্স"
-
-    // Custom gradient background if image is not present
-    val cardGradient = remember(program.id, title) {
-        when {
-            title.contains("Think", ignoreCase = true) -> Brush.linearGradient(
-                listOf(Color(0xFF080D27), Color(0xFF11184A), Color(0xFF1A1F5E))
-            )
-            title.contains("মানবিক", ignoreCase = true) -> Brush.linearGradient(
-                listOf(Color(0xFF500F1F), Color(0xFF8B1A2F), Color(0xFF3B0B14))
-            )
-            title.contains("বিজ্ঞান", ignoreCase = true) -> Brush.linearGradient(
-                listOf(Color(0xFF0F3854), Color(0xFF0A2540), Color(0xFF001220))
-            )
-            else -> Brush.linearGradient(
-                listOf(Color(0xFF1A237E), Color(0xFF0D47A1), Color(0xFF01579B))
-            )
-        }
-    }
-
-    val actionButtonText = if (badge.text == "ফ্রিতে শেখা শেষ") "বিস্তারিত দেখো" else "শেখা চালিয়ে যাও"
+    val title = program.title_bn?.trim() ?: "কোর্স"
+    val cardGradient = remember(program.id, title) { getCourseGradient(title) }
 
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
@@ -286,105 +389,79 @@ private fun CourseBannerCard(
                 .background(cardGradient)
                 .padding(18.dp)
         ) {
-            // Optional background banner image if available from API
-            if (!program.banner_url.isNullOrBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(program.banner_url)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(20.dp))
-                )
-                // Dark overlay to ensure crisp contrast for text and badges
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.Start
+            ) {
+                // Top Tag: "ভর্তি হয়েছো"
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFFDCFCE7),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                ) {
+                    Text(
+                        text = "ভর্তি হয়েছো",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF15803D),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                // Centered Logo / Banner Graphic Box (Matches Screenshot 2)
                 Box(
                     modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.45f),
-                                    Color.Black.copy(alpha = 0.75f)
-                                )
-                            )
-                        )
-                )
-            }
-
-            Column(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Top Badge with Shikho Logo
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.maxbird_logo),
-                            contentDescription = "MaxBird",
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = badge.containerColor
-                    ) {
-                        Text(
-                            text = badge.text,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = badge.textColor,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Academic logo graphic or title banner styling
-                if (title.contains("Think", ignoreCase = true)) {
-                    Text(
-                        text = "Think AI",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF0072EC).copy(alpha = 0.9f),
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    ) {
-                        Text(
-                            text = "ACADEMIC PROGRAM",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
+                    if (!program.banner_url.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.Black.copy(alpha = 0.25f),
+                            modifier = Modifier
+                                .width(155.dp)
+                                .height(92.dp)
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(program.banner_url)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = title,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(4.dp)
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.White.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                            modifier = Modifier
+                                .width(155.dp)
+                                .height(92.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = if (title.contains("Think", true)) "THINK AI" else "HSC '27",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Course Title
                 Text(
                     text = title,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 2,
@@ -392,9 +469,9 @@ private fun CourseBannerCard(
                     lineHeight = 22.sp
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Action Pill Button ("বিস্তারিত দেখো" or "শেখা চালিয়ে যাও")
+                // Full Width Outline Pill Button: "শেখা চালিয়ে যাও"
                 Surface(
                     shape = RoundedCornerShape(28.dp),
                     color = Color.Transparent,
@@ -411,7 +488,259 @@ private fun CourseBannerCard(
                             .padding(vertical = 12.dp)
                     ) {
                         Text(
-                            text = actionButtonText,
+                            text = "শেখা চালিয়ে যাও",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FreeCourseBannerCard(
+    program: OtherProgram,
+    onOpen: () -> Unit
+) {
+    val context = LocalContext.current
+    val title = program.title_bn ?: "ফ্রি কোর্স"
+    val cardGradient = remember(program.id, title) { getCourseGradient(title) }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onOpen)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(cardGradient)
+                .padding(18.dp)
+        ) {
+            if (!program.banner_url.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(program.banner_url)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(20.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.40f),
+                                    Color.Black.copy(alpha = 0.82f)
+                                )
+                            )
+                        )
+                )
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Top Tag: "সম্পূর্ণ ফ্রি!"
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF16A34A),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    Text(
+                        text = "সম্পূর্ণ ফ্রি!",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Title
+                Text(
+                    text = title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 22.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Action Buttons Row: "বিস্তারিত দেখো" | "সম্পূর্ণ ফ্রি'তে শুরু করো"
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.25.dp, Color.White.copy(alpha = 0.85f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(28.dp))
+                            .clickable(onClick = onOpen)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 11.dp)
+                        ) {
+                            Text(
+                                text = "বিস্তারিত দেখো",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = Color(0xFF16A34A),
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .clip(RoundedCornerShape(28.dp))
+                            .clickable(onClick = onOpen)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 11.dp)
+                        ) {
+                            Text(
+                                text = "সম্পূর্ণ ফ্রি'তে শুরু করো",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OtherCourseBannerCard(
+    program: OtherProgram,
+    onOpen: () -> Unit
+) {
+    val context = LocalContext.current
+    val title = program.title_bn ?: "কোর্স"
+    val cardGradient = remember(program.id, title) { getCourseGradient(title) }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onOpen)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(cardGradient)
+                .padding(18.dp)
+        ) {
+            if (!program.banner_url.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(program.banner_url)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(20.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.40f),
+                                    Color.Black.copy(alpha = 0.82f)
+                                )
+                            )
+                        )
+                )
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                val classLabel = program.classes?.firstOrNull()
+                if (!classLabel.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    ) {
+                        Text(
+                            text = classLabel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 22.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.25.dp, Color.White.copy(alpha = 0.85f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(28.dp))
+                        .clickable(onClick = onOpen)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = "বিস্তারিত দেখো",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White

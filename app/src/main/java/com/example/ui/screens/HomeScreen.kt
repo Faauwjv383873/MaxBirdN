@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.EnrolledProgram
 import com.example.home.HomeViewModel
+import com.example.ui.components.CourseProgressSection
 import com.example.ui.components.CourseSwitcherBottomSheet
 import com.example.ui.components.HomeHeader
 import com.example.ui.components.RoutineCard
@@ -41,7 +42,7 @@ fun HomeScreen(
     onNavigateToProfile: () -> Unit = {},
     onNavigateToChangeSyllabus: () -> Unit = {},
     onCourseSelected: (EnrolledProgram) -> Unit = {},
-    onOpenCourse: () -> Unit = {},
+    onOpenCourse: (phaseId: String?) -> Unit = {},
     onOpenFullRoutine: () -> Unit = {},
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -221,6 +222,15 @@ fun HomeScreen(
                         onSeeAllClick = { onOpenFullRoutine() },
                         onCustomizeSubjectsClick = { viewModel.openSubjectFilterDialog() },
                         onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    CourseProgressSection(
+                        phases = uiState.programPhases,
+                        onPhaseClick = { phase ->
+                            onOpenCourse(phase.id)
+                        }
                     )
                 }
             }

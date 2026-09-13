@@ -106,8 +106,8 @@ fun WeeklyRoutineSection(
 
             val fullDateBn = "$fullName, ${SimpleDateFormat("dd/MM/yyyy", Locale.US).apply { timeZone = dhakaZone }.format(dayCal.time).toBengaliDigits()}"
             
-            // Filter lessons matching dateKey
-            val dayLessons = lessons.filter { lesson ->
+            // Filter lessons matching dateKey and sort chronologically with LIVE priority
+            val rawDayLessons = lessons.filter { lesson ->
                 val startTime = lesson.start_time ?: lesson.live_class?.start_time
                 if (startTime.isNullOrBlank()) false
                 else {
@@ -118,6 +118,7 @@ fun WeeklyRoutineSection(
                     } else false
                 }
             }
+            val dayLessons = sortRoutineLessons(rawDayLessons)
 
             val classCount = dayLessons.count { it.content_type == "LiveClass" || it.content_type == "RecordedClass" || it.content_type == "Lesson" || it.content_type == null }
             val examCount = dayLessons.count { it.content_type == "LiveExam" || it.content_type == "ModelTest" || it.content_type == "Quiz" }
@@ -487,10 +488,21 @@ fun ShikhoRoutineCard(
     val durationString = calculateDurationText(startCal, endCal)
     val fullTimeText = if (durationString.isNotBlank()) "$timeString • $durationString" else timeString
 
-    val isExam = lesson.content_type == "LiveExam" || lesson.content_type == "ModelTest" || lesson.content_type == "Quiz"
+    val isExam = lesson.isExam
+    val isLive = lesson.isLive
+    val isRecorded = lesson.isRecorded
+
+    val nowMs = System.currentTimeMillis()
+    val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
+    val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + 3600_000L else Long.MAX_VALUE)
+    
+    val isLiveNow = isLive || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true) || (startMs != Long.MAX_VALUE && nowMs in startMs..endMs && !isRecorded)
+
     val classTypeLabel = when {
-        isExam -> "✍️ লাইভ এক্সাম"
-        lesson.content_type == "RecordedClass" -> "🎥 রেকর্ড করা ক্লাস"
+        isLiveNow -> "🔴 লাইভ চলছে"
+        isExam -> "✍️ পরীক্ষা (Exam)"
+        isLive -> "🔴 লাইভ ক্লাস"
+        isRecorded -> "🎥 রেকর্ড করা ক্লাস"
         else -> "👨‍🏫 লেকচার ক্লাস"
     }
 
@@ -499,76 +511,107 @@ fun ShikhoRoutineCard(
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
 
     val titleFontSize = when {
-        titleText.length > 50 -> 12.sp
-        titleText.length > 30 -> 13.5.sp
-        else -> 15.5.sp
+        titleText.length > 50 -> 11.sp
+        titleText.length > 30 -> 12.sp
+        else -> 13.sp
     }
     val titleLineHeight = when {
-        titleText.length > 50 -> 16.sp
-        titleText.length > 30 -> 18.sp
-        else -> 21.sp
+        titleText.length > 50 -> 15.sp
+        titleText.length > 30 -> 16.5.sp
+        else -> 17.5.sp
     }
 
     Card(
         modifier = modifier
-            .width(290.dp)
+            .width(235.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isLiveNow) Color(0xFFFFF1F2) else Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 3.5.dp else 1.5.dp),
+        border = if (isLiveNow) BorderStroke(1.5.dp, Color(0xFFEF4444)) else BorderStroke(1.dp, Color(0xFFE5E7EB))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(11.dp)
         ) {
             // Top Tags Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (isLiveNow) {
+                    // Eye-catching Red Live Badge
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFEF4444)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                            Text(
+                                text = "লাইভ চলছে",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
                 // Subject Tag (Dynamic Colorful Background)
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = subjectColors.backgroundColor
                 ) {
                     Text(
                         text = subjectName,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = subjectColors.textColor,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // Class Type Tag
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFF3F4F6)
-                ) {
-                    Text(
-                        text = classTypeLabel,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF374151),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                if (!isLiveNow) {
+                    // Class Type Tag
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF3F4F6)
+                    ) {
+                        Text(
+                            text = classTypeLabel,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF374151),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Lesson Title (Auto-scaling font size with height constraint to prevent layout breaking)
+            // Lesson Title
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp),
+                    .heightIn(min = 34.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Text(
@@ -582,13 +625,13 @@ fun ShikhoRoutineCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Time & Duration String (Pinkish Red text)
+            // Time & Duration String
             Text(
                 text = fullTimeText,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = Color(0xFFDC2626)
             )
         }
@@ -717,5 +760,69 @@ fun calculateDurationText(startCal: Calendar?, endCal: Calendar?): String {
         hours > 0 -> "${hours.toString().toBengaliDigits()} ঘণ্টা"
         mins > 0 -> "${mins.toString().toBengaliDigits()} মিনিট"
         else -> ""
+    }
+}
+
+/**
+ * Sorts routine lessons for a given day:
+ * Priority 1: Currently LIVE classes/exams (isLiveNow = true) move to the TOP (#1 position).
+ * Priority 2: Upcoming classes/exams for the day, sorted chronologically by start time.
+ * Priority 3: Completed/Passed classes/exams for the day, sorted chronologically by start time.
+ */
+fun sortRoutineLessons(lessons: List<StudentLessonItem>): List<StudentLessonItem> {
+    val nowMs = System.currentTimeMillis()
+
+    fun getStartMs(lesson: StudentLessonItem): Long {
+        val startTimeStr = lesson.start_time ?: lesson.live_class?.start_time ?: return Long.MAX_VALUE
+        return parseIsoToDhakaCalendar(startTimeStr)?.timeInMillis ?: Long.MAX_VALUE
+    }
+
+    fun getEndMs(lesson: StudentLessonItem): Long {
+        val endTimeStr = lesson.end_time ?: lesson.live_class?.end_time
+        val startMs = getStartMs(lesson)
+        if (!endTimeStr.isNullOrBlank()) {
+            val endCal = parseIsoToDhakaCalendar(endTimeStr)
+            if (endCal != null) return endCal.timeInMillis
+        }
+        return if (startMs != Long.MAX_VALUE) startMs + 3600_000L else Long.MAX_VALUE
+    }
+
+    fun isLiveNow(lesson: StudentLessonItem): Boolean {
+        if (lesson.isLive || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true)) {
+            return true
+        }
+        val startMs = getStartMs(lesson)
+        val endMs = getEndMs(lesson)
+        return (startMs != Long.MAX_VALUE && nowMs in startMs..endMs && !lesson.isRecorded)
+    }
+
+    fun isPassed(lesson: StudentLessonItem): Boolean {
+        if (isLiveNow(lesson)) return false
+        if (lesson.user_activity_state.equals("COMPLETED", true) ||
+            lesson.user_activity_state.equals("ATTENDED", true) ||
+            lesson.user_activity_state.equals("MISSED", true)) {
+            return true
+        }
+        val endMs = getEndMs(lesson)
+        return endMs < nowMs
+    }
+
+    return lessons.sortedWith { a, b ->
+        val aLive = isLiveNow(a)
+        val bLive = isLiveNow(b)
+
+        when {
+            aLive && !bLive -> -1
+            !aLive && bLive -> 1
+            else -> {
+                val aPassed = isPassed(a)
+                val bPassed = isPassed(b)
+                when {
+                    !aPassed && bPassed -> -1
+                    aPassed && !bPassed -> 1
+                    else -> getStartMs(a).compareTo(getStartMs(b))
+                }
+            }
+        }
     }
 }

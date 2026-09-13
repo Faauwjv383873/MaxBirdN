@@ -43,6 +43,7 @@ import com.example.ui.components.SubjectFilterDialog
 import com.example.ui.components.calculateDurationText
 import com.example.ui.components.formatTimeRange
 import com.example.ui.components.parseIsoToDhakaCalendar
+import com.example.ui.components.sortRoutineLessons
 import com.example.ui.components.toBengaliDigits
 import com.example.utils.SubjectColorUtils
 import java.text.SimpleDateFormat
@@ -150,12 +151,12 @@ fun FullRoutineScreen(
         "$dayName, $dayNum/$monthNum/$yearNum"
     }
 
-    // Filter lessons for selected day using the user's selected subjects (filteredWeeklyRoutine)
+    // Filter lessons for selected day using the user's selected subjects (filteredWeeklyRoutine) and sort with LIVE priority & time
     val selectedDayLessons = remember(uiState.filteredWeeklyRoutine, selectedDate) {
         val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = dhakaZone }
         val targetDateStr = sdfDate.format(selectedDate.time)
 
-        uiState.filteredWeeklyRoutine.filter { lesson ->
+        val raw = uiState.filteredWeeklyRoutine.filter { lesson ->
             val timeStr = lesson.start_time ?: lesson.live_class?.start_time
             if (timeStr.isNullOrBlank()) false
             else {
@@ -165,9 +166,8 @@ fun FullRoutineScreen(
                     lessonDateStr == targetDateStr
                 } else false
             }
-        }.sortedBy { lesson ->
-            lesson.start_time ?: lesson.live_class?.start_time ?: ""
         }
+        sortRoutineLessons(raw)
     }
 
     val classCount = selectedDayLessons.count { it.live_class?.type != "EXAM" && it.content_type != "LiveExam" }
@@ -492,9 +492,9 @@ fun FullRoutineScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp)
+                            .padding(horizontal = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 20.dp)
                     ) {
                         items(selectedDayLessons) { lesson ->
                             RoutineTimelineCard(
@@ -705,14 +705,14 @@ private fun RoutineTimelineCard(
     lesson: StudentLessonItem,
     onClick: () -> Unit
 ) {
+    val st = lesson.start_time ?: lesson.live_class?.start_time
+    val et = lesson.end_time ?: lesson.live_class?.end_time
+
+    val startCal = remember(st) { parseIsoToDhakaCalendar(st) }
+    val endCal = remember(et) { parseIsoToDhakaCalendar(et) }
+
     // Format Start Time & End Time properly with correct time range and duration
-    val formattedTime = remember(lesson.start_time, lesson.end_time, lesson.live_class) {
-        val st = lesson.start_time ?: lesson.live_class?.start_time
-        val et = lesson.end_time ?: lesson.live_class?.end_time
-
-        val startCal = parseIsoToDhakaCalendar(st)
-        val endCal = parseIsoToDhakaCalendar(et)
-
+    val formattedTime = remember(startCal, endCal) {
         val timeRange = formatTimeRange(startCal, endCal)
         val duration = calculateDurationText(startCal, endCal)
 
@@ -723,10 +723,20 @@ private fun RoutineTimelineCard(
         }
     }
 
-    val isExam = lesson.live_class?.type == "EXAM" || lesson.content_type == "LiveExam" || lesson.content_type == "ModelTest"
-    val isRecorded = lesson.content_type == "RecordedClass"
+    val isExam = lesson.isExam
+    val isLive = lesson.isLive
+    val isRecorded = lesson.isRecorded
+
+    val nowMs = System.currentTimeMillis()
+    val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
+    val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + 3600_000L else Long.MAX_VALUE)
+    
+    val isLiveNow = isLive || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true) || (startMs != Long.MAX_VALUE && nowMs in startMs..endMs && !isRecorded)
+
     val typeText = when {
-        isExam -> "✍️ লাইভ এক্সাম"
+        isLiveNow -> "🔴 লাইভ চলছে"
+        isExam -> "✍️ পরীক্ষা (Exam)"
+        isLive -> "🔴 লাইভ ক্লাস"
         isRecorded -> "🎥 রেকর্ড করা ক্লাস"
         lesson.live_class?.type == "EXTRA" -> "👨‍🏫 এক্সট্রা ক্লাস"
         else -> "👨‍🏫 লেকচার ক্লাস"
@@ -737,100 +747,130 @@ private fun RoutineTimelineCard(
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
 
     val titleFontSize = when {
-        titleText.length > 50 -> 12.5.sp
-        titleText.length > 30 -> 14.sp
-        else -> 16.sp
+        titleText.length > 50 -> 11.5.sp
+        titleText.length > 30 -> 12.5.sp
+        else -> 13.5.sp
     }
     val titleLineHeight = when {
-        titleText.length > 50 -> 17.sp
-        titleText.length > 30 -> 19.sp
-        else -> 22.sp
+        titleText.length > 50 -> 15.5.sp
+        titleText.length > 30 -> 17.sp
+        else -> 18.5.sp
     }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
     ) {
-        // Timeline Left Bar (Circle Badge indicator matching Screenshot)
+        // Timeline Left Bar
         Box(
             modifier = Modifier
-                .width(36.dp)
-                .padding(top = 18.dp),
+                .width(28.dp)
+                .padding(top = 12.dp),
             contentAlignment = Alignment.TopCenter
         ) {
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(20.dp)
                     .clip(CircleShape)
-                    .background(if (isExam) Color(0xFFFEF3C7) else Color(0xFFFEE2E2)),
+                    .background(if (isLiveNow) Color(0xFFFEE2E2) else if (isExam) Color(0xFFFEF3C7) else Color(0xFFE0F2FE)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = null,
-                    tint = if (isExam) Color(0xFFD97706) else Color(0xFFEF4444),
-                    modifier = Modifier.size(14.dp)
+                Box(
+                    modifier = Modifier
+                        .size(if (isLiveNow) 10.dp else 8.dp)
+                        .clip(CircleShape)
+                        .background(if (isLiveNow) Color(0xFFEF4444) else if (isExam) Color(0xFFD97706) else Color(0xFF0284C7))
                 )
             }
         }
 
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Main Card (White Card with dynamic Subject Badge & Red Time Display)
+        // Main Card
         Card(
             modifier = Modifier
                 .weight(1f)
                 .clickable { onClick() },
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isLiveNow) Color(0xFFFFF1F2) else Color.White
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 3.5.dp else 1.5.dp),
+            border = if (isLiveNow) BorderStroke(1.5.dp, Color(0xFFEF4444)) else BorderStroke(1.dp, Color(0xFFE5E7EB))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(12.dp)
             ) {
                 // Top Tag Row: Subject Tag + Class Type Tag
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Subject Tag (Dynamic Colorful Pill)
+                    if (isLiveNow) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEF4444)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                                Text(
+                                    text = "লাইভ চলছে",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Subject Tag
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = subjectColors.backgroundColor
                     ) {
                         Text(
                             text = subjectName,
-                            fontSize = 12.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = subjectColors.textColor,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    // Type Tag (Light Grey pill)
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFF1F5F9)
-                    ) {
-                        Text(
-                            text = typeText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF334155),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
+                    if (!isLiveNow) {
+                        // Type Tag
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFF1F5F9)
+                        ) {
+                            Text(
+                                text = typeText,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF334155),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Lesson Title (Auto-scaling text with maxLines = 2)
+                // Lesson Title
                 Text(
                     text = titleText,
                     fontSize = titleFontSize,
@@ -841,13 +881,13 @@ private fun RoutineTimelineCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Time & Duration (Pinkish Red Text `#DC2626`)
+                // Time & Duration
                 if (formattedTime.isNotBlank()) {
                     Text(
                         text = formattedTime,
-                        fontSize = 13.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFDC2626)
                     )

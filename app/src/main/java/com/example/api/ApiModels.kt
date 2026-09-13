@@ -248,8 +248,51 @@ data class AcademicProgramData(
 
 @JsonClass(generateAdapter = true)
 data class ListAcademicProgramByEnrollment(
-    val enrolled_programs: List<EnrolledProgram>? = emptyList()
+    val enrolled_programs: List<EnrolledProgram>? = emptyList(),
+    val other_programs: List<OtherProgram>? = emptyList()
 )
+
+@JsonClass(generateAdapter = true)
+data class OtherProgramPricing(
+    val sale_price_quarterly: Double? = 0.0,
+    val sale_price_full: Double? = 0.0
+)
+
+@JsonClass(generateAdapter = true)
+data class OtherProgram(
+    val id: String,
+    val classes: List<String>? = emptyList(),
+    val title_bn: String?,
+    val facebook_group_url: String? = null,
+    val banner_url: String?,
+    val phase_pricing: Double? = null,
+    val is_free: Boolean? = false,
+    val has_animated_video: Boolean? = false,
+    val full_program_discount_price: String? = null,
+    val trial_enabled: Boolean? = false,
+    val trial_duration: Int? = null,
+    val pricing: OtherProgramPricing? = null
+) {
+    fun toEnrolledProgram(): EnrolledProgram {
+        return EnrolledProgram(
+            id = this.id,
+            classes = this.classes,
+            title_bn = this.title_bn,
+            banner_url = this.banner_url,
+            color = null,
+            is_free = this.is_free,
+            trial_enabled = this.trial_enabled,
+            enrollment_details = EnrollmentDetails(
+                batch_id = null,
+                is_active = true,
+                trial_end_date = null,
+                type = if (this.is_free == true) "FREE" else "Paid",
+                expiry_date = null
+            ),
+            subjects = emptyList()
+        )
+    }
+}
 
 @JsonClass(generateAdapter = true)
 data class EnrolledProgram(
@@ -331,6 +374,73 @@ data class StudentLessonItem(
 
     val isLocked: Boolean
         get() = is_locked == true || access_level.equals("LOCKED", ignoreCase = true)
+
+    val hasRecording: Boolean
+        get() = !recording_url.isNullOrBlank() ||
+                !stream_url.isNullOrBlank() ||
+                !video_url.isNullOrBlank() ||
+                !live_class?.recording_url.isNullOrBlank() ||
+                !live_class?.stream_url.isNullOrBlank() ||
+                !live_class?.video_url.isNullOrBlank() ||
+                !live_class?.playback_url.isNullOrBlank() ||
+                !live_class?.hls_url.isNullOrBlank()
+
+    val isExam: Boolean
+        get() = content_type?.equals("LiveExam", ignoreCase = true) == true ||
+                content_type?.equals("ModelTest", ignoreCase = true) == true ||
+                content_type?.equals("Quiz", ignoreCase = true) == true ||
+                content_type?.contains("Exam", ignoreCase = true) == true ||
+                content_type?.contains("Test", ignoreCase = true) == true ||
+                content_type?.contains("Quiz", ignoreCase = true) == true ||
+                live_class?.type.equals("EXAM", ignoreCase = true) == true ||
+                live_class?.type.equals("MODEL_TEST", ignoreCase = true) == true ||
+                model_test != null ||
+                (title != null && (
+                    title.contains("Exam", true) || 
+                    title.contains("পরীক্ষা", true) || 
+                    title.contains("Model Test", true) ||
+                    title.contains("Quiz", true) ||
+                    title.contains("কুইজ", true)
+                ))
+
+    val isUpcoming: Boolean
+        get() {
+            if (user_activity_state.equals("UPCOMING", ignoreCase = true)) return true
+            if (user_activity_state.equals("COMPLETED", true) || user_activity_state.equals("ATTENDED", true) || user_activity_state.equals("MISSED", true)) return false
+            if (hasRecording) return false
+
+            val timeStr = live_class?.start_time ?: start_time
+            if (timeStr.isNullOrBlank()) return false
+            return try {
+                val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
+                parser.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val date = parser.parse(timeStr) ?: java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(timeStr)
+                if (date != null) {
+                    date.time > System.currentTimeMillis()
+                } else false
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+    val isRecorded: Boolean
+        get() = !isExam && !isUpcoming && (
+                hasRecording ||
+                content_type?.equals("RecordedClass", ignoreCase = true) == true ||
+                content_type?.equals("Lesson", ignoreCase = true) == true ||
+                content_type?.equals("Video", ignoreCase = true) == true ||
+                user_activity_state.equals("MISSED", true) ||
+                user_activity_state.equals("COMPLETED", true) ||
+                user_activity_state.equals("ATTENDED", true)
+        )
+
+    val isLive: Boolean
+        get() {
+            if (isExam || isUpcoming || isRecorded) {
+                return false
+            }
+            return live_class?.is_on_going == true
+        }
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()
