@@ -77,6 +77,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -254,9 +255,10 @@ fun LessonDetailPlayerScreen(
     // Expandable Accordion State for Topics
     var isTopicsExpanded by remember { mutableStateOf(true) }
 
-    // ExoPlayer Instance with Shikho CDN headers
+    // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
+    val trackSelector = remember { DefaultTrackSelector(context) }
     val exoPlayer = remember {
-        ShikhoPlayerManager.buildExoPlayer(context).apply {
+        ShikhoPlayerManager.buildExoPlayer(context, trackSelector).apply {
             repeatMode = Player.REPEAT_MODE_OFF
         }
     }
@@ -275,11 +277,7 @@ fun LessonDetailPlayerScreen(
             return@LaunchedEffect
         }
         if (activeStreamUrl.isNotBlank()) {
-            val urlToPlay = if (activeStreamUrl.contains("100ms.live") && activeStreamUrl.contains("master.m3u8")) {
-                activeStreamUrl.replace("master.m3u8", "stream_0/stream.m3u8")
-            } else {
-                activeStreamUrl
-            }
+            val urlToPlay = activeStreamUrl
 
             if (urlToPlay.contains("100ms.live") || urlToPlay.contains("m3u8") || urlToPlay.contains("stream_")) {
                 val baseUrl = urlToPlay
@@ -2062,9 +2060,10 @@ fun LessonDetailPlayerScreen(
                                     .fillMaxWidth()
                                     .clickable {
                                         selectedQualityLabel = quality.label
-                                        if (quality.targetStreamUrl != null && quality.targetStreamUrl != activeStreamUrl) {
-                                            activeStreamUrl = quality.targetStreamUrl
-                                        } else if (quality.id == "auto") {
+                                        val parametersBuilder = trackSelector.buildUponParameters()
+                                        if (quality.id == "auto") {
+                                            parametersBuilder.clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                            trackSelector.setParameters(parametersBuilder)
                                             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                                                 .buildUpon()
                                                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
@@ -2074,10 +2073,14 @@ fun LessonDetailPlayerScreen(
                                                 quality.trackGroup.mediaTrackGroup,
                                                 listOf(quality.trackIndex)
                                             )
+                                            parametersBuilder.setOverrideForType(override)
+                                            trackSelector.setParameters(parametersBuilder)
                                             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                                                 .buildUpon()
                                                 .setOverrideForType(override)
                                                 .build()
+                                        } else if (quality.targetStreamUrl != null && quality.targetStreamUrl != activeStreamUrl) {
+                                            activeStreamUrl = quality.targetStreamUrl
                                         }
                                         showQualityDialog = false
                                     }

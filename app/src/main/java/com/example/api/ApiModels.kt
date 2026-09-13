@@ -583,12 +583,13 @@ data class StudentLessonItem(
 
                 for (dStr in distinctDates) {
                     for (tStr in distinctTs) {
+                        list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/master.m3u8")
                         list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/stream_0/stream.m3u8")
                     }
                 }
 
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/master.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_0/stream.m3u8")
             }
 
             // 3. Class ID & Session ID based Tenbyte CDN URLs (prioritizing live_class?.id Class ID over Lesson id)

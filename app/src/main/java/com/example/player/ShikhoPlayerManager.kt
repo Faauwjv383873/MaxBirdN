@@ -12,6 +12,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.common.TrackSelectionOverride
 import java.util.Locale
 
 @OptIn(UnstableApi::class)
@@ -94,21 +96,26 @@ object ShikhoPlayerManager {
     }
 
     /**
-     * Builds and configures an ExoPlayer instance with custom Shikho network properties.
+     * Builds and configures an ExoPlayer instance with custom Shikho network properties and DefaultTrackSelector.
      */
     fun buildExoPlayer(
         context: Context,
+        trackSelector: DefaultTrackSelector? = null,
         dataSourceFactory: DefaultHttpDataSource.Factory = createHttpDataSourceFactory()
     ): ExoPlayer {
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-        return ExoPlayer.Builder(context)
+        val builder = ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .setSeekBackIncrementMs(10000)
             .setSeekForwardIncrementMs(10000)
-            .build()
-            .apply {
-                playWhenReady = true
-            }
+
+        if (trackSelector != null) {
+            builder.setTrackSelector(trackSelector)
+        }
+
+        return builder.build().apply {
+            playWhenReady = true
+        }
     }
 
     /**
