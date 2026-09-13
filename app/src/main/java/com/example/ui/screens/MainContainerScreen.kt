@@ -95,7 +95,16 @@ fun MainContainerScreen(
                                 selectedIndex = 1
                             },
                             onOpenFullRoutine = onNavigateToFullRoutine,
-                            onOpenLessonDetail = onOpenLessonDetail
+                            onOpenLessonDetail = onOpenLessonDetail,
+                            onOpenAnimatedLessons = {
+                                val activeProg = homeViewModel.uiState.value.activeProgram
+                                if (activeProg != null) {
+                                    courseViewModel.openCourse(activeProg)
+                                } else {
+                                    courseViewModel.loadSubjects()
+                                }
+                                selectedIndex = 1
+                            }
                         )
                     }
                     1 -> {

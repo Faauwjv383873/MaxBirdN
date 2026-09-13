@@ -5,11 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.api.*
 import com.example.auth.SessionManager
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 data class SubjectWithProgress(
     val subject: AcademicSubjectItem,
@@ -64,7 +64,13 @@ data class CourseUiState(
     val lessonsDiagnosticInfo: String? = null,
 
     // Tier 4: Selected Lesson Detail
-    val selectedLesson: StudentLessonItem? = null
+    val selectedLesson: StudentLessonItem? = null,
+
+    // Animated Lessons
+    val chapterAnimatedLessons: List<TopicFullItem> = emptyList(),
+    val isChapterAnimationsLoading: Boolean = false,
+    val subjectAnimatedLessons: List<TopicFullItem> = emptyList(),
+    val isSubjectAnimationsLoading: Boolean = false
 )
 
 class CourseViewModel(
@@ -1448,6 +1454,151 @@ class CourseViewModel(
             return foundChapters
         } catch (e: Exception) {
             return emptyList()
+        }
+    }
+
+    fun loadAnimatedLessonsForChapter(chapterId: String) {
+        _uiState.update {
+            it.copy(
+                isChapterAnimationsLoading = true,
+                chapterAnimatedLessons = emptyList()
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val topQuery = GraphQlQuery(
+                    operationName = "GetTopics",
+                    query = """
+                        query GetTopics(${'$'}chapter_id: String!, ${'$'}topic_ids: [String]) {
+                          topics(chapter_id: ${'$'}chapter_id, topic_ids: ${'$'}topic_ids, filter: { limit: 150 } ) {
+                            data {
+                              id
+                              no
+                              name
+                              description
+                              subscription_type
+                              videos {
+                                data {
+                                  id
+                                  playback_url
+                                  video_thumbnail_url
+                                  category
+                                }
+                              }
+                              header {
+                                chapter_id
+                                chapter_name
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf("chapter_id" to chapterId, "topic_ids" to null)
+                )
+                val topRes = apiService.getTopics(topQuery)
+                val topicsList = topRes.data?.topics?.data ?: emptyList()
+                val realAnimatedTopics = topicsList.filter { topic ->
+                    topic.videos?.data?.any { !it.playback_url.isNullOrBlank() } == true
+                }
+
+                _uiState.update {
+                    it.copy(
+                        chapterAnimatedLessons = realAnimatedTopics,
+                        isChapterAnimationsLoading = false
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        chapterAnimatedLessons = emptyList(),
+                        isChapterAnimationsLoading = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadAnimatedLessonsForSubject() {
+        val chaptersList = _uiState.value.chapters
+        if (chaptersList.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    isSubjectAnimationsLoading = false,
+                    subjectAnimatedLessons = emptyList()
+                )
+            }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                isSubjectAnimationsLoading = true,
+                subjectAnimatedLessons = emptyList()
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val deferreds = chaptersList.map { chapter ->
+                    val chId = chapter.id.ifBlank { chapter.chapter_id ?: "" }
+                    async {
+                        if (chId.isBlank()) return@async emptyList<TopicFullItem>()
+                        try {
+                            val topQuery = GraphQlQuery(
+                                operationName = "GetTopics",
+                                query = """
+                                    query GetTopics(${'$'}chapter_id: String!, ${'$'}topic_ids: [String]) {
+                                      topics(chapter_id: ${'$'}chapter_id, topic_ids: ${'$'}topic_ids, filter: { limit: 150 } ) {
+                                        data {
+                                          id
+                                          no
+                                          name
+                                          description
+                                          subscription_type
+                                          videos {
+                                            data {
+                                              id
+                                              playback_url
+                                              video_thumbnail_url
+                                              category
+                                            }
+                                          }
+                                          header {
+                                            chapter_id
+                                            chapter_name
+                                          }
+                                        }
+                                      }
+                                    }
+                                """.trimIndent(),
+                                variables = mapOf("chapter_id" to chId, "topic_ids" to null)
+                            )
+                            val topRes = apiService.getTopics(topQuery)
+                            val fetched = topRes.data?.topics?.data ?: emptyList()
+                            fetched.filter { topic ->
+                                topic.videos?.data?.any { !it.playback_url.isNullOrBlank() } == true
+                            }
+                        } catch (e: Exception) {
+                            emptyList<TopicFullItem>()
+                        }
+                    }
+                }
+                val results = deferreds.awaitAll().flatten()
+                val finalAnimated = results.distinctBy { it.id }
+                _uiState.update {
+                    it.copy(
+                        subjectAnimatedLessons = finalAnimated,
+                        isSubjectAnimationsLoading = false
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        subjectAnimatedLessons = emptyList(),
+                        isSubjectAnimationsLoading = false
+                    )
+                }
+            }
         }
     }
 }

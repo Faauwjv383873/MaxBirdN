@@ -271,6 +271,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
                     navController.navigate("chapter_lessons/$chapterId?name=$encodedName&status=$encodedStatus")
+                },
+                onPlayVideo = { videoUrl, videoTitle, subjectName, subjectColor, isLive ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(videoTitle, "UTF-8")
+                    val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
+                    val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
+                    navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
                 }
             )
         }

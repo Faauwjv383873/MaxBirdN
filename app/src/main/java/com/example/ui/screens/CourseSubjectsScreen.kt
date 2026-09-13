@@ -819,6 +819,38 @@ private fun CourseSubjectsDetailView(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // 3-Step Flow Indicator Badge: 1. সকল সাবজেক্ট ➔ 2. অধ্যায় ➔ 3. ক্লাস
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFFEEF2FF),
+            border = BorderStroke(1.dp, Color(0xFFC7D2FE)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "🎬 অ্যানিমেটেড লেসন:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF4338CA)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "১. সকল সাবজেক্ট ➔ ২. অধ্যায় ➔ ৩. ক্লাস",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF3730A3)
+                    )
+                }
+            }
+        }
+
         // Subjects Section Header
         Row(
             modifier = Modifier.fillMaxWidth(),
