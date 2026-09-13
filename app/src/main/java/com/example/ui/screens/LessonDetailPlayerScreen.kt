@@ -267,6 +267,32 @@ fun LessonDetailPlayerScreen(
             return@LaunchedEffect
         }
         if (activeStreamUrl.isNotBlank()) {
+            if (activeStreamUrl.contains("100ms.live") || activeStreamUrl.contains("m3u8") || activeStreamUrl.contains("stream_")) {
+                val baseUrl = activeStreamUrl
+                val masterUrl = if (baseUrl.contains("/stream_")) {
+                    baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/master.m3u8")
+                } else if (!baseUrl.contains("master.m3u8")) {
+                    baseUrl.replace(Regex("/[^/]+\\.m3u8"), "/master.m3u8")
+                } else baseUrl
+
+                val s0 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_0/stream.m3u8")
+                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_0/stream.m3u8") else it }
+                val s1 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_1/stream.m3u8")
+                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_1/stream.m3u8") else it }
+                val s2 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_2/stream.m3u8")
+                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_2/stream.m3u8") else it }
+                val s3 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_3/stream.m3u8")
+                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_3/stream.m3u8") else it }
+
+                availableQualities = listOf(
+                    VideoTrackQuality("auto", "অটো (Auto)", 0, 0, null, 0, masterUrl),
+                    VideoTrackQuality("1080p", "1080p (উচ্চ মান)", 1080, 0, null, 0, s0),
+                    VideoTrackQuality("720p", "720p (এইচডি)", 720, 0, null, 0, s1),
+                    VideoTrackQuality("480p", "480p (মাঝারি)", 480, 0, null, 0, s2),
+                    VideoTrackQuality("360p", "360p (সাধারণ)", 360, 0, null, 0, s3)
+                )
+            }
+
             isBuffering = true
             try {
                 val mediaSource = ShikhoPlayerManager.createMediaSource(activeStreamUrl, isLive = isLive)
@@ -2028,7 +2054,9 @@ fun LessonDetailPlayerScreen(
                                     .fillMaxWidth()
                                     .clickable {
                                         selectedQualityLabel = quality.label
-                                        if (quality.id == "auto") {
+                                        if (quality.targetStreamUrl != null && quality.targetStreamUrl != activeStreamUrl) {
+                                            activeStreamUrl = quality.targetStreamUrl
+                                        } else if (quality.id == "auto") {
                                             exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
                                                 .buildUpon()
                                                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)

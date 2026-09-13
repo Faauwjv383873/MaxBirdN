@@ -21,7 +21,8 @@ data class VideoTrackQuality(
     val height: Int,
     val bitrate: Int,
     val trackGroup: Tracks.Group? = null,
-    val trackIndex: Int = 0
+    val trackIndex: Int = 0,
+    val targetStreamUrl: String? = null
 )
 
 @OptIn(UnstableApi::class)
