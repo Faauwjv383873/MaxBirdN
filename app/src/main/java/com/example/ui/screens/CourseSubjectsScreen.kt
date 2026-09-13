@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.res.painterResource
 import com.example.R
 import androidx.compose.foundation.lazy.LazyColumn
@@ -72,7 +74,7 @@ fun CourseSubjectsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -118,34 +120,21 @@ fun CourseSubjectsScreen(
                             modifier = Modifier.widthIn(max = 240.dp)
                         )
                     }
-
-                    // Refresh Button
-                    IconButton(
-                        onClick = {
-                            viewModel.fetchEnrolledPrograms()
-                            if (selectedProgram != null) {
-                                viewModel.loadSubjects(forceRefresh = true)
-                            }
-                        },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
         },
         containerColor = Color(0xFFF4F7FC), // Soft clean background matching the screenshot
         modifier = modifier.testTag("course_subjects_screen")
     ) { paddingValues ->
-        Box(
+        val isRefreshing = uiState.isProgramsLoading || uiState.isSubjectsLoading
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                viewModel.fetchEnrolledPrograms()
+                if (selectedProgram != null) {
+                    viewModel.loadSubjects(forceRefresh = true)
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)

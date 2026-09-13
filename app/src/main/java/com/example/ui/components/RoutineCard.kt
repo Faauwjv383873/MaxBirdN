@@ -1,14 +1,19 @@
 package com.example.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EventBusy
@@ -20,14 +25,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.example.api.StudentLessonItem
 import com.example.utils.SubjectColorUtils
 import java.text.SimpleDateFormat
@@ -56,6 +60,68 @@ data class RoutineDayItem(
     val examCount: Int
 )
 
+data class DayColorScheme(
+    val selectedGradient: List<Color>,
+    val selectedDotColor: Color,
+    val unselectedBg: Color,
+    val unselectedText: Color,
+    val accentBorder: Color
+)
+
+fun getDayColorScheme(dayIndex: Int): DayColorScheme {
+    return when (dayIndex % 7) {
+        0 -> DayColorScheme( // Saturday (শনি) - Royal Indigo
+            selectedGradient = listOf(Color(0xFF4F46E5), Color(0xFF6366F1)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFEEF2FF),
+            unselectedText = Color(0xFF4338CA),
+            accentBorder = Color(0xFF818CF8)
+        )
+        1 -> DayColorScheme( // Sunday (রবি) - Electric Azure Blue
+            selectedGradient = listOf(Color(0xFF0284C7), Color(0xFF38BDF8)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFE0F2FE),
+            unselectedText = Color(0xFF0369A1),
+            accentBorder = Color(0xFF38BDF8)
+        )
+        2 -> DayColorScheme( // Monday (সোম) - Emerald Green
+            selectedGradient = listOf(Color(0xFF059669), Color(0xFF10B981)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFD1FAE5),
+            unselectedText = Color(0xFF047857),
+            accentBorder = Color(0xFF34D399)
+        )
+        3 -> DayColorScheme( // Tuesday (মঙ্গল) - Sunset Coral Amber
+            selectedGradient = listOf(Color(0xFFEA580C), Color(0xFFF97316)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFFFEDD5),
+            unselectedText = Color(0xFFC2410C),
+            accentBorder = Color(0xFFFB923C)
+        )
+        4 -> DayColorScheme( // Wednesday (বুধ) - Neon Violet
+            selectedGradient = listOf(Color(0xFF9333EA), Color(0xFFC084FC)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFF3E8FF),
+            unselectedText = Color(0xFF7E22CE),
+            accentBorder = Color(0xFFC084FC)
+        )
+        5 -> DayColorScheme( // Thursday (বৃহ) - Deep Crimson Rose
+            selectedGradient = listOf(Color(0xFFE11D48), Color(0xFFFB7185)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFFFE4E6),
+            unselectedText = Color(0xFFBE123C),
+            accentBorder = Color(0xFFFB7185)
+        )
+        else -> DayColorScheme( // Friday (শুক্র) - Vibrant Mint Teal
+            selectedGradient = listOf(Color(0xFF0D9488), Color(0xFF2DD4BF)),
+            selectedDotColor = Color.White,
+            unselectedBg = Color(0xFFCCFBF1),
+            unselectedText = Color(0xFF0F766E),
+            accentBorder = Color(0xFF2DD4BF)
+        )
+    }
+}
+
 @Composable
 fun WeeklyRoutineSection(
     lessons: List<StudentLessonItem>,
@@ -64,6 +130,7 @@ fun WeeklyRoutineSection(
     onCustomizeSubjectsClick: () -> Unit = {},
     selectedSubjectsCount: Int = 0,
     totalSubjectsCount: Int = 0,
+    selectedSubjectNames: List<String> = emptyList(),
     onOpenLessonDetail: (StudentLessonItem) -> Unit = {}
 ) {
     val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
@@ -81,9 +148,6 @@ fun WeeklyRoutineSection(
         while (satCal.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
             satCal.add(Calendar.DAY_OF_YEAR, -1)
         }
-
-        val shortDayNames = arrayOf("শনি", "রবি", "সোম", "মঙ্গল", "বুধ", "বৃহ", "শুক্র")
-        val fullDayNames = arrayOf("শনিবার", "রবিবার", "সোমবার", "মঙ্গলবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার")
 
         (0..6).map { offset ->
             val dayCal = satCal.clone() as Calendar
@@ -106,7 +170,6 @@ fun WeeklyRoutineSection(
 
             val fullDateBn = "$fullName, ${SimpleDateFormat("dd/MM/yyyy", Locale.US).apply { timeZone = dhakaZone }.format(dayCal.time).toBengaliDigits()}"
             
-            // Filter lessons matching dateKey and sort chronologically with LIVE priority
             val rawDayLessons = lessons.filter { lesson ->
                 val startTime = lesson.start_time ?: lesson.live_class?.start_time
                 if (startTime.isNullOrBlank()) false
@@ -138,7 +201,6 @@ fun WeeklyRoutineSection(
         }
     }
 
-    // Default selected day: Today's index or index 0
     var selectedDayIndex by remember(daysList) {
         val todayIdx = daysList.indexOfFirst { it.isToday }
         mutableStateOf(if (todayIdx >= 0) todayIdx else 0)
@@ -162,22 +224,22 @@ fun WeeklyRoutineSection(
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFEFF4FF),
+                color = Color(0xFF1E293B),
                 modifier = Modifier.clickable { onSeeAllClick() }
             ) {
                 Text(
                     text = "সব দেখুন",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF3B82F6),
+                    color = Color(0xFF38BDF8),
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // 2. 7 Days Strip Header
+        // 2. 7 Days Strip Header with Clean 3-Color Dark Theme
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -185,12 +247,27 @@ fun WeeklyRoutineSection(
             daysList.forEach { day ->
                 val isSelected = day.dayIndex == selectedDayIndex
 
-                Column(
-                    modifier = Modifier
+                val containerModifier = if (isSelected) {
+                    Modifier
                         .weight(1f)
                         .padding(horizontal = 2.dp)
                         .clip(RoundedCornerShape(20.dp))
-                        .background(if (isSelected) Color(0xFF3B82F6) else Color(0xFFF3F4F6))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color(0xFF0284C7), Color(0xFF38BDF8))
+                            )
+                        )
+                        .border(1.5.dp, Color(0xFF38BDF8), RoundedCornerShape(20.dp))
+                } else {
+                    Modifier
+                        .weight(1f)
+                        .padding(horizontal = 2.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFF1E293B))
+                }
+
+                Column(
+                    modifier = containerModifier
                         .clickable { selectedDayIndex = day.dayIndex }
                         .padding(vertical = 10.dp, horizontal = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -198,40 +275,35 @@ fun WeeklyRoutineSection(
                     Text(
                         text = day.shortDayName,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (isSelected) Color.White else Color(0xFF6B7280)
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color.White else Color(0xFF94A3B8)
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
                         text = day.dateNumBn,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color.White else Color(0xFF1F2937)
+                        color = if (isSelected) Color.White else Color(0xFFF8FAFC)
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     if (day.lessons.isEmpty()) {
                         Text(
                             text = "—",
-                            fontSize = 12.sp,
-                            color = if (isSelected) Color.White.copy(alpha = 0.7f) else Color(0xFF9CA3AF)
+                            fontSize = 11.sp,
+                            color = if (isSelected) Color.White.copy(alpha = 0.7f) else Color(0xFF64748B)
                         )
                     } else {
                         if (isSelected) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Box(modifier = Modifier.size(3.5.dp).clip(CircleShape).background(Color.White))
-                                    Box(modifier = Modifier.size(3.5.dp).clip(CircleShape).background(Color.White))
-                                    Box(modifier = Modifier.size(3.5.dp).clip(CircleShape).background(Color.White))
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Box(modifier = Modifier.size(3.5.dp).clip(CircleShape).background(Color.White))
-                                    Box(modifier = Modifier.size(3.5.dp).clip(CircleShape).background(Color.White))
-                                    Box(modifier = Modifier.size(3.5.dp).clip(CircleShape).background(Color.White))
-                                }
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color.White))
+                                Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color.White))
                             }
                         } else {
                             Row(
@@ -239,13 +311,10 @@ fun WeeklyRoutineSection(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (day.classCount > 0) {
-                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFF06B6D4)))
+                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFF38BDF8)))
                                 }
                                 if (day.examCount > 0) {
                                     Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
-                                }
-                                if (day.classCount == 0 && day.examCount == 0) {
-                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFF06B6D4)))
                                 }
                             }
                         }
@@ -267,7 +336,7 @@ fun WeeklyRoutineSection(
                     text = selectedDay.fullDateBn,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF6B7280)
+                    color = Color(0xFF94A3B8)
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -275,21 +344,21 @@ fun WeeklyRoutineSection(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF06B6D4))
+                            .background(Color(0xFF38BDF8))
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "ক্লাস ${selectedDay.classCount.toString().toBengaliDigits()}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF4B5563)
+                        color = Color(0xFFCBD5E1)
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "|",
                         fontSize = 12.sp,
-                        color = Color(0xFFD1D5DB)
+                        color = Color(0xFF475569)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -304,67 +373,70 @@ fun WeeklyRoutineSection(
                         text = "এক্সাম ${selectedDay.examCount.toString().toBengaliDigits()}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF4B5563)
+                        color = Color(0xFFCBD5E1)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 4. Lessons Horizontal Card List for Selected Day
+            // 4. Lessons Horizontal Card List or Compact Empty State Banner
             when {
                 isLoading -> {
-                    Card(
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        color = Color(0xFF1E293B)
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(24.dp),
+                                .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
+                                color = Color(0xFF38BDF8)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "রুটিন লোড হচ্ছে...",
                                 fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = Color(0xFF94A3B8)
                             )
                         }
                     }
                 }
 
                 selectedDay.lessons.isEmpty() -> {
-                    Card(
+                    // Ultra compact banner when empty so the box never stretches big
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, Color(0xFF334155))
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.EventBusy,
                                 contentDescription = null,
-                                tint = Color(0xFF9CA3AF),
-                                modifier = Modifier.size(32.dp)
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "আজকে কোন ক্লাস বা পরীক্ষা নেই",
+                                text = "আজকে কোন ক্লাস বা পরীক্ষা নেই ✨",
                                 fontSize = 13.sp,
-                                color = Color(0xFF6B7280),
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFFCBD5E1),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -387,84 +459,152 @@ fun WeeklyRoutineSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-        // 5. "Customize Subjects" Button (সাবজেক্ট সাজাও)
+        // 5. Redesigned Bento Card: "সাবজেক্ট সাজাও" (Customize Subjects) displaying selected subjects serially
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .clickable { onCustomizeSubjectsClick() },
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF1E293B),
+            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
+            shadowElevation = 4.dp
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .padding(8.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF0F172A).copy(alpha = 0.8f),
+                                Color(0xFF1E293B)
+                            )
                         )
+                    )
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF0284C7).copy(alpha = 0.18f))
+                                .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "সাবজেক্ট সাজাও",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFF38BDF8)))
+                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
+                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFF10B981)))
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Text(
+                                text = if (selectedSubjectsCount > 0 && totalSubjectsCount > 0)
+                                    "${selectedSubjectsCount.toString().toBengaliDigits()}/${totalSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
+                                else if (selectedSubjectsCount > 0)
+                                    "${selectedSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
+                                else
+                                    "তোমার প্রয়োজনীয় সাবজেক্টগুলো বেছে নাও",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    Column {
-                        Text(
-                            text = "সাবজেক্ট সাজাও",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (selectedSubjectsCount > 0 && totalSubjectsCount > 0)
-                                "${selectedSubjectsCount.toString().toBengaliDigits()}/${totalSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
-                            else if (selectedSubjectsCount > 0)
-                                "${selectedSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
-                            else
-                                "তোমার প্রয়োজনীয় সাবজেক্টগুলো সিলেক্ট করো",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    // Action Pill Button
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF0284C7),
+                        shadowElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "ফিল্টার",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                // Serial Selected Subjects list chips
+                if (selectedSubjectNames.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "পরিবর্তন",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        itemsIndexed(selectedSubjectNames) { index, subName ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF0F172A),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.3f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF38BDF8))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${(index + 1).toString().toBengaliDigits()}. $subName",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFFF1F5F9)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -472,6 +612,9 @@ fun WeeklyRoutineSection(
     }
 }
 
+/**
+ * Routine Card styled dynamically according to Server Subject Color Scheme
+ */
 @Composable
 fun ShikhoRoutineCard(
     lesson: StudentLessonItem,
@@ -508,6 +651,8 @@ fun ShikhoRoutineCard(
 
     val subjectName = lesson.subject_name ?: "বিষয়"
     val titleText = lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস"
+    
+    // Server Subject Dynamic Color
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
 
     val titleFontSize = when {
@@ -523,117 +668,137 @@ fun ShikhoRoutineCard(
 
     Card(
         modifier = modifier
-            .width(235.dp)
+            .width(245.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isLiveNow) Color(0xFFFFF1F2) else Color.White
+            containerColor = if (isLiveNow) Color(0xFFFFF1F2) else subjectColors.backgroundColor.copy(alpha = 0.25f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 3.5.dp else 1.5.dp),
-        border = if (isLiveNow) BorderStroke(1.5.dp, Color(0xFFEF4444)) else BorderStroke(1.dp, Color(0xFFE5E7EB))
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 4.dp else 2.dp),
+        border = BorderStroke(
+            width = if (isLiveNow) 1.5.dp else 1.dp,
+            color = if (isLiveNow) Color(0xFFEF4444) else subjectColors.textColor.copy(alpha = 0.4f)
+        )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(11.dp)
-        ) {
-            // Top Tags Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Left Subject Accent Line
+            Box(
+                modifier = Modifier
+                    .width(4.5.dp)
+                    .fillMaxHeight()
+                    .background(if (isLiveNow) Color(0xFFEF4444) else subjectColors.textColor)
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
             ) {
-                if (isLiveNow) {
-                    // Eye-catching Red Live Badge
+                // Top Tags Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (isLiveNow) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEF4444)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                                Text(
+                                    text = "লাইভ চলছে",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Server Subject Tag (Dynamic Server Colors)
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFFEF4444)
+                        color = subjectColors.backgroundColor
                     ) {
-                        Row(
+                        Text(
+                            text = subjectName,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = subjectColors.textColor,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (!isLiveNow) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.8f)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            )
                             Text(
-                                text = "লাইভ চলছে",
+                                text = classTypeLabel,
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF374151),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
 
-                // Subject Tag (Dynamic Colorful Background)
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = subjectColors.backgroundColor
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Lesson Title
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 36.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
-                        text = subjectName,
-                        fontSize = 10.sp,
+                        text = titleText,
+                        fontSize = titleFontSize,
+                        lineHeight = titleLineHeight,
                         fontWeight = FontWeight.Bold,
-                        color = subjectColors.textColor,
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                        maxLines = 1,
+                        color = Color(0xFF0F172A),
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                if (!isLiveNow) {
-                    // Class Type Tag
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFFF3F4F6)
-                    ) {
-                        Text(
-                            text = classTypeLabel,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF374151),
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Time & Duration
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.AccessTime,
+                        contentDescription = null,
+                        tint = subjectColors.textColor,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = fullTimeText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = subjectColors.textColor
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Lesson Title
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 34.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    text = titleText,
-                    fontSize = titleFontSize,
-                    lineHeight = titleLineHeight,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF111827),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Time & Duration String
-            Text(
-                text = fullTimeText,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFFDC2626)
-            )
         }
     }
 }
@@ -656,10 +821,8 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
     val clean = isoString.trim()
     val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
 
-    // Check for dummy or invalid dates
     if (clean.startsWith("0000-00-00") || clean.startsWith("1970-01-01")) return null
 
-    // 1. UTC ISO format ending with Z
     if (clean.endsWith("Z", ignoreCase = true)) {
         try {
             val formatStr = if (clean.contains(".")) "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" else "yyyy-MM-dd'T'HH:mm:ss'Z'"
@@ -672,7 +835,6 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
             }
         } catch (_: Exception) {}
 
-        // Fallback for Z with take(19)
         try {
             val sdfUtc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
@@ -684,7 +846,6 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
         } catch (_: Exception) {}
     }
 
-    // 2. ISO format with timezone offset (e.g. +06:00 or -05:00)
     if (clean.contains("+") || (clean.contains("-") && clean.length > 10 && clean.lastIndexOf("-") > 10)) {
         try {
             val cleanT = clean.replace(" ", "T")
@@ -696,7 +857,6 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
         } catch (_: Exception) {}
     }
 
-    // 3. Local Dhaka time string
     try {
         val cleanT = clean.replace(" ", "T").take(19)
         val sdfLocal = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
@@ -708,7 +868,6 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
         }
     } catch (_: Exception) {}
 
-    // 4. Date only string
     try {
         val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
             timeZone = dhakaZone
@@ -719,7 +878,6 @@ fun parseIsoToDhakaCalendar(isoString: String?): Calendar? {
         }
     } catch (_: Exception) {}
 
-    // 5. Milliseconds timestamp
     try {
         val ms = clean.toLongOrNull()
         if (ms != null && ms > 1000000000L) {
@@ -740,7 +898,6 @@ fun formatTimeRange(startCal: Calendar?, endCal: Calendar?): String {
     val startStr = sdf.format(startCal.time).toBengaliDigits()
     if (endCal == null || endCal.timeInMillis <= startCal.timeInMillis) return startStr
     
-    // Check if endCal is valid and not absurdly far in the future
     val diffHours = (endCal.timeInMillis - startCal.timeInMillis) / (1000 * 60 * 60)
     if (diffHours <= 0 || diffHours > 24) return startStr
 
@@ -763,12 +920,6 @@ fun calculateDurationText(startCal: Calendar?, endCal: Calendar?): String {
     }
 }
 
-/**
- * Sorts routine lessons for a given day:
- * Priority 1: Currently LIVE classes/exams (isLiveNow = true) move to the TOP (#1 position).
- * Priority 2: Upcoming classes/exams for the day, sorted chronologically by start time.
- * Priority 3: Completed/Passed classes/exams for the day, sorted chronologically by start time.
- */
 fun sortRoutineLessons(lessons: List<StudentLessonItem>): List<StudentLessonItem> {
     val nowMs = System.currentTimeMillis()
 

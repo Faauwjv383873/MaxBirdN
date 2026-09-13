@@ -1,16 +1,23 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,62 +42,18 @@ fun MainContainerScreen(
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val currentTab = NavigationItem.items[selectedIndex]
 
     Scaffold(
         bottomBar = {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(elevation = 12.dp, spotColor = Color.Black.copy(alpha = 0.08f)),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp,
-                border = androidx.compose.foundation.BorderStroke(
-                    width = 0.75.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                )
-            ) {
-                NavigationBar(
-                    modifier = Modifier.navigationBarsPadding(),
-                    containerColor = Color.Transparent,
-                    tonalElevation = 0.dp,
-                    windowInsets = WindowInsets(0, 0, 0, 0)
-                ) {
-                    NavigationItem.items.forEachIndexed { index, item ->
-                        val isSelected = selectedIndex == index
-                        NavigationBarItem(
-                            selected = isSelected,
-                            onClick = {
-                                selectedIndex = index
-                                if (index == 1) {
-                                    courseViewModel.loadSubjects()
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-                                    contentDescription = item.title,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = item.title,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            )
-                        )
+            ElementalFloatingBottomBar(
+                selectedIndex = selectedIndex,
+                onTabSelected = { index ->
+                    selectedIndex = index
+                    if (index == 1) {
+                        courseViewModel.loadSubjects()
                     }
                 }
-            }
+            )
         }
     ) { innerPadding ->
         Box(
@@ -159,4 +122,114 @@ fun MainContainerScreen(
         }
     }
 }
+
+/**
+ * Compact Floating Dock Navigation Bar with Water, Fire, Ice & Light Animations
+ */
+@Composable
+fun ElementalFloatingBottomBar(
+    selectedIndex: Int,
+    onTabSelected: (Int) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .height(58.dp)
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(26.dp),
+                spotColor = Color.Black.copy(alpha = 0.25f)
+            ),
+        shape = RoundedCornerShape(26.dp),
+        color = Color(0xFF0F172A),
+        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NavigationItem.items.forEachIndexed { index, item ->
+                val isSelected = selectedIndex == index
+
+                val scale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.12f else 1.0f,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "TabScale"
+                )
+
+                // Elemental Themes: 0: Fire 🔥, 1: Water 🌊, 2: Ice ❄️, 3: Light/Plasma ⚡
+                val elementalGradients = remember(index) {
+                    when (index) {
+                        0 -> listOf(Color(0xFFEF4444), Color(0xFFF97316), Color(0xFFF59E0B)) // Fire / Flame Amber 🔥
+                        1 -> listOf(Color(0xFF0284C7), Color(0xFF06B6D4), Color(0xFF38BDF8)) // Water / Aqua 🌊
+                        2 -> listOf(Color(0xFF0284C7), Color(0xFF6366F1), Color(0xFFC084FC)) // Ice / Crystal Frost ❄️
+                        else -> listOf(Color(0xFF7C3AED), Color(0xFFC084FC), Color(0xFFE879F9)) // Plasma Light ⚡
+                    }
+                }
+
+                val activeColor = remember(index) {
+                    when (index) {
+                        0 -> Color(0xFFF97316)
+                        1 -> Color(0xFF38BDF8)
+                        2 -> Color(0xFF818CF8)
+                        else -> Color(0xFFC084FC)
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(20.dp))
+                        .then(
+                            if (isSelected) {
+                                Modifier
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = elementalGradients.map { it.copy(alpha = 0.18f) }
+                                        )
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        brush = Brush.linearGradient(elementalGradients),
+                                        shape = RoundedCornerShape(20.dp)
+                                    )
+                            } else Modifier
+                        )
+                        .clickable { onTabSelected(index) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.scale(scale)
+                    ) {
+                        Icon(
+                            imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
+                            contentDescription = item.title,
+                            tint = if (isSelected) activeColor else Color(0xFF94A3B8),
+                            modifier = Modifier.size(20.dp)
+                        )
+
+                        if (isSelected) {
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = item.title,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 

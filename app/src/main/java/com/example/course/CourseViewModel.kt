@@ -104,12 +104,19 @@ class CourseViewModel(
             _uiState.update { it.copy(isProgramsLoading = true) }
             try {
                 val userClassName = sessionManager.getUserClassName() ?: "C11"
+                val group = sessionManager.getUserGroup() ?: "Humanities"
+                val formattedGroup = when (group.lowercase()) {
+                    "humanities", "humanities_group" -> "Humanities"
+                    "science", "science_group" -> "Science"
+                    "business", "business_studies", "commerce" -> "Business_Studies"
+                    else -> group.replace("-", "_")
+                }
 
                 val query = GraphQlQuery(
                     operationName = "GetEnrolledAcademicProgram",
                     query = """
-                        query GetEnrolledAcademicProgram(${'$'}className: AcademicProgramClassEnum) {
-                          listAcademicProgramByEnrollment(class: ${'$'}className) {
+                        query GetEnrolledAcademicProgram(${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum) {
+                          listAcademicProgramByEnrollment(class: ${'$'}className, group: ${'$'}group) {
                             enrolled_programs {
                               id
                               classes
@@ -148,7 +155,8 @@ class CourseViewModel(
                         }
                     """.trimIndent(),
                     variables = mutableMapOf<String, Any?>(
-                        "className" to userClassName
+                        "className" to userClassName,
+                        "group" to formattedGroup
                     )
                 )
 

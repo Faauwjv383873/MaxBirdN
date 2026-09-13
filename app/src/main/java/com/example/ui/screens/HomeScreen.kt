@@ -1,8 +1,7 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.EnrolledProgram
+import com.example.api.StudentLessonItem
 import com.example.home.HomeViewModel
 import com.example.ui.components.CourseProgressSection
 import com.example.ui.components.CourseSwitcherBottomSheet
@@ -34,7 +34,6 @@ import com.example.ui.components.HomeHeader
 import com.example.ui.components.RoutineCard
 import com.example.ui.components.SubjectFilterDialog
 import com.example.ui.components.WeeklyRoutineSection
-import com.example.api.StudentLessonItem
 
 @Composable
 fun HomeScreen(
@@ -48,6 +47,22 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val scrollState = rememberScrollState()
+
+    // Scroll-driven collapsible header state
+    var isHeaderVisible by remember { mutableStateOf(true) }
+    var previousScrollOffset by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(scrollState.value) {
+        val currentOffset = scrollState.value
+        val delta = currentOffset - previousScrollOffset
+        if (delta > 20 && currentOffset > 80) {
+            isHeaderVisible = false // Scrolling DOWN -> hide header smoothly
+        } else if (delta < -20 || currentOffset <= 40) {
+            isHeaderVisible = true  // Scrolling UP or near top -> expand header
+        }
+        previousScrollOffset = currentOffset
+    }
 
     // Course Switcher Bottom Sheet
     if (uiState.showCourseSwitcher) {
@@ -114,19 +129,25 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            com.example.ui.components.HomeHeader(
-                userName = displayName,
-                subtitle = subtitle,
-                avatarUrl = uiState.userAvatar ?: "",
-                isPremium = uiState.isPremium,
-                activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
-                onOpenCourseSwitcher = {
-                    viewModel.setCourseSwitcherVisible(true)
-                },
-                onAvatarClick = {
-                    onNavigateToProfile()
-                }
-            )
+            AnimatedVisibility(
+                visible = isHeaderVisible,
+                enter = expandVertically(animationSpec = tween(280)) + fadeIn(animationSpec = tween(280)),
+                exit = shrinkVertically(animationSpec = tween(250)) + fadeOut(animationSpec = tween(250))
+            ) {
+                HomeHeader(
+                    userName = displayName,
+                    subtitle = subtitle,
+                    avatarUrl = uiState.userAvatar ?: "",
+                    isPremium = uiState.isPremium,
+                    activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
+                    onOpenCourseSwitcher = {
+                        viewModel.setCourseSwitcherVisible(true)
+                    },
+                    onAvatarClick = {
+                        onNavigateToProfile()
+                    }
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier.fillMaxSize()
@@ -135,10 +156,10 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             when {
                 uiState.isLoading -> {
@@ -214,17 +235,24 @@ fun HomeScreen(
                 }
 
                 else -> {
+                    val selectedSubjectNames = remember(uiState.courseSubjects, uiState.selectedSubjectCodes) {
+                        uiState.courseSubjects
+                            .filter { sub -> sub.code != null && uiState.selectedSubjectCodes.contains(sub.code) }
+                            .mapNotNull { sub -> sub.display_bn.takeIf { !it.isNullOrBlank() } ?: sub.code }
+                    }
+
                     WeeklyRoutineSection(
                         lessons = uiState.filteredWeeklyRoutine,
                         isLoading = uiState.isRoutineLoading,
                         selectedSubjectsCount = uiState.selectedSubjectCodes.size,
                         totalSubjectsCount = uiState.courseSubjects.size,
+                        selectedSubjectNames = selectedSubjectNames,
                         onSeeAllClick = { onOpenFullRoutine() },
                         onCustomizeSubjectsClick = { viewModel.openSubjectFilterDialog() },
                         onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) }
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     CourseProgressSection(
                         phases = uiState.programPhases,
@@ -237,3 +265,4 @@ fun HomeScreen(
         }
     }
 }
+
