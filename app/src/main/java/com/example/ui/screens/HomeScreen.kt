@@ -49,7 +49,6 @@ fun HomeScreen(
     onOpenCourse: (phaseId: String?) -> Unit = {},
     onOpenFullRoutine: () -> Unit = {},
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
-    onOpenAnimatedLessons: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -154,9 +153,6 @@ fun HomeScreen(
                 onOpenCourseSwitcher = {
                     viewModel.setCourseSwitcherVisible(true)
                 },
-                onOpenAnimatedLessons = {
-                    onOpenAnimatedLessons()
-                },
                 onAvatarClick = {
                     onNavigateToProfile()
                 }
@@ -169,116 +165,6 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // ==========================================
-                // Animated Lessons Quick Option Card (কোর্স সুইচ অপশনের আন্ডারে)
-                // ==========================================
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable { onOpenAnimatedLessons() }
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color(0xFF1E1B4B),
-                                        Color(0xFF311B92),
-                                        Color(0xFF4338CA)
-                                    )
-                                )
-                            )
-                            .padding(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFFA855F7).copy(alpha = 0.3f),
-                                    modifier = Modifier.size(46.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayCircle,
-                                            contentDescription = "Animated Lessons",
-                                            tint = Color(0xFFFFB800),
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "অ্যানিমেটেড লেসন",
-                                            fontSize = 17.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFFFFB800).copy(alpha = 0.2f),
-                                            border = BorderStroke(1.dp, Color(0xFFFFB800).copy(alpha = 0.5f))
-                                        ) {
-                                            Text(
-                                                text = "3D 🎬",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFFFB800),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Text(
-                                        text = "সকল সাবজেক্ট ➔ অধ্যায় ➔ ক্লাস",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color(0xFFC7D2FE)
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF6366F1),
-                                modifier = Modifier.padding(start = 6.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "দেখুন",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
                 when {
                     uiState.isLoading -> {
                     Box(

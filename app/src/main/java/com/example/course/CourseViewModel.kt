@@ -613,12 +613,29 @@ class CourseViewModel(
                 val response = apiService.joinLiveClass(joinQuery)
                 val payload = response.data?.joinLiveCLass
                 if (payload != null) {
+                    var hmsToken: String? = null
+                    var isChatBlocked: Boolean? = false
+
+                    // Step 2: Request 100ms JWT viewer token from Shikho /hms/token
+                    val roomId = payload.hms_room_id
+                    if (!roomId.isNullOrBlank()) {
+                        try {
+                            val tokenResp = apiService.getHmsToken(HmsTokenRequest(room_id = roomId.trim(), type = "android"))
+                            hmsToken = tokenResp.token
+                            isChatBlocked = tokenResp.blocked_chat
+                        } catch (e: Exception) {
+                            // Non-fatal if token call fails, fallback to join_link
+                        }
+                    }
+
                     val currentSelected = _uiState.value.selectedLesson
                     if (currentSelected != null && (currentSelected.id == lesson.id || currentSelected.content_id == lesson.content_id || currentSelected.live_class?.id == liveClassId)) {
                         val updatedLiveClass = (currentSelected.live_class ?: LiveClassDetails()).copy(
                             join_link = payload.join_link ?: currentSelected.live_class?.join_link,
                             provider = payload.provider ?: currentSelected.live_class?.provider,
-                            hms_room_id = payload.hms_room_id ?: currentSelected.live_class?.hms_room_id
+                            hms_room_id = payload.hms_room_id ?: currentSelected.live_class?.hms_room_id,
+                            hms_token = hmsToken ?: currentSelected.live_class?.hms_token,
+                            blocked_chat = isChatBlocked ?: currentSelected.live_class?.blocked_chat
                         )
                         _uiState.update {
                             it.copy(selectedLesson = currentSelected.copy(live_class = updatedLiveClass))
@@ -985,6 +1002,7 @@ class CourseViewModel(
                 // Fetch Chapters for the specific subject and phase
                 var chaptersList = emptyList<AcademicChapterItem>()
 
+                // 1. If phaseId / effectivePhaseId is set, fetch phase/quarter-wise chapters first
                 if (effectivePhaseId.isNotBlank()) {
                     try {
                         val chaptersQuery = GraphQlQuery(
@@ -1017,6 +1035,38 @@ class CourseViewModel(
 
                         val response = apiService.getPhaseWiseChapters(chaptersQuery)
                         chaptersList = response.data?.listAcademicProgramChapters?.data ?: emptyList()
+                    } catch (_: Exception) {}
+                }
+
+                // 2. If no phase is selected or phase query returned empty, try GetChapters(subject_code)
+                if (chaptersList.isEmpty() && (effectivePhaseId.isBlank() || phaseId == null)) {
+                    try {
+                        val getChaptersQuery = GraphQlQuery(
+                            operationName = "GetChapters",
+                            query = """
+                                query GetChapters(${'$'}subject_code: String!) {
+                                  chapters(subject_code: ${'$'}subject_code, filter: { limit: 100 } ) {
+                                    data {
+                                      id
+                                      name
+                                      no
+                                      all_topics_free
+                                      topics {
+                                        meta {
+                                          count
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf("subject_code" to subjectCode)
+                        )
+                        val res = apiService.getPhaseWiseChapters(getChaptersQuery)
+                        val fullList = res.data?.chapters?.data ?: emptyList()
+                        if (fullList.isNotEmpty()) {
+                            chaptersList = fullList
+                        }
                     } catch (_: Exception) {}
                 }
 

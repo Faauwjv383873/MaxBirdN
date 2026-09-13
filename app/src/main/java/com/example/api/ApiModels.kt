@@ -2,6 +2,68 @@ package com.example.api
 
 import com.squareup.moshi.JsonClass
 
+fun parseIsoToDhakaMillis(isoString: String?): Long? {
+    if (isoString.isNullOrBlank()) return null
+    val clean = isoString.trim()
+    if (clean.startsWith("0000-00-00") || clean.startsWith("1970-01-01")) return null
+    val dhakaZone = java.util.TimeZone.getTimeZone("Asia/Dhaka")
+
+    if (clean.endsWith("Z", ignoreCase = true)) {
+        try {
+            val formatStr = if (clean.contains(".")) "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" else "yyyy-MM-dd'T'HH:mm:ss'Z'"
+            val sdfUtc = java.text.SimpleDateFormat(formatStr, java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val date = sdfUtc.parse(clean.replace(" ", "T"))
+            if (date != null) return date.time
+        } catch (_: Exception) {}
+
+        try {
+            val sdfUtc = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val date = sdfUtc.parse(clean.replace(" ", "T").take(19))
+            if (date != null) return date.time
+        } catch (_: Exception) {}
+    }
+
+    if (clean.contains("+") || (clean.contains("-") && clean.length > 10 && clean.lastIndexOf("-") > 10)) {
+        try {
+            val cleanT = clean.replace(" ", "T")
+            val formatStr = if (cleanT.contains(".")) "yyyy-MM-dd'T'HH:mm:ss.SSSXXX" else "yyyy-MM-dd'T'HH:mm:ssXXX"
+            val date = java.text.SimpleDateFormat(formatStr, java.util.Locale.US).parse(cleanT)
+            if (date != null) return date.time
+        } catch (_: Exception) {}
+    }
+
+    try {
+        val cleanT = clean.replace(" ", "T").take(19)
+        val sdfLocal = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply {
+            timeZone = dhakaZone
+        }
+        val date = sdfLocal.parse(cleanT)
+        if (date != null) return date.time
+    } catch (_: Exception) {}
+
+    try {
+        val sdfDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+            timeZone = dhakaZone
+        }
+        val date = sdfDate.parse(clean.take(10))
+        if (date != null) return date.time
+    } catch (_: Exception) {}
+
+    try {
+        val ms = clean.toLongOrNull()
+        if (ms != null && ms > 1000000000L) {
+            return if (ms < 100000000000L) ms * 1000L else ms
+        }
+    } catch (_: Exception) {}
+
+    return null
+}
+
+
 @JsonClass(generateAdapter = true)
 data class UserCheckRequest(
     val phone: String,
@@ -403,44 +465,64 @@ data class StudentLessonItem(
                     title.contains("কুইজ", true)
                 ))
 
+    val classStartMs: Long
+        get() {
+            val timeStr = start_time ?: live_class?.start_time ?: return Long.MAX_VALUE
+            return parseIsoToDhakaMillis(timeStr) ?: Long.MAX_VALUE
+        }
+
+    val classEndMs: Long
+        get() {
+            val endTimeStr = end_time ?: live_class?.end_time
+            val startMs = classStartMs
+            if (!endTimeStr.isNullOrBlank()) {
+                val endParsed = parseIsoToDhakaMillis(endTimeStr)
+                if (endParsed != null && endParsed > 0L) {
+                    return endParsed
+                }
+            }
+            return if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE
+        }
+
+    val isLiveNow: Boolean
+        get() {
+            if (isExam) return false
+            if (live_class?.is_on_going == true || user_activity_state.equals("LIVE", ignoreCase = true)) {
+                return true
+            }
+            val startMs = classStartMs
+            val endMs = classEndMs
+            if (startMs != Long.MAX_VALUE) {
+                val now = System.currentTimeMillis()
+                // Active from 5 mins before start time until the official end time
+                return now >= (startMs - 5 * 60 * 1000L) && now <= endMs
+            }
+            return false
+        }
+
     val isUpcoming: Boolean
         get() {
-            if (user_activity_state.equals("UPCOMING", ignoreCase = true)) return true
-            if (user_activity_state.equals("COMPLETED", true) || user_activity_state.equals("ATTENDED", true) || user_activity_state.equals("MISSED", true)) return false
-            if (hasRecording) return false
-
-            val timeStr = live_class?.start_time ?: start_time
-            if (timeStr.isNullOrBlank()) return false
-            return try {
-                val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
-                parser.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                val date = parser.parse(timeStr) ?: java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(timeStr)
-                if (date != null) {
-                    date.time > System.currentTimeMillis()
-                } else false
-            } catch (_: Exception) {
-                false
+            if (isLiveNow) return false
+            val startMs = classStartMs
+            if (startMs != Long.MAX_VALUE) {
+                return System.currentTimeMillis() < (startMs - 5 * 60 * 1000L)
             }
+            return user_activity_state.equals("UPCOMING", ignoreCase = true)
         }
-
-    val isRecorded: Boolean
-        get() = !isExam && !isUpcoming && (
-                hasRecording ||
-                content_type?.equals("RecordedClass", ignoreCase = true) == true ||
-                content_type?.equals("Lesson", ignoreCase = true) == true ||
-                content_type?.equals("Video", ignoreCase = true) == true ||
-                user_activity_state.equals("MISSED", true) ||
-                user_activity_state.equals("COMPLETED", true) ||
-                user_activity_state.equals("ATTENDED", true)
-        )
 
     val isLive: Boolean
-        get() {
-            if (isExam || isUpcoming || isRecorded) {
-                return false
-            }
-            return live_class?.is_on_going == true
-        }
+        get() = isLiveNow || live_class?.is_on_going == true
+
+    val isRecorded: Boolean
+        get() = !isExam && !isLiveNow && !isUpcoming && (
+            System.currentTimeMillis() > classEndMs ||
+            hasRecording ||
+            content_type?.equals("RecordedClass", ignoreCase = true) == true ||
+            content_type?.equals("Video", ignoreCase = true) == true ||
+            user_activity_state.equals("COMPLETED", true) ||
+            user_activity_state.equals("ATTENDED", true) ||
+            user_activity_state.equals("MISSED", true)
+        )
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()
@@ -591,8 +673,20 @@ data class LiveClassDetails(
     val is_locked: Boolean? = false,
     val join_link: String? = null,
     val provider: String? = null,
-    val hms_room_id: String? = null
+    val hms_room_id: String? = null,
+    val hms_token: String? = null,
+    val blocked_chat: Boolean? = false
 ) {
+    val liveMeetingUrl: String?
+        get() {
+            if (!join_link.isNullOrBlank()) return join_link
+            if (!hms_room_id.isNullOrBlank()) {
+                val cleanId = hms_room_id.trim()
+                val tokenParam = if (!hms_token.isNullOrBlank()) "?token=$hms_token" else ""
+                return "https://live.shikho.com/meeting/$cleanId$tokenParam"
+            }
+            return null
+        }
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()
@@ -700,7 +794,13 @@ data class AcademicChaptersResponse(
 
 @JsonClass(generateAdapter = true)
 data class AcademicChaptersData(
-    val listAcademicProgramChapters: ListAcademicProgramChaptersPayload? = null
+    val listAcademicProgramChapters: ListAcademicProgramChaptersPayload? = null,
+    val chapters: ChaptersPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ChaptersPayload(
+    val data: List<AcademicChapterItem>? = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
@@ -713,12 +813,20 @@ data class AcademicChapterItem(
     val id: String = "",
     val chapter_id: String? = null,
     val chapter_name: String? = null,
+    val name: String? = null,
     val chapter_no: Any? = null,
+    val no: Any? = null,
     val status: String? = null, // e.g. "IN_PROGRESS", "COMPLETED", "ON_GOING", "UPCOMING"
     val class_counter: Int? = null,
     val exam_counter: Int? = null,
     val chapters_progress_percentage: Double? = null
 ) {
+    val effectiveName: String
+        get() = chapter_name ?: name ?: "অধ্যায়"
+
+    val effectiveNo: Any?
+        get() = chapter_no ?: no
+
     val displayProgress: Int
         get() = chapters_progress_percentage?.toInt() ?: 0
 

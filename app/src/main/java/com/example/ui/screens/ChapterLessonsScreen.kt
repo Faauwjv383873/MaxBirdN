@@ -345,70 +345,18 @@ fun ChapterLessonsScreen(
                             }
                         }
 
-                        // Tab switcher
+                        // Top Shortcuts: Lecture Classes, Animated Lessons, Practice Quiz, E-Book
                         item {
-                            TabRow(
-                                selectedTabIndex = selectedTab,
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                contentColor = subjectColor,
-                                indicator = { tabPositions ->
-                                    TabRowDefaults.SecondaryIndicator(
-                                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                                        color = subjectColor
-                                    )
+                            ChapterFeatureShortcuts(
+                                selectedTab = selectedTab,
+                                onTabSelected = { newTab ->
+                                    selectedTab = newTab
+                                    if (newTab == 1 && uiState.chapterAnimatedLessons.isEmpty()) {
+                                        viewModel.loadAnimatedLessonsForChapter(chapterId)
+                                    }
                                 },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                        RoundedCornerShape(12.dp)
-                                    )
-                            ) {
-                                Tab(
-                                    selected = selectedTab == 0,
-                                    onClick = { selectedTab = 0 },
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PlayLesson,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = "ক্লাস ও পরীক্ষা",
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                )
-                                Tab(
-                                    selected = selectedTab == 1,
-                                    onClick = { selectedTab = 1 },
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.SlowMotionVideo,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = "অ্যানিমেটেড লেসন",
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                )
-                            }
+                                subjectColor = subjectColor
+                            )
                         }
 
                         if (selectedTab == 0) {
@@ -428,14 +376,14 @@ fun ChapterLessonsScreen(
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.SlowMotionVideo,
+                                                imageVector = Icons.Default.PlayLesson,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                                 modifier = Modifier.size(44.dp)
                                             )
                                             Spacer(modifier = Modifier.height(10.dp))
                                             Text(
-                                                text = "এই অধ্যায়ে কোনো ক্লাস বা ভিডিও পাওয়া যায়নি",
+                                                text = "এই অধ্যায়ে কোনো ক্লাস পাওয়া যায়নি",
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -464,7 +412,9 @@ fun ChapterLessonsScreen(
                                                     ?: lesson.live_class?.recording_url
                                                     ?: ""
                                                 val title = lesson.title ?: "ক্লাস লেকচার"
-                                                val isLive = lesson.live_class?.is_on_going == true ||
+                                                val isLive = lesson.isLiveNow ||
+                                                        lesson.live_class?.is_on_going == true ||
+                                                        lesson.isLive ||
                                                         lesson.content_type?.contains("LIVE", ignoreCase = true) == true
                                                 onPlayVideo(
                                                     videoUrl,
@@ -478,7 +428,7 @@ fun ChapterLessonsScreen(
                                     )
                                 }
                             }
-                        } else {
+                        } else if (selectedTab == 1) {
                             if (uiState.isChapterAnimationsLoading) {
                                 item {
                                     Column(
@@ -488,7 +438,7 @@ fun ChapterLessonsScreen(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center
                                     ) {
-                                        CircularProgressIndicator(color = subjectColor, modifier = Modifier.size(28.dp))
+                                        CircularProgressIndicator(color = Color(0xFF8B5CF6), modifier = Modifier.size(28.dp))
                                         Spacer(modifier = Modifier.height(10.dp))
                                         Text(
                                             "অ্যানিমেটেড ভিডিও লোড হচ্ছে...",
@@ -537,7 +487,7 @@ fun ChapterLessonsScreen(
                                     val video = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }
                                     AnimatedLessonCard(
                                         topic = topic,
-                                        subjectColor = subjectColor,
+                                        subjectColor = Color(0xFF8B5CF6),
                                         onClick = {
                                             val videoUrl = video?.playback_url ?: ""
                                             val title = "${topic.no ?: ""} ${topic.name ?: "অ্যানিমেটেড লেসন"}".trim()
@@ -550,6 +500,88 @@ fun ChapterLessonsScreen(
                                             )
                                         }
                                     )
+                                }
+                            }
+                        } else if (selectedTab == 2) {
+                            val examLessons = uiState.lessons.filter { it.isExam }
+                            if (examLessons.isEmpty()) {
+                                item {
+                                    Card(
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surface
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(32.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.FactCheck,
+                                                contentDescription = null,
+                                                tint = Color(0xFF10B981).copy(alpha = 0.6f),
+                                                modifier = Modifier.size(44.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Text(
+                                                text = "এই অধ্যায়ে বর্তমানে কোনো প্র্যাকটিস কুইজ পাওয়া যায়নি",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                items(items = examLessons, key = { it.id }) { examLesson ->
+                                    LessonCard(
+                                        lesson = examLesson,
+                                        subjectName = uiState.selectedSubjectTitle,
+                                        subjectColorHex = uiState.selectedSubjectColor,
+                                        subjectColor = Color(0xFF10B981),
+                                        onClick = {
+                                            viewModel.selectLesson(examLesson)
+                                            if (onOpenLessonDetail != null) {
+                                                onOpenLessonDetail(examLesson)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            item {
+                                Card(
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MenuBook,
+                                            contentDescription = null,
+                                            tint = Color(0xFFF59E0B).copy(alpha = 0.6f),
+                                            modifier = Modifier.size(44.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "এই অধ্যায়ের লেকচার শিট ও ই-বুক শীঘ্রই যুক্ত করা হবে",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -571,11 +603,12 @@ fun LessonCard(
 ) {
     val isExam = lesson.isExam
     val isUpcoming = lesson.isUpcoming
-    val isLive = lesson.isLive
+    val isLive = lesson.isLiveNow || lesson.isLive
     val isRecorded = lesson.isRecorded
 
     val state = lesson.user_activity_state?.uppercase() ?: ""
     val (statusText, statusBgColor, statusTextColor) = when {
+        isLive -> Triple("🔴 লাইভ চলছে", Color(0xFFEF4444).copy(alpha = 0.15f), Color(0xFFEF4444))
         isExam && isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
         isExam -> Triple("পরীক্ষা", Color(0xFFF59E0B).copy(alpha = 0.12f), Color(0xFFD97706))
         isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF3B82F6))
@@ -583,7 +616,6 @@ fun LessonCard(
         state == "MISSED" -> Triple("মিসড", Color(0xFFEF4444).copy(alpha = 0.12f), Color(0xFFEF4444))
         else -> Triple(
             when {
-                isLive -> "লাইভ"
                 isRecorded -> "রেকর্ডেড"
                 else -> "ক্লাস"
             },
@@ -859,6 +891,107 @@ fun AnimatedLessonCard(
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun ChapterFeatureShortcuts(
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit,
+    subjectColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ChapterShortcutButton(
+            title = "লেকচার ক্লাস",
+            icon = Icons.Default.PlayLesson,
+            color = subjectColor,
+            isSelected = selectedTab == 0,
+            modifier = Modifier.weight(1f),
+            onClick = { onTabSelected(0) }
+        )
+        ChapterShortcutButton(
+            title = "অ্যানিমেটেড লেসন",
+            icon = Icons.Default.SlowMotionVideo,
+            color = Color(0xFF8B5CF6),
+            isSelected = selectedTab == 1,
+            modifier = Modifier.weight(1f),
+            onClick = { onTabSelected(1) }
+        )
+        ChapterShortcutButton(
+            title = "প্র্যাকটিস কুইজ",
+            icon = Icons.Default.FactCheck,
+            color = Color(0xFF10B981),
+            isSelected = selectedTab == 2,
+            modifier = Modifier.weight(1f),
+            onClick = { onTabSelected(2) }
+        )
+        ChapterShortcutButton(
+            title = "ই-বুক / নোটস",
+            icon = Icons.Default.MenuBook,
+            color = Color(0xFFF59E0B),
+            isSelected = selectedTab == 3,
+            modifier = Modifier.weight(1f),
+            onClick = { onTabSelected(3) }
+        )
+    }
+}
+
+@Composable
+fun ChapterShortcutButton(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isSelected) 1.5.dp else 1.dp,
+            color = if (isSelected) color else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        ),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(vertical = 10.dp, horizontal = 4.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (isSelected) color.copy(alpha = 0.2f) else color.copy(alpha = 0.1f),
+                modifier = Modifier.size(32.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = color,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) color else MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

@@ -88,8 +88,7 @@ fun HomeHeader(
     onAvatarClick: () -> Unit,
     modifier: Modifier = Modifier,
     activeCourseTitle: String? = null,
-    onOpenCourseSwitcher: (() -> Unit)? = null,
-    onOpenAnimatedLessons: (() -> Unit)? = null
+    onOpenCourseSwitcher: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
 
@@ -273,83 +272,6 @@ fun HomeHeader(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        // Animated Lessons Option Pill right under Course Switcher
-        if (onOpenAnimatedLessons != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { onOpenAnimatedLessons() },
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF312E81).copy(alpha = 0.5f),
-                border = BorderStroke(1.dp, Brush.horizontalGradient(
-                    listOf(
-                        Color(0xFFA855F7).copy(alpha = 0.6f),
-                        Color(0xFF6366F1).copy(alpha = 0.6f)
-                    )
-                ))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFA855F7).copy(alpha = 0.25f),
-                            modifier = Modifier.size(22.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFFA855F7),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "অ্যানিমেটেড লেসন",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "🎬 3D",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFFFB800)
-                                )
-                            }
-                            Text(
-                                text = "সকল সাবজেক্ট ➔ অধ্যায় ➔ ক্লাস",
-                                fontSize = 11.sp,
-                                color = Color(0xFFC7D2FE)
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "অ্যানিমেটেড লেসনে যান",
-                        tint = Color(0xFFC7D2FE),
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
             }
         }

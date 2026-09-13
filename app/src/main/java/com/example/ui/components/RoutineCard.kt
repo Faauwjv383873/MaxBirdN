@@ -637,9 +637,9 @@ fun ShikhoRoutineCard(
 
     val nowMs = System.currentTimeMillis()
     val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
-    val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + 3600_000L else Long.MAX_VALUE)
+    val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE)
     
-    val isLiveNow = isLive || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true) || (startMs != Long.MAX_VALUE && nowMs in startMs..endMs && !isRecorded)
+    val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
 
     val classTypeLabel = when {
         isLiveNow -> "🔴 লাইভ চলছে"
@@ -935,39 +935,37 @@ fun sortRoutineLessons(lessons: List<StudentLessonItem>): List<StudentLessonItem
             val endCal = parseIsoToDhakaCalendar(endTimeStr)
             if (endCal != null) return endCal.timeInMillis
         }
-        return if (startMs != Long.MAX_VALUE) startMs + 3600_000L else Long.MAX_VALUE
+        return if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE
     }
 
-    fun isLiveNow(lesson: StudentLessonItem): Boolean {
-        if (lesson.isLive || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true)) {
+    fun isLessonLiveNow(lesson: StudentLessonItem): Boolean {
+        if (lesson.isLiveNow) return true
+        if (lesson.isExam) return false
+        if (lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true)) {
             return true
         }
         val startMs = getStartMs(lesson)
         val endMs = getEndMs(lesson)
-        return (startMs != Long.MAX_VALUE && nowMs in startMs..endMs && !lesson.isRecorded)
+        return (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs)
     }
 
-    fun isPassed(lesson: StudentLessonItem): Boolean {
-        if (isLiveNow(lesson)) return false
-        if (lesson.user_activity_state.equals("COMPLETED", true) ||
-            lesson.user_activity_state.equals("ATTENDED", true) ||
-            lesson.user_activity_state.equals("MISSED", true)) {
-            return true
-        }
+    fun isLessonPassed(lesson: StudentLessonItem): Boolean {
+        if (isLessonLiveNow(lesson)) return false
         val endMs = getEndMs(lesson)
-        return endMs < nowMs
+        // Strictly passed only when current time exceeds the scheduled end time
+        return endMs != Long.MAX_VALUE && nowMs > endMs
     }
 
     return lessons.sortedWith { a, b ->
-        val aLive = isLiveNow(a)
-        val bLive = isLiveNow(b)
+        val aLive = isLessonLiveNow(a)
+        val bLive = isLessonLiveNow(b)
 
         when {
             aLive && !bLive -> -1
             !aLive && bLive -> 1
             else -> {
-                val aPassed = isPassed(a)
-                val bPassed = isPassed(b)
+                val aPassed = isLessonPassed(a)
+                val bPassed = isLessonPassed(b)
                 when {
                     !aPassed && bPassed -> -1
                     aPassed && !bPassed -> 1

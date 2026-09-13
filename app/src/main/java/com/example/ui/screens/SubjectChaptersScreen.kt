@@ -356,7 +356,7 @@ fun SubjectChaptersScreen(
                         } else {
                             items(
                                 items = uiState.chapters,
-                                key = { it.id.ifBlank { it.chapter_id ?: it.chapter_name ?: "" } }
+                                key = { it.id.ifBlank { it.chapter_id ?: it.effectiveName } }
                             ) { chapter ->
                                 ChapterCard(
                                     chapter = chapter,
@@ -364,7 +364,7 @@ fun SubjectChaptersScreen(
                                     onClick = {
                                         val primaryId = chapter.id.ifBlank { chapter.chapter_id ?: "" }
                                         val altId = chapter.chapter_id?.takeIf { it != primaryId }
-                                        val targetName = chapter.chapter_name ?: "অধ্যায়"
+                                        val targetName = chapter.effectiveName
                                         val targetStatus = chapter.status ?: ""
                                         viewModel.selectChapter(primaryId, targetName, targetStatus)
                                         viewModel.loadLessonsForChapter(
@@ -736,9 +736,9 @@ fun ChapterCard(
                         }
                     }
 
-                    if (chapter.chapter_no != null) {
+                    if (chapter.effectiveNo != null) {
                         Text(
-                            text = "• অধ্যায় ${toBengaliDigits(chapter.chapter_no)}",
+                            text = "• অধ্যায় ${toBengaliDigits(chapter.effectiveNo.toString())}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -750,7 +750,7 @@ fun ChapterCard(
 
                 // Chapter Name
                 Text(
-                    text = chapter.chapter_name ?: "অধ্যায়",
+                    text = chapter.effectiveName,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,

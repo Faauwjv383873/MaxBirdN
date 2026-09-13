@@ -729,9 +729,9 @@ private fun RoutineTimelineCard(
 
     val nowMs = System.currentTimeMillis()
     val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
-    val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + 3600_000L else Long.MAX_VALUE)
+    val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE)
     
-    val isLiveNow = isLive || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true) || (startMs != Long.MAX_VALUE && nowMs in startMs..endMs && !isRecorded)
+    val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
 
     val typeText = when {
         isLiveNow -> "🔴 লাইভ চলছে"

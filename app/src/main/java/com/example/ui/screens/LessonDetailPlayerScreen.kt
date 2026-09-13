@@ -15,6 +15,8 @@ import android.os.Build
 import android.os.Environment
 import android.util.Rational
 import android.view.ViewGroup
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -124,12 +126,22 @@ fun LessonDetailPlayerScreen(
     val hmsRoomId = lesson?.live_class?.hms_room_id
     val liveProvider = lesson?.live_class?.provider ?: "100ms Live"
 
-    var livePlayerMode by remember { mutableStateOf("STREAM") } // "STREAM" or "MEETING"
+    val effectiveMeetingUrl = remember(lesson?.live_class?.liveMeetingUrl, joinLink, hmsRoomId, lesson?.live_class?.hms_token) {
+        val url = lesson?.live_class?.liveMeetingUrl
+            ?: joinLink
+            ?: if (!hmsRoomId.isNullOrBlank()) {
+                val tokenParam = if (!lesson?.live_class?.hms_token.isNullOrBlank()) "?token=${lesson.live_class.hms_token}" else ""
+                "https://live.shikho.com/meeting/${hmsRoomId.trim()}$tokenParam"
+            } else ""
+        url ?: ""
+    }
+
+    var livePlayerMode by remember { mutableStateOf(if (isLive && effectiveMeetingUrl.isNotBlank()) "MEETING" else "STREAM") } // "STREAM" or "MEETING"
     var isJoiningLiveState by remember { mutableStateOf(false) }
 
-    // Auto trigger joinLiveClass if it's a live class and joinLink is missing
+    // Auto trigger joinLiveClass if it's a live class and joinLink or hmsRoomId is missing
     LaunchedEffect(lesson?.id, isLive) {
-        if (isLive && lesson != null && lesson.live_class?.join_link.isNullOrBlank() && onJoinLiveClass != null) {
+        if (isLive && lesson != null && (lesson.live_class?.join_link.isNullOrBlank() || lesson.live_class?.hms_room_id.isNullOrBlank()) && onJoinLiveClass != null) {
             isJoiningLiveState = true
             onJoinLiveClass.invoke(lesson)
             isJoiningLiveState = false
@@ -495,81 +507,94 @@ fun LessonDetailPlayerScreen(
 
     // UI Structure
     if (isFullscreen) {
-        // FULLSCREEN VIDEO PLAYER
+        // FULLSCREEN VIDEO PLAYER / MEETING
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Fullscreen Player Controls Overlay
-            PlayerControlsOverlay(
-                title = lesson?.title ?: "রেকর্ডকৃত ক্লাস",
-                subjectName = subjectName,
-                isPlaying = isPlaying,
-                isBuffering = isBuffering,
-                currentPosition = if (isSeeking) seekPosition else currentPosition,
-                bufferedPosition = bufferedPosition,
-                totalDuration = totalDuration,
-                areControlsVisible = areControlsVisible,
-                isFullscreen = true,
-                playbackSpeed = playbackSpeed,
-                isLive = isLive,
-                hasMeeting = !joinLink.isNullOrBlank(),
-                onSwitchToMeeting = {
-                    try {
-                        if (!joinLink.isNullOrBlank()) {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(joinLink)).apply {
+            if (isLive && livePlayerMode == "MEETING" && effectiveMeetingUrl.isNotBlank()) {
+                LiveMeetingWebView(
+                    meetingUrl = effectiveMeetingUrl,
+                    onBackToStream = {
+                        livePlayerMode = "STREAM"
+                        exoPlayer.play()
+                    },
+                    onOpenExternal = {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
                             }
                             context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
                         }
-                    } catch (_: Exception) {}
-                },
-                onTogglePlayPause = {
-                    if (isPlaying) exoPlayer.pause() else exoPlayer.play()
-                },
-                onSeekBack = {
-                    val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
-                    exoPlayer.seekTo(target)
-                },
-                onSeekForward = {
-                    val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(totalDuration)
-                    exoPlayer.seekTo(target)
-                },
-                onSeekStarted = {
-                    isSeeking = true
-                    seekPosition = it
-                },
-                onSeekChanged = {
-                    seekPosition = it
-                },
-                onSeekFinished = {
-                    isSeeking = false
-                    exoPlayer.seekTo(it)
-                },
-                onToggleFullscreen = { toggleFullscreen() },
-                onToggleControls = { areControlsVisible = !areControlsVisible },
-                onSpeedClick = { showSpeedDialog = true },
-                onQualityClick = { showQualityDialog = true },
-                selectedQualityLabel = selectedQualityLabel,
-                onPipClick = { enterPipMode() },
-                onBack = { toggleFullscreen() }
-            )
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Fullscreen Player Controls Overlay
+                PlayerControlsOverlay(
+                    title = lesson?.title ?: "রেকর্ডকৃত ক্লাস",
+                    subjectName = subjectName,
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    currentPosition = if (isSeeking) seekPosition else currentPosition,
+                    bufferedPosition = bufferedPosition,
+                    totalDuration = totalDuration,
+                    areControlsVisible = areControlsVisible,
+                    isFullscreen = true,
+                    playbackSpeed = playbackSpeed,
+                    isLive = isLive,
+                    hasMeeting = effectiveMeetingUrl.isNotBlank(),
+                    onSwitchToMeeting = {
+                        exoPlayer.pause()
+                        livePlayerMode = "MEETING"
+                    },
+                    onTogglePlayPause = {
+                        if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                    },
+                    onSeekBack = {
+                        val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                        exoPlayer.seekTo(target)
+                    },
+                    onSeekForward = {
+                        val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(totalDuration)
+                        exoPlayer.seekTo(target)
+                    },
+                    onSeekStarted = {
+                        isSeeking = true
+                        seekPosition = it
+                    },
+                    onSeekChanged = {
+                        seekPosition = it
+                    },
+                    onSeekFinished = {
+                        isSeeking = false
+                        exoPlayer.seekTo(it)
+                    },
+                    onToggleFullscreen = { toggleFullscreen() },
+                    onToggleControls = { areControlsVisible = !areControlsVisible },
+                    onSpeedClick = { showSpeedDialog = true },
+                    onQualityClick = { showQualityDialog = true },
+                    selectedQualityLabel = selectedQualityLabel,
+                    onPipClick = { enterPipMode() },
+                    onBack = { toggleFullscreen() }
+                )
+            }
         }
     } else {
         // PORTRAIT DETAIL SCREEN
@@ -590,7 +615,24 @@ fun LessonDetailPlayerScreen(
                         .aspectRatio(16f / 9f)
                         .background(Color.Black)
                 ) {
-                    if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
+                    if (isLive && livePlayerMode == "MEETING" && effectiveMeetingUrl.isNotBlank()) {
+                        LiveMeetingWebView(
+                            meetingUrl = effectiveMeetingUrl,
+                            onBackToStream = {
+                                livePlayerMode = "STREAM"
+                                exoPlayer.play()
+                            },
+                            onOpenExternal = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
                         AndroidView(
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
@@ -996,25 +1038,59 @@ fun LessonDetailPlayerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Button(
+                                    onClick = {
+                                        if (livePlayerMode == "MEETING") {
+                                            livePlayerMode = "STREAM"
+                                            exoPlayer.play()
+                                        } else {
+                                            exoPlayer.pause()
+                                            livePlayerMode = "MEETING"
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (livePlayerMode == "MEETING") Color(0xFF2563EB) else Color(0xFFE11D48)
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        if (livePlayerMode == "MEETING") Icons.Default.LiveTv else Icons.Default.Groups,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        if (livePlayerMode == "MEETING") "HLS প্লেয়ারে যান" else "100ms লাইভ রুমে যান",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
                                 if (onRefreshLesson != null) {
-                                    Button(
+                                    IconButton(
                                         onClick = onRefreshLesson,
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.White)
+                                            .border(1.dp, Color(0xFFFDA4AF), RoundedCornerShape(10.dp))
                                     ) {
-                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("লাইভ স্ট্রিম রিফ্রেশ", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "রিফ্রেশ",
+                                            tint = Color(0xFF9F1239),
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
                                 }
 
-                                if (!joinLink.isNullOrBlank()) {
+                                if (effectiveMeetingUrl.isNotBlank()) {
                                     IconButton(
                                         onClick = {
                                             try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(joinLink)).apply {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
                                                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                                 }
                                                 context.startActivity(intent)
@@ -1032,20 +1108,6 @@ fun LessonDetailPlayerScreen(
                                             tint = Color(0xFF9F1239),
                                             modifier = Modifier.size(18.dp)
                                         )
-                                    }
-                                } else if (onJoinLiveClass != null && lesson != null) {
-                                    Button(
-                                        onClick = {
-                                            onJoinLiveClass.invoke(lesson)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("রুমে যুক্ত হন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -3269,3 +3331,159 @@ fun formatLessonTimeRange(startTimeStr: String?, endTimeStr: String?): String {
         ""
     }
 }
+
+@Composable
+fun LiveMeetingWebView(
+    meetingUrl: String,
+    onBackToStream: () -> Unit,
+    onOpenExternal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isLoading by remember { mutableStateOf(true) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                        mediaPlaybackRequiresUserGesture = false
+                        allowFileAccess = true
+                        allowContentAccess = true
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
+                        userAgentString = "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 Shikho/6.0.7"
+                    }
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onPermissionRequest(request: PermissionRequest?) {
+                            request?.grant(request.resources)
+                        }
+                    }
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            isLoading = false
+                        }
+                    }
+                    loadUrl(meetingUrl)
+                    webViewInstance = this
+                }
+            },
+            update = { wv ->
+                if (wv.url != meetingUrl && meetingUrl.isNotBlank()) {
+                    wv.loadUrl(meetingUrl)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xE60F172A)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = Color(0xFFE11D48),
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "100ms লাইভ রুমে সংযোগ করা হচ্ছে...",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Floating top control bar for web meeting
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .align(Alignment.TopCenter),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.75f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE11D48).copy(alpha = 0.6f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444))
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "🔴 100ms লাইভ রুম",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.75f),
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    IconButton(onClick = { webViewInstance?.reload() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "রিফ্রেশ", tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.75f),
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    IconButton(onClick = onOpenExternal) {
+                        Icon(Icons.Default.OpenInBrowser, contentDescription = "ব্রাউজার", tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF2563EB).copy(alpha = 0.9f),
+                    modifier = Modifier.clickable { onBackToStream() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.LiveTv, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("HLS প্লেয়ার", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+

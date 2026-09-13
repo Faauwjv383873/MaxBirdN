@@ -69,6 +69,9 @@ interface ShikhoApiService {
     @POST("/graphql")
     suspend fun joinLiveClass(@Body query: GraphQlQuery): JoinLiveClassResponse
 
+    @POST("/hms/token")
+    suspend fun getHmsToken(@Body request: HmsTokenRequest): HmsTokenResponse
+
     @POST("/graphql")
     suspend fun getTeacherDetails(@Body query: GraphQlQuery): TeacherDetailsResponse
 
