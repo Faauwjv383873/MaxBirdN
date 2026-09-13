@@ -551,8 +551,8 @@ data class StudentLessonItem(
 
                 // Always add the exact stream link specified by user for test room 6aa00903f688c4f8bf624313
                 if (cleanRoomId == "6aa00903f688c4f8bf624313" || id == "6aa00903b9fdc07f687642b9" || live_class?.id == "6aa00903b9fdc07f687642b9") {
-                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/master.m3u8")
                     list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/stream_0/stream.m3u8")
+                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/master.m3u8")
                 }
 
                 val dateFormat = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).apply {
@@ -584,8 +584,8 @@ data class StudentLessonItem(
 
                 for (dStr in distinctDates) {
                     for (tStr in distinctTs) {
-                        list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/master.m3u8")
                         list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/stream_0/stream.m3u8")
+                        list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/master.m3u8")
                     }
                 }
 

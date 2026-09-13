@@ -285,7 +285,7 @@ fun LessonDetailPlayerScreen(
                     .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_3/stream.m3u8") else it }
 
                 availableQualities = listOf(
-                    VideoTrackQuality("auto", "অটো (Auto)", 0, 0, null, 0, masterUrl),
+                    VideoTrackQuality("auto", "অটো (Auto)", 0, 0, null, 0, s0),
                     VideoTrackQuality("1080p", "1080p (উচ্চ মান)", 1080, 0, null, 0, s0),
                     VideoTrackQuality("720p", "720p (এইচডি)", 720, 0, null, 0, s1),
                     VideoTrackQuality("480p", "480p (মাঝারি)", 480, 0, null, 0, s2),
