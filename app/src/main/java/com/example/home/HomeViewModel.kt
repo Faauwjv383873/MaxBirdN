@@ -367,8 +367,11 @@ class HomeViewModel(
         val formattedGroup = when (group.lowercase()) {
             "humanities", "humanities_group" -> "Humanities"
             "science", "science_group" -> "Science"
-            "business", "business_studies", "commerce" -> "Business_Studies"
-            else -> group.replace("-", "_")
+            "businessstudies" -> "BusinessStudies"
+            "commerce" -> "Commerce"
+            "business" -> "Business"
+            "business_studies", "business studies" -> "Business_Studies"
+            else -> group
         }
 
         var programs: List<EnrolledProgram> = emptyList()
@@ -402,14 +405,29 @@ class HomeViewModel(
                             icon
                           }
                         }
+                        other_programs {
+                          id
+                          classes
+                          title_bn
+                          banner_url
+                          phase_pricing
+                          is_free
+                          has_animated_video
+                          full_program_discount_price
+                          trial_enabled
+                          trial_duration
+                        }
                       }
                     }
                 """.trimIndent()
             )
             val response = apiService.getAcademicProgram(allEnrollmentsQuery)
-            val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs
-            if (!list.isNullOrEmpty()) {
-                programs = list
+            val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+            val otherList = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+            val promoted = otherList.map { it.toEnrolledProgram() }
+            val merged = (list + promoted).distinctBy { it.id }
+            if (merged.isNotEmpty()) {
+                programs = merged
             }
         } catch (_: Exception) {}
 
@@ -443,18 +461,33 @@ class HomeViewModel(
                                 icon
                               }
                             }
+                            other_programs {
+                              id
+                              classes
+                              title_bn
+                              banner_url
+                              phase_pricing
+                              is_free
+                              has_animated_video
+                              full_program_discount_price
+                              trial_enabled
+                              trial_duration
+                            }
                           }
                         }
                     """.trimIndent(),
                     variables = mutableMapOf<String, Any?>(
                         "batch_id" to batchId,
                         "className" to className,
-                        "group" to formattedGroup,
+                        "group" to null, // Fetch ALL groups under this class/batch
                         "vendor" to vendor
                     )
                 )
                 val response = apiService.getAcademicProgram(queryWithBatch)
-                programs = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val otherList = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+                val promoted = otherList.map { it.toEnrolledProgram() }
+                programs = (list + promoted).distinctBy { it.id }
             } catch (_: Exception) {
                 // Ignore and try fallback without batch_id
             }
@@ -490,17 +523,32 @@ class HomeViewModel(
                                 icon
                               }
                             }
+                            other_programs {
+                              id
+                              classes
+                              title_bn
+                              banner_url
+                              phase_pricing
+                              is_free
+                              has_animated_video
+                              full_program_discount_price
+                              trial_enabled
+                              trial_duration
+                            }
                           }
                         }
                     """.trimIndent(),
                     variables = mapOf(
                         "className" to className,
-                        "group" to formattedGroup,
+                        "group" to null, // Fetch ALL groups under this class
                         "vendor" to vendor
                     )
                 )
                 val fallbackResponse = apiService.getAcademicProgram(fallbackQuery)
-                programs = fallbackResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val list = fallbackResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val otherList = fallbackResponse.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+                val promoted = otherList.map { it.toEnrolledProgram() }
+                programs = (list + promoted).distinctBy { it.id }
             } catch (_: Exception) {
                 // Ignore and proceed to class-only fallback
             }
@@ -530,6 +578,18 @@ class HomeViewModel(
                                 expiry_date
                               }
                             }
+                            other_programs {
+                              id
+                              classes
+                              title_bn
+                              banner_url
+                              phase_pricing
+                              is_free
+                              has_animated_video
+                              full_program_discount_price
+                              trial_enabled
+                              trial_duration
+                            }
                           }
                         }
                     """.trimIndent(),
@@ -539,11 +599,54 @@ class HomeViewModel(
                     )
                 )
                 val classOnlyResponse = apiService.getAcademicProgram(classOnlyQuery)
-                programs = classOnlyResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val list = classOnlyResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val otherList = classOnlyResponse.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+                val promoted = otherList.map { it.toEnrolledProgram() }
+                programs = (list + promoted).distinctBy { it.id }
             } catch (_: Exception) {
                 // Final fallback
             }
         }
+
+        // Filter/Prioritize programs based on user group so that only the selected department/group and common/skills are shown
+        val groupLower = group.lowercase()
+        val keywords = when {
+            groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("বিজ্ঞান", "science")
+            groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("মানবিক", "humanities")
+            groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
+            else -> emptyList()
+        }
+
+        val otherKeywords = when {
+            groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("মানবিক", "humanities", "ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
+            groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("বিজ্ঞান", "science", "ব্যবসায়", "ব্যাবসা", "business", "commerce")
+            groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("বিজ্ঞান", "science", "মানবিক", "humanities")
+            else -> emptyList()
+        }
+
+        programs = programs.filter { program ->
+            val t = program.title_bn?.lowercase() ?: ""
+            var matchesOther = false
+            for (okw in otherKeywords) {
+                if (t.contains(okw)) {
+                    matchesOther = true
+                    break
+                }
+            }
+            !matchesOther
+        }.sortedWith(compareByDescending { program ->
+            val title = program.title_bn?.lowercase() ?: ""
+            var score = 0
+            for (kw in keywords) {
+                if (title.contains(kw)) {
+                    score += 10
+                }
+            }
+            if (title.contains("কমন") || title.contains("common") || title.contains("আবশ্যিক")) {
+                score += 5
+            }
+            score
+        })
 
         // Determine active program: prioritize saved program, then actively enrolled program (is_active == true), then first
         val savedProgramId = sessionManager.getActiveProgramId()

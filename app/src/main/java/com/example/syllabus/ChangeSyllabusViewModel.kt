@@ -242,40 +242,62 @@ class ChangeSyllabusViewModel(
             )
 
             try {
-                // Determine StudyGroupTypeEnum formatted value
-                val studyGroupEnum = if (selectedClass.isGroupRequired && selectedGroup != null) {
+                // Determine StudyGroupTypeEnum formatted values (candidates)
+                val candidates = if (selectedClass.isGroupRequired && selectedGroup != null) {
                     when (selectedGroup.code.lowercase()) {
-                        "humanities", "hum", "humanities_group" -> "Humanities"
-                        "science", "science_group" -> "Science"
-                        "business", "business_studies", "commerce" -> "Business_Studies"
-                        else -> selectedGroup.code.replace("-", "_")
+                        "humanities", "hum", "humanities_group" -> listOf("Humanities")
+                        "science", "science_group" -> listOf("Science")
+                        "business", "business_studies", "commerce", "businessstudies" -> listOf("Business_Studies", "BusinessStudies", "Commerce", "Business")
+                        else -> listOf(selectedGroup.code.replace("-", "_"))
                     }
                 } else {
-                    null
+                    listOf(null)
                 }
 
-                // 1. ChangeSyllabus Mutation
-                val variables = mutableMapOf<String, Any?>("userclass" to selectedClass.code)
-                if (studyGroupEnum != null) {
-                    variables["study_group"] = studyGroupEnum
-                }
+                var lastException: Exception? = null
+                var successfulEnumVal: String? = null
+                var tokenPayload: com.example.api.AuthTokensPayload? = null
 
-                val changeSyllabusQuery = GraphQlQuery(
-                    operationName = "ChangeSyllabus",
-                    query = """
-                        mutation ChangeSyllabus(${'$'}study_group: StudyGroupTypeEnum, ${'$'}userclass: ClassEnumCommon) {
-                          changeSyllabus(study_group: ${'$'}study_group, class: ${'$'}userclass) {
-                            access_token
-                            id_token
-                            refresh_token
-                          }
+                for (candidate in candidates) {
+                    try {
+                        val variables = mutableMapOf<String, Any?>("userclass" to selectedClass.code)
+                        if (candidate != null) {
+                            variables["study_group"] = candidate
                         }
-                    """.trimIndent(),
-                    variables = variables
-                )
 
-                val changeResponse = apiService.changeSyllabus(changeSyllabusQuery)
-                val tokenPayload = changeResponse.data?.changeSyllabus
+                        val changeSyllabusQuery = GraphQlQuery(
+                            operationName = "ChangeSyllabus",
+                            query = """
+                                mutation ChangeSyllabus(${'$'}study_group: StudyGroupTypeEnum, ${'$'}userclass: ClassEnumCommon) {
+                                  changeSyllabus(study_group: ${'$'}study_group, class: ${'$'}userclass) {
+                                    access_token
+                                    id_token
+                                    refresh_token
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = variables
+                        )
+
+                        val changeResponse = apiService.changeSyllabus(changeSyllabusQuery)
+                        tokenPayload = changeResponse.data?.changeSyllabus
+                        successfulEnumVal = candidate
+                        lastException = null
+                        break // Success! Exit candidate loop
+                    } catch (e: Exception) {
+                        lastException = e
+                        if (e is retrofit2.HttpException && e.code() == 400) {
+                            continue // Try next candidate
+                        } else {
+                            // Real non-400 exception (e.g. timeout, connection), but continue to be safe
+                            continue
+                        }
+                    }
+                }
+
+                if (lastException != null) {
+                    throw lastException
+                }
 
                 // 2. Replace JWT tokens in encrypted preferences
                 if (tokenPayload?.access_token != null) {
@@ -314,7 +336,7 @@ class ChangeSyllabusViewModel(
                 sessionManager.saveUserAcademicInfo(
                     batchId = selectedBatch?.label ?: selectedBatch?.yearString ?: "",
                     className = selectedClass.code,
-                    group = studyGroupEnum ?: "General",
+                    group = successfulEnumVal ?: "General",
                     vendor = selectedClass.vendor ?: "BD"
                 )
 
@@ -337,9 +359,19 @@ class ChangeSyllabusViewModel(
                 restartApp(context)
 
             } catch (e: Exception) {
+                val errorDetails = if (e is retrofit2.HttpException) {
+                    try {
+                        val body = e.response()?.errorBody()?.string()
+                        "HTTP ${e.code()}: $body"
+                    } catch (_: Exception) {
+                        e.localizedMessage
+                    }
+                } else {
+                    e.localizedMessage
+                }
                 _uiState.value = _uiState.value.copy(
                     isSubmitting = false,
-                    errorMessage = "সিলেবাস পরিবর্তন ব্যর্থ হয়েছে: ${e.localizedMessage ?: "সার্ভার এরর"}"
+                    errorMessage = "সিলেবাস পরিবর্তন ব্যর্থ হয়েছে: ${errorDetails ?: "সার্ভার এরর"}"
                 )
             }
         }

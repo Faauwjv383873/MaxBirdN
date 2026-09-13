@@ -137,7 +137,7 @@ fun CourseSwitcherBottomSheet(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "তোমার এনরোল করা প্রোগ্রামসমূহ:",
+                        text = "তোমার শ্রেণির উপলব্ধ সকল কোর্সসমূহ:",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp)

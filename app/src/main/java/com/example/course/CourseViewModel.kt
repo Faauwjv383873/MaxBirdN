@@ -108,8 +108,11 @@ class CourseViewModel(
                 val formattedGroup = when (group.lowercase()) {
                     "humanities", "humanities_group" -> "Humanities"
                     "science", "science_group" -> "Science"
-                    "business", "business_studies", "commerce" -> "Business_Studies"
-                    else -> group.replace("-", "_")
+                    "businessstudies" -> "BusinessStudies"
+                    "commerce" -> "Commerce"
+                    "business" -> "Business"
+                    "business_studies", "business studies" -> "Business_Studies"
+                    else -> group
                 }
 
                 val query = GraphQlQuery(
@@ -156,63 +159,13 @@ class CourseViewModel(
                     """.trimIndent(),
                     variables = mutableMapOf<String, Any?>(
                         "className" to userClassName,
-                        "group" to formattedGroup
+                        "group" to null // Fetch ALL groups under this class
                     )
                 )
 
                 val response = apiService.getAcademicProgram(query)
                 var enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
                 var otherAll = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
-
-                // If empty with class variable, try query without variables as fallback
-                if (enrolled.isEmpty() && otherAll.isEmpty()) {
-                    val fallbackQuery = GraphQlQuery(
-                        operationName = "GetEnrolledAcademicProgram",
-                        query = """
-                            query GetEnrolledAcademicProgram {
-                              listAcademicProgramByEnrollment {
-                                enrolled_programs {
-                                  id
-                                  classes
-                                  title_bn
-                                  banner_url
-                                  color
-                                  is_free
-                                  trial_enabled
-                                  enrollment_details {
-                                    batch_id
-                                    is_active
-                                    trial_end_date
-                                    type
-                                    expiry_date
-                                  }
-                                  subjects {
-                                    code
-                                    display_bn
-                                    color_code
-                                    icon
-                                  }
-                                }
-                                other_programs {
-                                  id
-                                  classes
-                                  title_bn
-                                  banner_url
-                                  phase_pricing
-                                  is_free
-                                  has_animated_video
-                                  full_program_discount_price
-                                  trial_enabled
-                                  trial_duration
-                                }
-                              }
-                            }
-                        """.trimIndent()
-                    )
-                    val fallbackRes = apiService.getAcademicProgram(fallbackQuery)
-                    enrolled = fallbackRes.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
-                    otherAll = fallbackRes.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
-                }
 
                 val enrolledIds = enrolled.map { it.id }.toSet()
                 val nonEnrolledOthers = otherAll.filter { it.id !in enrolledIds }
@@ -223,6 +176,54 @@ class CourseViewModel(
 
                 var freeList = nonEnrolledOthers.filter { it.is_free == true }
                 var paidOtherList = nonEnrolledOthers.filter { it.is_free != true }
+
+                // Prioritize/sort lists based on selected group so that the selected department is #1
+                val groupLower = group.lowercase()
+                val keywords = when {
+                    groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("বিজ্ঞান", "science")
+                    groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("মানবিক", "humanities")
+                    groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
+                    else -> emptyList()
+                }
+
+                val otherKeywords = when {
+                    groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("মানবিক", "humanities", "ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
+                    groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("বিজ্ঞান", "science", "ব্যবসায়", "ব্যাবসা", "business", "commerce")
+                    groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("বিজ্ঞান", "science", "মানবিক", "humanities")
+                    else -> emptyList()
+                }
+
+                val filterPredicate = { title: String? ->
+                    val t = title?.lowercase() ?: ""
+                    var matchesOther = false
+                    for (okw in otherKeywords) {
+                        if (t.contains(okw)) {
+                            matchesOther = true
+                            break
+                        }
+                    }
+                    !matchesOther
+                }
+
+                enrolled = enrolled.filter { filterPredicate(it.title_bn) }
+                freeList = freeList.filter { filterPredicate(it.title_bn) }
+                paidOtherList = paidOtherList.filter { filterPredicate(it.title_bn) }
+
+                val scoreCalculator = { title: String? ->
+                    val t = title?.lowercase() ?: ""
+                    var score = 0
+                    for (kw in keywords) {
+                        if (t.contains(kw)) score += 10
+                    }
+                    if (t.contains("কমন") || t.contains("common") || t.contains("আবশ্যিক")) {
+                        score += 5
+                    }
+                    score
+                }
+
+                enrolled = enrolled.sortedByDescending { scoreCalculator(it.title_bn) }
+                freeList = freeList.sortedByDescending { scoreCalculator(it.title_bn) }
+                paidOtherList = paidOtherList.sortedByDescending { scoreCalculator(it.title_bn) }
 
                 if (enrolled.isEmpty()) {
                     enrolled = getFallbackEnrolledPrograms(userClassName, group)
@@ -281,7 +282,7 @@ class CourseViewModel(
         val displayGroup = when (group.lowercase()) {
             "humanities", "humanities_group" -> "মানবিক"
             "science", "science_group" -> "বিজ্ঞান"
-            "business", "business_studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            "business", "business_studies", "commerce", "businessstudies" -> "ব্যবসায় শিক্ষা"
             else -> "মানবিক"
         }
 
@@ -353,7 +354,7 @@ class CourseViewModel(
         val displayGroup = when (group.lowercase()) {
             "humanities", "humanities_group" -> "মানবিক"
             "science", "science_group" -> "বিজ্ঞান"
-            "business", "business_studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            "business", "business_studies", "commerce", "businessstudies" -> "ব্যবসায় শিক্ষা"
             else -> "বিজ্ঞান"
         }
         return listOf(
