@@ -388,16 +388,17 @@ class CourseViewModel(
             viewModelScope.launch {
                 try {
                     val query = GraphQlQuery(
-                        operationName = "GetAcademicLiveClassDetails",
+                        operationName = "academicProgramLiveClass",
                         query = """
-                            query GetAcademicLiveClassDetails(${'$'}id: String!) {
+                            query academicProgramLiveClass(${'$'}id: String!) {
                               academicProgramLiveClass(id: ${'$'}id) {
+                                academic_program_id
                                 batch_ids
-                                create_practice_mcq
                                 chapter {
                                   id
                                   name
                                   no
+                                  __typename
                                 }
                                 class_type
                                 end_time
@@ -419,23 +420,9 @@ class CourseViewModel(
                                   display_bn
                                   group
                                   icon
-                                  parent_code
-                                  ref
+                                  __typename
                                 }
-                                teacher {
-                                  bio
-                                  id
-                                  marketing_avatar
-                                  marketing_points
-                                  name
-                                  subjects
-                                  university_degree
-                                }
-                                title
-                                topics {
-                                  id
-                                  name
-                                }
+                                __typename
                               }
                             }
                         """.trimIndent(),
@@ -597,16 +584,17 @@ class CourseViewModel(
                 val joinQuery = GraphQlQuery(
                     operationName = "JoinLiveClass",
                     query = """
-                        mutation JoinLiveClass(${'$'}joinLiveCLassId: String!, ${'$'}lesson_id: String!) {
-                          joinLiveCLass(id: ${'$'}joinLiveCLassId, lesson_id: ${'$'}lesson_id) {
+                        mutation JoinLiveClass(${'$'}id: String!, ${'$'}lesson_id: String) {
+                          joinLiveCLass(id: ${'$'}id, lesson_id: ${'$'}lesson_id) {
                             join_link
                             provider
                             hms_room_id
+                            __typename
                           }
                         }
                     """.trimIndent(),
                     variables = mapOf(
-                        "joinLiveCLassId" to liveClassId,
+                        "id" to liveClassId,
                         "lesson_id" to lessonId
                     )
                 )
@@ -616,11 +604,13 @@ class CourseViewModel(
                     var hmsToken: String? = null
                     var isChatBlocked: Boolean? = false
 
-                    // Step 2: Request 100ms JWT viewer token from Shikho /hms/token
-                    val roomId = payload.hms_room_id
-                    if (!roomId.isNullOrBlank()) {
+                    // Step 3: Extract room_id (from hms_room_id field or parsed from join_link)
+                    val effectiveRoomId = payload.hms_room_id?.trim()
+                        ?: payload.join_link?.substringAfterLast("/meeting/")?.substringAfterLast("/")?.trim()
+
+                    if (!effectiveRoomId.isNullOrBlank()) {
                         try {
-                            val tokenResp = apiService.getHmsToken(HmsTokenRequest(room_id = roomId.trim(), type = "android"))
+                            val tokenResp = apiService.getHmsToken(HmsTokenRequest(room_id = effectiveRoomId, type = "android"))
                             hmsToken = tokenResp.token
                             isChatBlocked = tokenResp.blocked_chat
                         } catch (e: Exception) {
@@ -633,7 +623,7 @@ class CourseViewModel(
                         val updatedLiveClass = (currentSelected.live_class ?: LiveClassDetails()).copy(
                             join_link = payload.join_link ?: currentSelected.live_class?.join_link,
                             provider = payload.provider ?: currentSelected.live_class?.provider,
-                            hms_room_id = payload.hms_room_id ?: currentSelected.live_class?.hms_room_id,
+                            hms_room_id = effectiveRoomId ?: currentSelected.live_class?.hms_room_id,
                             hms_token = hmsToken ?: currentSelected.live_class?.hms_token,
                             blocked_chat = isChatBlocked ?: currentSelected.live_class?.blocked_chat
                         )

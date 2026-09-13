@@ -547,11 +547,15 @@ data class StudentLessonItem(
             val roomId = live_class?.hms_room_id
             if (!roomId.isNullOrBlank()) {
                 val cleanRoomId = roomId.trim()
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/master.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_0/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_1/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_2/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/6507e56768111f6fe4b574c7/$cleanRoomId/stream_3/stream.m3u8")
+                val appId = "6507e56768111f6fe4b574c7"
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_1/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_2/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_3/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/stream_1/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/master.m3u8")
             }
