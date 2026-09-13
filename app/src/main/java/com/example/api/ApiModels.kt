@@ -549,8 +549,12 @@ data class StudentLessonItem(
                 val cleanRoomId = roomId.trim()
                 val appId = "6507e56768111f6fe4b574c7"
 
-                // Always add the exact stream link specified by user for test room 6aa00903f688c4f8bf624313
+                // User specific room stream links
+                if (cleanRoomId == "6aa00903f688c4f8bf624314") {
+                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624314/20260913/1789312508864/master.m3u8")
+                }
                 if (cleanRoomId == "6aa00903f688c4f8bf624313" || id == "6aa00903b9fdc07f687642b9" || live_class?.id == "6aa00903b9fdc07f687642b9") {
+                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/master.m3u8")
                     list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/stream_0/stream.m3u8")
                 }
 
@@ -561,7 +565,7 @@ data class StudentLessonItem(
                 val dates = mutableListOf<String>()
                 val timestamps = mutableListOf<String>()
 
-                // Hardcode user's specific session ts for test room if applicable
+                timestamps.add("1789312508864")
                 timestamps.add("1789304361923")
 
                 val startMs = classStartMs

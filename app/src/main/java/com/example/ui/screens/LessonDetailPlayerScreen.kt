@@ -189,21 +189,12 @@ fun LessonDetailPlayerScreen(
 
     val candidateStreams = remember(lesson, lesson?.live_class?.hms_room_id, lesson?.live_class?.recording_url, lesson?.live_class?.playback_url, isLive) {
         val raw = lesson?.candidateStreamUrls?.filter { it.isNotBlank() && it != "null" } ?: emptyList()
-        val cleaned = raw.map { url ->
-            if (url.contains("100ms.live") && url.contains("master.m3u8")) {
-                url.replace("master.m3u8", "stream_0/stream.m3u8")
-            } else {
-                url
-            }
-        }.distinct()
-
         if (isLive) {
-            // For active live class, prioritize 100ms beam live streams (stream_0) before recording CDN
-            val liveHls = cleaned.filter { it.contains("100ms.live") }
-            val other = cleaned.filterNot { it.contains("100ms.live") }
+            val liveHls = raw.filter { it.contains("100ms.live") }
+            val other = raw.filterNot { it.contains("100ms.live") }
             (liveHls + other).distinct()
         } else {
-            cleaned.distinct()
+            raw.distinct()
         }
     }
     var currentStreamIndex by remember(lesson?.id, lesson?.live_class?.hms_room_id) { mutableIntStateOf(0) }
@@ -279,16 +270,14 @@ fun LessonDetailPlayerScreen(
         if (activeStreamUrl.isNotBlank()) {
             val urlToPlay = activeStreamUrl
 
-            if (urlToPlay.contains("100ms.live") || urlToPlay.contains("m3u8") || urlToPlay.contains("stream_")) {
+            // If activeStreamUrl is a master.m3u8, ExoPlayer's onTracksChanged will parse tracks dynamically.
+            // If it's a direct stream_X URL, fallback to pre-populating availableQualities.
+            if (urlToPlay.contains("/stream_")) {
                 val baseUrl = urlToPlay
                 val s0 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_0/stream.m3u8")
-                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_0/stream.m3u8") else it }
                 val s1 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_1/stream.m3u8")
-                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_1/stream.m3u8") else it }
                 val s2 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_2/stream.m3u8")
-                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_2/stream.m3u8") else it }
                 val s3 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_3/stream.m3u8")
-                    .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_3/stream.m3u8") else it }
 
                 availableQualities = listOf(
                     VideoTrackQuality("auto", "অটো (Auto)", 0, 0, null, 0, s0),
