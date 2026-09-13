@@ -28,6 +28,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -246,6 +247,41 @@ fun LessonDetailPlayerScreen(
 
     // Expandable Accordion State for Topics
     var isTopicsExpanded by remember { mutableStateOf(true) }
+
+    // Download & Offline Dialog States
+    var showDownloadResolutionDialog by remember { mutableStateOf(false) }
+    var showOfflineDownloadsDialog by remember { mutableStateOf(false) }
+    val downloadedVideosList = remember { mutableStateListOf<Pair<String, String>>() }
+
+    if (showDownloadResolutionDialog) {
+        VideoDownloadResolutionDialog(
+            lessonTitle = lesson?.title ?: "ক্লাস ভিডিও",
+            onDismiss = { showDownloadResolutionDialog = false },
+            onStartDownload = { quality, estSize ->
+                showDownloadResolutionDialog = false
+                val videoTitle = lesson?.title ?: "লেকচার ভিডিও"
+                if (!downloadedVideosList.any { it.first == videoTitle }) {
+                    downloadedVideosList.add(Pair(videoTitle, quality))
+                }
+                Toast.makeText(
+                    context,
+                    "'$quality' রেজুলেশনে ভিডিও ডাউনলোড শুরু হয়েছে!\nঅ্যাপের 'আমার ডাউনলোডসমূহ (অফলাইন)' তে সংরক্ষিত থাকবে।",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
+
+    if (showOfflineDownloadsDialog) {
+        OfflineDownloadsDialog(
+            downloadedList = downloadedVideosList,
+            onDismiss = { showOfflineDownloadsDialog = false },
+            onPlayOffline = { title ->
+                showOfflineDownloadsDialog = false
+                Toast.makeText(context, "'$title' অফলাইনে প্লেইং...", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 
     // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
     val trackSelector = remember { DefaultTrackSelector(context) }
@@ -930,6 +966,7 @@ fun LessonDetailPlayerScreen(
                                 onQualityClick = { showQualityDialog = true },
                                 selectedQualityLabel = selectedQualityLabel,
                                 onPipClick = { enterPipMode() },
+                                onDownloadClick = { showDownloadResolutionDialog = true },
                                 onBack = {
                                     exoPlayer.stop()
                                     onBack()
@@ -1225,80 +1262,13 @@ fun LessonDetailPlayerScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 18.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Subject Tag & Teacher Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Subject Tag
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = subjectThemeColor.copy(alpha = 0.12f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                subjectThemeColor.copy(alpha = 0.3f)
-                            )
-                        ) {
-                            Text(
-                                text = subjectName.ifBlank { "সাধারণ বিষয়" },
-                                color = subjectThemeColor,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
-                        }
-
-                        // Teacher Info
-                        val teacherName = lesson?.live_class?.teacherName
-                        val teacherAvatar = lesson?.live_class?.teacherAvatar
-
-                        if (!teacherName.isNullOrBlank()) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (!teacherAvatar.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(teacherAvatar)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = teacherName,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(subjectThemeColor.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = null,
-                                            tint = subjectThemeColor,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = teacherName,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                            }
-                        }
-                    }
+                    // Teacher Hero Card (Matching Screenshot 2)
+                    TeacherHeroCard(
+                        lesson = lesson,
+                        onDownloadClick = { showDownloadResolutionDialog = true }
+                    )
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -1311,108 +1281,61 @@ fun LessonDetailPlayerScreen(
                         lineHeight = 28.sp
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                    // Date and Time in Bengali
+                    // Date and Time in Bengali & Offline Downloads Button Row
                     val formattedTime = remember(lesson) {
                         val rawStart = lesson?.live_class?.start_time ?: lesson?.start_time
                         formatBanglaDateTime(rawStart)
                     }
 
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Text(
-                            text = formattedTime,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    // Stream Status Banner & Diagnostic Controls
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (playbackError != null) Color(0xFFFEF2F2) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (playbackError != null) Color(0xFFFECACA) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = formattedTime,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        // Offline Downloads Button
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                            modifier = Modifier.clickable { showOfflineDownloadsDialog = true }
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            when {
-                                                playbackError != null -> Color(0xFFEF4444)
-                                                isBuffering -> Color(0xFFF59E0B)
-                                                isPlaying -> Color(0xFF10B981)
-                                                else -> Color(0xFF6B7280)
-                                            }
-                                        )
+                                Icon(
+                                    imageVector = Icons.Default.FolderZip,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Column {
-                                    Text(
-                                        text = when {
-                                            playbackError != null -> "ভিডিও লোড হয়নি (${playbackErrorDetails ?: "ত্রুটি"})"
-                                            candidateStreams.isEmpty() -> "সরাসরি রেকর্ডিং লিংক অনুপস্থিত"
-                                            isBuffering -> "ভিডিও বাফারিং হচ্ছে..."
-                                            isPlaying -> "ক্লাস চলছে (CDN #${currentStreamIndex + 1})"
-                                            else -> "স্ট্রিমিং প্রস্তুত (সার্ভার #${currentStreamIndex + 1})"
-                                        },
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (playbackError != null) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = if (candidateStreams.isNotEmpty()) "মোট CDN অপশন: ${candidateStreams.size}টি" else "সরাসরি লিঙ্ক অনুপস্থিত",
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-
-                                IconButton(
-                                    onClick = { showDiagnosticDialog = true },
-                                    modifier = Modifier.size(30.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Info,
-                                        contentDescription = "কেন লোড হচ্ছে না",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Text(
+                                    text = "আমার ডাউনলোডসমূহ (${downloadedVideosList.size})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -1567,56 +1490,40 @@ fun LessonDetailPlayerScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 4. Class Resources Section (Matching Screenshot 2)
+                ClassResourcesSection(
+                    lesson = lesson,
+                    onOpenSlide = { attachment ->
+                        viewingSlideItem = attachment
+                    }
+                )
+
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 4. "ক্লাস রিসোর্সেস" ➔ "লেকচার স্লাইড" সেকশন
+                // 5. Animated Lessons Section (Matching Screenshot 2)
+                AnimatedLessonsSection(
+                    lesson = lesson,
+                    onPlayAnimatedLesson = { title ->
+                        Toast.makeText(context, "এনিমেটেড লেসন: $title প্লে হচ্ছে...", Toast.LENGTH_SHORT).show()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 6. "লেকচার স্লাইডস ও ডকুমেন্টস"
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "ক্লাস রিসোর্সেস ও স্লাইড",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-
-                        if (onRefreshLesson != null) {
-                            TextButton(
-                                onClick = {
-                                    if (!isRefreshingSlide) {
-                                        isRefreshingSlide = true
-                                        onRefreshLesson.invoke()
-                                        Toast.makeText(context, "স্লাইড আপডেট চেক করা হচ্ছে...", Toast.LENGTH_SHORT).show()
-                                        coroutineScope.launch {
-                                            delay(1500)
-                                            isRefreshingSlide = false
-                                        }
-                                    }
-                                },
-                                enabled = !isRefreshingSlide
-                            ) {
-                                if (isRefreshingSlide) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "রিফ্রেশ",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                }
-                                Text("রিফ্রেশ", fontSize = 13.sp)
-                            }
-                        }
-                    }
+                    Text(
+                        text = "লেকচার স্লাইড ও ডকুমেন্টস",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -2282,6 +2189,7 @@ private fun PlayerControlsOverlay(
     onQualityClick: () -> Unit = {},
     selectedQualityLabel: String = "অটো",
     onPipClick: () -> Unit = {},
+    onDownloadClick: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -2382,38 +2290,11 @@ private fun PlayerControlsOverlay(
                         }
                     }
 
-                    // Interactive Classroom, Quality, Speed and PiP Buttons
+                    // Interactive Quality, Speed, Download and PiP Buttons
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (hasMeeting && onSwitchToMeeting != null) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE11D48).copy(alpha = 0.85f),
-                                modifier = Modifier.clickable { onSwitchToMeeting() }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Chat,
-                                        contentDescription = "ক্লাসরুম",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "ক্লাসরুম",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-
                         // Picture in Picture (PiP) Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -2466,6 +2347,16 @@ private fun PlayerControlsOverlay(
                             }
                         }
 
+                        // Download Button
+                        IconButton(onClick = onDownloadClick) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "ডাউনলোড",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
                         // Playback Speed Tag Button (only for recorded / if applicable)
                         if (!isLive) {
                             Surface(
@@ -2486,7 +2377,7 @@ private fun PlayerControlsOverlay(
                     }
                 }
 
-                // CENTER CONTROLS (Play/Pause, Rewind, Fast Forward, Spinner)
+                // CENTER CONTROLS (Only Play/Pause Button)
                 Box(
                     modifier = Modifier.align(Alignment.Center)
                 ) {
@@ -2497,61 +2388,20 @@ private fun PlayerControlsOverlay(
                             modifier = Modifier.size(48.dp)
                         )
                     } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(32.dp)
+                        // Play / Pause Button
+                        IconButton(
+                            onClick = onTogglePlayPause,
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(Color.White)
                         ) {
-                            if (!isLive) {
-                                // Seek -10s
-                                IconButton(
-                                    onClick = onSeekBack,
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.45f))
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Replay10,
-                                        contentDescription = "১০ সেকেন্ড পেছনে",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                }
-                            }
-
-                            // Play / Pause Button
-                            IconButton(
-                                onClick = onTogglePlayPause,
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (isPlaying) "পজ" else "প্লে",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(34.dp)
-                                )
-                            }
-
-                            if (!isLive) {
-                                // Seek +10s
-                                IconButton(
-                                    onClick = onSeekForward,
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.45f))
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Forward10,
-                                        contentDescription = "১০ সেকেন্ড সামনে",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(28.dp)
-                                    )
-                                }
-                            }
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "পজ" else "প্লে",
+                                tint = Color.Black,
+                                modifier = Modifier.size(34.dp)
+                            )
                         }
                     }
                 }
@@ -4039,5 +3889,675 @@ fun LiveGetStartedScreen(
             }
         }
     }
+}
+
+// ==========================================
+// NEW CUSTOM COMPOSABLES (MATCHING DESIGN)
+// ==========================================
+
+@Composable
+fun TeacherHeroCard(
+    lesson: StudentLessonItem?,
+    onDownloadClick: () -> Unit
+) {
+    val teacher = lesson?.live_class?.teacher
+    val teacherName = teacher?.displayName ?: "মো: আশরাফুল ইসলাম"
+    val universityName = teacher?.marketing_points?.firstOrNull() ?: "পদার্থবিজ্ঞান, ঢাকা বিশ্ববিদ্যালয়"
+    val experienceText = teacher?.marketing_points?.getOrNull(1) ?: "৬ বছর শিক্ষকতার অভিজ্ঞতা"
+    val studentsTaughtText = teacher?.marketing_points?.getOrNull(2) ?: "৫ লক্ষ+ শিক্ষার্থী পড়িয়েছেন"
+    val avatarUrl = teacher?.displayAvatar
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Teacher Avatar
+                    Box(
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .border(2.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!avatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = teacherName,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
+
+                    // Teacher Info
+                    Column {
+                        Text(
+                            text = teacherName,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        // University Tag
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.School,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = universityName,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Highlights
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = null,
+                                    tint = Color(0xFF16A34A),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = experienceText,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Download Action Icon
+                IconButton(
+                    onClick = onDownloadClick,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "ভিডিও ডাউনলোড",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Groups,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = studentsTaughtText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClassResourcesSection(
+    lesson: StudentLessonItem?,
+    onOpenSlide: (LessonAttachmentItem) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "ক্লাস রিসোর্সেস",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Main Card: Lecture Slide
+        val slideUrl = lesson?.resolvedSlideUrl ?: lesson?.live_class?.lectureSlideUrl
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (!slideUrl.isNullOrBlank()) {
+                        onOpenSlide(
+                            LessonAttachmentItem(
+                                title = "লেকচার স্লাইড (PDF)",
+                                url = slideUrl,
+                                file_type = "pdf"
+                            )
+                        )
+                    }
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFE11D48).copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "লেকচার স্লাইড",
+                            tint = Color(0xFFE11D48),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "লেকচার স্লাইড",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "পিডিএফ নোটস ও স্লাইড দেখুন",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Side by side cards: Chapter Resource & Subject Resource
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Chapter Resource Card
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { }
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF0284C7).copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = null,
+                            tint = Color(0xFF0284C7),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Text(
+                        text = "চ্যাপ্টার রিসোর্স",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            // Subject Resource Card
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { }
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF16A34A).copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MenuBook,
+                            contentDescription = null,
+                            tint = Color(0xFF16A34A),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Text(
+                        text = "সাবজেক্ট রিসোর্স",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AnimatedLessonsSection(
+    lesson: StudentLessonItem?,
+    onPlayAnimatedLesson: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "এনিমেটেড লেসন",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Animated Lesson Cards List
+        val animatedTitles = listOf(
+            "ওয়েব পেজের ধারণা ও প্রকারভেদ",
+            "এইচটিএমএল (HTML) ট্যাগ ও ফরম্যাটিং",
+            "সিএসএস (CSS) লেআউট ও কালার প্রপার্টি"
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            animatedTitles.take(2).forEach { title ->
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1B4B)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(115.dp)
+                        .clickable { onPlayAnimatedLesson(title) }
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Background decorative gradient shape
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF312E81),
+                                            Color(0xFF1E1B4B)
+                                        )
+                                    )
+                                )
+                        )
+
+                        // Center Play Icon Button
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.25f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "প্লে",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Bottom Title Text
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.6f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                        ) {
+                            Text(
+                                text = title,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// VIDEO DOWNLOAD RESOLUTION & OFFLINE DIALOGS
+// ==========================================
+
+@Composable
+fun VideoDownloadResolutionDialog(
+    lessonTitle: String,
+    onDismiss: () -> Unit,
+    onStartDownload: (quality: String, estSize: String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = "ডাউনলোড রেজুলেশন সিলেক্ট করুন",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = lessonTitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val resolutions = listOf(
+                    Triple("1080p Full HD", "~650 MB", "হাই ডেফিনিশন"),
+                    Triple("720p HD", "~380 MB", "অনুমোদিত (সুপারিশকৃত)"),
+                    Triple("480p Standard", "~180 MB", "স্ট্যান্ডার্ড"),
+                    Triple("360p Data Saver", "~95 MB", "কম ডাটা খরচ")
+                )
+
+                resolutions.forEach { (resLabel, sizeText, desc) ->
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (resLabel.contains("720p"))
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (resLabel.contains("720p")) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onStartDownload(resLabel, sizeText) }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = resLabel,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = desc,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = sizeText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Security Note
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f))
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "নিরাপত্তা নীতি অনুযায়ী ডাউনলোডকৃত ভিডিও শুধুমাত্র এই অ্যাপের 'ইন-অ্যাপ অফলাইন ডাউনলোডসমূহ' থেকে দেখতে পারবেন। গ্যালারিতে পাওয়া যাবে না।",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        lineHeight = 14.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বাতিল করুন")
+            }
+        }
+    )
+}
+
+@Composable
+fun OfflineDownloadsDialog(
+    downloadedList: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onPlayOffline: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FolderZip,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "ইন-অ্যাপ অফলাইন ডাউনলোডসমূহ",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (downloadedList.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "কোন ডাউনলোডকৃত ভিডিও নেই।\nভিডিও রেজুলেশন সিলেক্ট করে ডাউনলোড করুন।",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                } else {
+                    downloadedList.forEach { (title, quality) ->
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPlayOffline(title) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "কোয়ালিটি: $quality • অফলাইন ফাইল",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { onPlayOffline(title) },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "প্লে",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("বন্ধ করুন")
+            }
+        }
+    )
 }
 

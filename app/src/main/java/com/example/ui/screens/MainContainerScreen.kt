@@ -43,30 +43,22 @@ fun MainContainerScreen(
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
 
-    Scaffold(
-        bottomBar = {
-            ElementalFloatingBottomBar(
-                selectedIndex = selectedIndex,
-                onTabSelected = { index ->
-                    selectedIndex = index
-                    if (index == 1) {
-                        courseViewModel.loadSubjects()
-                    }
-                }
-            )
-        }
-    ) { innerPadding ->
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF8FAFC))
+    ) {
+        // Tab Content fills full screen
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = Modifier.fillMaxSize()
         ) {
             AnimatedContent(
                 targetState = selectedIndex,
                 transitionSpec = {
                     fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
                 },
-                label = "TabContentTransition"
+                label = "TabContentTransition",
+                modifier = Modifier.fillMaxSize()
             ) { tabIndex ->
                 when (tabIndex) {
                     0 -> {
@@ -120,6 +112,23 @@ fun MainContainerScreen(
                     }
                 }
             }
+        }
+
+        // Floating Bottom Bar overlaid cleanly at bottom (no white background block)
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+        ) {
+            ElementalFloatingBottomBar(
+                selectedIndex = selectedIndex,
+                onTabSelected = { index ->
+                    selectedIndex = index
+                    if (index == 1) {
+                        courseViewModel.loadSubjects()
+                    }
+                }
+            )
         }
     }
 }

@@ -315,6 +315,8 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
             }
+
+            Spacer(modifier = Modifier.height(100.dp))
         }
     }
 
