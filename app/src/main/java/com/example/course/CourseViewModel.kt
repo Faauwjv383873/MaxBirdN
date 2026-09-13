@@ -225,65 +225,13 @@ class CourseViewModel(
                 var paidOtherList = nonEnrolledOthers.filter { it.is_free != true }
 
                 if (enrolled.isEmpty()) {
-                    enrolled = listOf(
-                        EnrolledProgram(
-                            id = "6864d3a806800acba2e27099",
-                            classes = listOf("C11"),
-                            title_bn = "HSC '27 মানবিক - ২য় বর্ষ প্রস্তুতি",
-                            banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751437593/hftof9ha6mequpiqpkbh.jpg",
-                            color = null,
-                            is_free = false,
-                            trial_enabled = true,
-                            enrollment_details = EnrollmentDetails(batch_id = "6864d3a806800acba2e2709a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2026-12-31T17:59:59Z"),
-                            subjects = emptyList()
-                        ),
-                        EnrolledProgram(
-                            id = "6862551806800acba2e22b27",
-                            classes = listOf("C11"),
-                            title_bn = "দুরন্ত HSC '27 - মানবিক",
-                            banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751274615/mqllgmiyqdg3mf7xyxva.jpg",
-                            color = null,
-                            is_free = false,
-                            trial_enabled = false,
-                            enrollment_details = EnrollmentDetails(batch_id = "6862551806800acba2e22b28", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2025-09-15T17:59:59Z"),
-                            subjects = emptyList()
-                        ),
-                        EnrolledProgram(
-                            id = "69f0a5053127a0e46e16de09",
-                            classes = listOf("C11"),
-                            title_bn = "Think AI",
-                            banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1777438148/mjpjbimt6wkkwsmtrh8l.jpg",
-                            color = null,
-                            is_free = false,
-                            trial_enabled = false,
-                            enrollment_details = EnrollmentDetails(batch_id = "69f0a5053127a0e46e16de0a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2029-04-30T17:59:59Z"),
-                            subjects = emptyList()
-                        )
-                    )
+                    enrolled = getFallbackEnrolledPrograms(userClassName, group)
                 }
                 if (freeList.isEmpty()) {
-                    freeList = listOf(
-                        OtherProgram(
-                            id = "ap-free-revision",
-                            classes = listOf("C11"),
-                            title_bn = "HSC বেসিক কনসেপ্ট ও ফ্রি রিভিশন ক্লাস",
-                            banner_url = null,
-                            is_free = true,
-                            trial_enabled = true
-                        )
-                    )
+                    freeList = getFallbackFreePrograms(userClassName, group)
                 }
                 if (paidOtherList.isEmpty()) {
-                    paidOtherList = listOf(
-                        OtherProgram(
-                            id = "ap-hsc26-science",
-                            classes = listOf("C12"),
-                            title_bn = "HSC 2026 বোর্ড পরীক্ষার প্রস্তুতি (বিজ্ঞান)",
-                            banner_url = null,
-                            is_free = false,
-                            trial_enabled = false
-                        )
-                    )
+                    paidOtherList = getFallbackOtherPrograms(userClassName, group)
                 }
 
                 _uiState.update {
@@ -296,63 +244,13 @@ class CourseViewModel(
                 }
             } catch (e: Exception) {
                 _uiState.update { current ->
+                    val userClassName = sessionManager.getUserClassName() ?: "C11"
+                    val group = sessionManager.getUserGroup() ?: "Humanities"
                     if (current.enrolledPrograms.isEmpty()) {
                         current.copy(
-                            enrolledPrograms = listOf(
-                                EnrolledProgram(
-                                    id = "6864d3a806800acba2e27099",
-                                    classes = listOf("C11"),
-                                    title_bn = "HSC '27 মানবিক - ২য় বর্ষ প্রস্তুতি",
-                                    banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751437593/hftof9ha6mequpiqpkbh.jpg",
-                                    color = null,
-                                    is_free = false,
-                                    trial_enabled = true,
-                                    enrollment_details = EnrollmentDetails(batch_id = "6864d3a806800acba2e2709a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2026-12-31T17:59:59Z"),
-                                    subjects = emptyList()
-                                ),
-                                EnrolledProgram(
-                                    id = "6862551806800acba2e22b27",
-                                    classes = listOf("C11"),
-                                    title_bn = "দুরন্ত HSC '27 - মানবিক",
-                                    banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751274615/mqllgmiyqdg3mf7xyxva.jpg",
-                                    color = null,
-                                    is_free = false,
-                                    trial_enabled = false,
-                                    enrollment_details = EnrollmentDetails(batch_id = "6862551806800acba2e22b28", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2025-09-15T17:59:59Z"),
-                                    subjects = emptyList()
-                                ),
-                                EnrolledProgram(
-                                    id = "69f0a5053127a0e46e16de09",
-                                    classes = listOf("C11"),
-                                    title_bn = "Think AI",
-                                    banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1777438148/mjpjbimt6wkkwsmtrh8l.jpg",
-                                    color = null,
-                                    is_free = false,
-                                    trial_enabled = false,
-                                    enrollment_details = EnrollmentDetails(batch_id = "69f0a5053127a0e46e16de0a", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2029-04-30T17:59:59Z"),
-                                    subjects = emptyList()
-                                )
-                            ),
-                            freePrograms = if (current.freePrograms.isEmpty()) listOf(
-                                OtherProgram(
-                                    id = "ap-free-revision",
-                                    classes = listOf("C11"),
-                                    title_bn = "HSC বেসিক কনসেপ্ট ও ফ্রি রিভিশন ক্লাস",
-                                    banner_url = null,
-                                    is_free = true,
-                                    trial_enabled = true
-                                )
-                            ) else current.freePrograms,
-                            otherPrograms = if (current.otherPrograms.isEmpty()) listOf(
-                                OtherProgram(
-                                    id = "ap-hsc26-science",
-                                    classes = listOf("C12"),
-                                    title_bn = "HSC 2026 বোর্ড পরীক্ষার প্রস্তুতি (বিজ্ঞান)",
-                                    banner_url = null,
-                                    is_free = false,
-                                    trial_enabled = false
-                                )
-                            ) else current.otherPrograms,
+                            enrolledPrograms = getFallbackEnrolledPrograms(userClassName, group),
+                            freePrograms = if (current.freePrograms.isEmpty()) getFallbackFreePrograms(userClassName, group) else current.freePrograms,
+                            otherPrograms = if (current.otherPrograms.isEmpty()) getFallbackOtherPrograms(userClassName, group) else current.otherPrograms,
                             isProgramsLoading = false
                         )
                     } else {
@@ -361,6 +259,113 @@ class CourseViewModel(
                 }
             }
         }
+    }
+
+    private fun getFallbackEnrolledPrograms(className: String, group: String): List<EnrolledProgram> {
+        val displayClass = when (className.uppercase()) {
+            "C9", "CLASS 9", "C09" -> "নবম শ্রেণি"
+            "C10", "CLASS 10" -> "দশম শ্রেণি"
+            "C11", "CLASS 11" -> "একাদশ শ্রেণি"
+            "C12", "CLASS 12" -> "দ্বাদশ শ্রেণি"
+            else -> "এইচএসসি"
+        }
+        
+        val examYear = when (className.uppercase()) {
+            "C9", "C09" -> "SSC '28"
+            "C10" -> "SSC '27"
+            "C11" -> "HSC '27"
+            "C12" -> "HSC '26"
+            else -> "HSC"
+        }
+
+        val displayGroup = when (group.lowercase()) {
+            "humanities", "humanities_group" -> "মানবিক"
+            "science", "science_group" -> "বিজ্ঞান"
+            "business", "business_studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            else -> "মানবিক"
+        }
+
+        return listOf(
+            EnrolledProgram(
+                id = "fallback-ep-1-${className}-${group}",
+                classes = listOf(className),
+                title_bn = "$displayClass - $examYear ($displayGroup) বার্ষিক পরীক্ষা প্রস্তুতি",
+                banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751437593/hftof9ha6mequpiqpkbh.jpg",
+                color = null,
+                is_free = false,
+                trial_enabled = true,
+                enrollment_details = EnrollmentDetails(batch_id = "fallback-batch-1", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2026-12-31T17:59:59Z"),
+                subjects = emptyList()
+            ),
+            EnrolledProgram(
+                id = "fallback-ep-2-${className}-${group}",
+                classes = listOf(className),
+                title_bn = "দুরন্ত $displayClass - $displayGroup",
+                banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751274615/mqllgmiyqdg3mf7xyxva.jpg",
+                color = null,
+                is_free = false,
+                trial_enabled = false,
+                enrollment_details = EnrollmentDetails(batch_id = "fallback-batch-2", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2025-09-15T17:59:59Z"),
+                subjects = emptyList()
+            ),
+            EnrolledProgram(
+                id = "fallback-ep-3-${className}-${group}",
+                classes = listOf(className),
+                title_bn = "Think AI",
+                banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1777438148/mjpjbimt6wkkwsmtrh8l.jpg",
+                color = null,
+                is_free = false,
+                trial_enabled = false,
+                enrollment_details = EnrollmentDetails(batch_id = "fallback-batch-3", is_active = true, trial_end_date = null, type = "Paid", expiry_date = "2029-04-30T17:59:59Z"),
+                subjects = emptyList()
+            )
+        )
+    }
+
+    private fun getFallbackFreePrograms(className: String, group: String): List<OtherProgram> {
+        val displayClass = when (className.uppercase()) {
+            "C9", "CLASS 9", "C09" -> "নবম শ্রেণি"
+            "C10", "CLASS 10" -> "দশম শ্রেণি"
+            "C11", "CLASS 11" -> "একাদশ শ্রেণি"
+            "C12", "CLASS 12" -> "দ্বাদশ শ্রেণি"
+            else -> "এইচএসসি"
+        }
+        return listOf(
+            OtherProgram(
+                id = "fallback-free-${className}-${group}",
+                classes = listOf(className),
+                title_bn = "$displayClass বেসিক কনসেপ্ট ও ফ্রি রিভিশন ক্লাস",
+                banner_url = null,
+                is_free = true,
+                trial_enabled = true
+            )
+        )
+    }
+
+    private fun getFallbackOtherPrograms(className: String, group: String): List<OtherProgram> {
+        val displayClass = when (className.uppercase()) {
+            "C9", "CLASS 9", "C09" -> "দশম শ্রেণি"
+            "C10", "CLASS 10" -> "একাদশ শ্রেণি"
+            "C11", "CLASS 11" -> "দ্বাদশ শ্রেণি"
+            "C12", "CLASS 12" -> "এইচএসসি এডমিশন"
+            else -> "এইচএসসি"
+        }
+        val displayGroup = when (group.lowercase()) {
+            "humanities", "humanities_group" -> "মানবিক"
+            "science", "science_group" -> "বিজ্ঞান"
+            "business", "business_studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            else -> "বিজ্ঞান"
+        }
+        return listOf(
+            OtherProgram(
+                id = "fallback-other-${className}-${group}",
+                classes = listOf(className),
+                title_bn = "$displayClass পরীক্ষার প্রস্তুতি ($displayGroup)",
+                banner_url = null,
+                is_free = false,
+                trial_enabled = false
+            )
+        )
     }
 
     fun selectLesson(lesson: StudentLessonItem) {

@@ -128,41 +128,40 @@ fun HomeScreen(
     }
 
     Scaffold(
-        topBar = {
-            AnimatedVisibility(
-                visible = isHeaderVisible,
-                enter = expandVertically(animationSpec = tween(280)) + fadeIn(animationSpec = tween(280)),
-                exit = shrinkVertically(animationSpec = tween(250)) + fadeOut(animationSpec = tween(250))
-            ) {
-                HomeHeader(
-                    userName = displayName,
-                    subtitle = subtitle,
-                    avatarUrl = uiState.userAvatar ?: "",
-                    isPremium = uiState.isPremium,
-                    activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
-                    onOpenCourseSwitcher = {
-                        viewModel.setCourseSwitcherVisible(true)
-                    },
-                    onAvatarClick = {
-                        onNavigateToProfile()
-                    }
-                )
-            }
-        },
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .verticalScroll(scrollState),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            when {
-                uiState.isLoading -> {
+            HomeHeader(
+                userName = displayName,
+                subtitle = subtitle,
+                avatarUrl = uiState.userAvatar ?: "",
+                isPremium = uiState.isPremium,
+                activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
+                onOpenCourseSwitcher = {
+                    viewModel.setCourseSwitcherVisible(true)
+                },
+                onAvatarClick = {
+                    onNavigateToProfile()
+                }
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                when {
+                    uiState.isLoading -> {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -264,5 +263,6 @@ fun HomeScreen(
             }
         }
     }
+}
 }
 

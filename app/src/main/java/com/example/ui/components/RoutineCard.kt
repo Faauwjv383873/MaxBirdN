@@ -669,6 +669,7 @@ fun ShikhoRoutineCard(
     Card(
         modifier = modifier
             .width(245.dp)
+            .height(148.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -680,7 +681,7 @@ fun ShikhoRoutineCard(
             color = if (isLiveNow) Color(0xFFEF4444) else subjectColors.textColor.copy(alpha = 0.4f)
         )
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxHeight().fillMaxWidth()) {
             // Left Subject Accent Line
             Box(
                 modifier = Modifier
@@ -691,8 +692,10 @@ fun ShikhoRoutineCard(
 
             Column(
                 modifier = Modifier
+                    .fillMaxHeight()
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
                 // Top Tags Row
                 Row(
@@ -760,13 +763,12 @@ fun ShikhoRoutineCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Lesson Title
+                // Lesson Title (responsive bounded weight)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 36.dp),
+                        .weight(1f, fill = false)
+                        .padding(vertical = 4.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
@@ -779,8 +781,6 @@ fun ShikhoRoutineCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
 
                 // Time & Duration
                 Row(verticalAlignment = Alignment.CenterVertically) {

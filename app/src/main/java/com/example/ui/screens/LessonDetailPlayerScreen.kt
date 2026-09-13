@@ -3041,7 +3041,8 @@ fun UpcomingCountdownScreen(
         topBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 2.dp
+                shadowElevation = 2.dp,
+                modifier = Modifier.statusBarsPadding()
             ) {
                 Row(
                     modifier = Modifier
