@@ -188,13 +188,21 @@ fun LessonDetailPlayerScreen(
 
     val candidateStreams = remember(lesson, lesson?.live_class?.hms_room_id, lesson?.live_class?.recording_url, lesson?.live_class?.playback_url, isLive) {
         val raw = lesson?.candidateStreamUrls?.filter { it.isNotBlank() && it != "null" } ?: emptyList()
+        val cleaned = raw.map { url ->
+            if (url.contains("100ms.live") && url.contains("master.m3u8")) {
+                url.replace("master.m3u8", "stream_0/stream.m3u8")
+            } else {
+                url
+            }
+        }.distinct()
+
         if (isLive) {
-            // For active live class, prioritize 100ms beam live streams (stream_1/stream_0/stream_2/master) before recording CDN
-            val liveHls = raw.filter { it.contains("100ms.live") }
-            val other = raw.filterNot { it.contains("100ms.live") }
+            // For active live class, prioritize 100ms beam live streams (stream_0) before recording CDN
+            val liveHls = cleaned.filter { it.contains("100ms.live") }
+            val other = cleaned.filterNot { it.contains("100ms.live") }
             (liveHls + other).distinct()
         } else {
-            raw.distinct()
+            cleaned.distinct()
         }
     }
     var currentStreamIndex by remember(lesson?.id, lesson?.live_class?.hms_room_id) { mutableIntStateOf(0) }
@@ -267,14 +275,14 @@ fun LessonDetailPlayerScreen(
             return@LaunchedEffect
         }
         if (activeStreamUrl.isNotBlank()) {
-            if (activeStreamUrl.contains("100ms.live") || activeStreamUrl.contains("m3u8") || activeStreamUrl.contains("stream_")) {
-                val baseUrl = activeStreamUrl
-                val masterUrl = if (baseUrl.contains("/stream_")) {
-                    baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/master.m3u8")
-                } else if (!baseUrl.contains("master.m3u8")) {
-                    baseUrl.replace(Regex("/[^/]+\\.m3u8"), "/master.m3u8")
-                } else baseUrl
+            val urlToPlay = if (activeStreamUrl.contains("100ms.live") && activeStreamUrl.contains("master.m3u8")) {
+                activeStreamUrl.replace("master.m3u8", "stream_0/stream.m3u8")
+            } else {
+                activeStreamUrl
+            }
 
+            if (urlToPlay.contains("100ms.live") || urlToPlay.contains("m3u8") || urlToPlay.contains("stream_")) {
+                val baseUrl = urlToPlay
                 val s0 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_0/stream.m3u8")
                     .let { if (it == baseUrl) baseUrl.replace("master.m3u8", "stream_0/stream.m3u8") else it }
                 val s1 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_1/stream.m3u8")
@@ -295,7 +303,7 @@ fun LessonDetailPlayerScreen(
 
             isBuffering = true
             try {
-                val mediaSource = ShikhoPlayerManager.createMediaSource(activeStreamUrl, isLive = isLive)
+                val mediaSource = ShikhoPlayerManager.createMediaSource(urlToPlay, isLive = isLive)
                 exoPlayer.setMediaSource(mediaSource)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true

@@ -552,7 +552,6 @@ data class StudentLessonItem(
                 // Always add the exact stream link specified by user for test room 6aa00903f688c4f8bf624313
                 if (cleanRoomId == "6aa00903f688c4f8bf624313" || id == "6aa00903b9fdc07f687642b9" || live_class?.id == "6aa00903b9fdc07f687642b9") {
                     list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/stream_0/stream.m3u8")
-                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/master.m3u8")
                 }
 
                 val dateFormat = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).apply {
@@ -585,21 +584,20 @@ data class StudentLessonItem(
                 for (dStr in distinctDates) {
                     for (tStr in distinctTs) {
                         list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/stream_0/stream.m3u8")
-                        list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/master.m3u8")
                     }
                 }
 
-                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/master.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/master.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
+                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_0/stream.m3u8")
             }
 
-            // 3. Session ID & Class ID based Tenbyte CDN URLs (prioritizing Session ID)
+            // 3. Class ID & Session ID based Tenbyte CDN URLs (prioritizing live_class?.id Class ID over Lesson id)
             val targets = listOfNotNull(
-                session_id,
-                live_class?.session_id,
-                content_id,
                 live_class?.id,
-                id
+                content_id,
+                live_class?.session_id,
+                session_id,
+                if (live_class?.id.isNullOrBlank() && content_id.isNullOrBlank()) id else null
             ).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
 
             for (target in targets) {
@@ -741,18 +739,15 @@ data class LiveClassDetails(
             if (!hms_room_id.isNullOrBlank()) {
                 val cleanRoomId = hms_room_id.trim()
                 val appId = "6507e56768111f6fe4b574c7"
-                // beam3 master & variant playlists
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/master.m3u8")
+                // beam3 variant playlists
                 list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_0/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_1/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_2/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_3/stream.m3u8")
                 // beam1 direct & date-indexed streams
-                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/master.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_1/stream.m3u8")
                 list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/stream_1/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/master.m3u8")
             }
 
             // 3. Session ID & Class ID CDN Reconstruction
