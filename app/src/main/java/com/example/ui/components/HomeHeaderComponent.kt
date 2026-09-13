@@ -123,13 +123,14 @@ fun HomeHeader(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF070F26),
-                        Color(0xFF0F172A)
+                        Color(0xFF051124),
+                        Color(0xFF07152B),
+                        Color(0xFF0A1E3C)
                     )
                 )
             )
             .statusBarsPadding()
-            .padding(start = 14.dp, top = 4.dp, end = 14.dp, bottom = 8.dp)
+            .padding(start = 16.dp, top = 6.dp, end = 16.dp, bottom = 14.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -140,13 +141,13 @@ fun HomeHeader(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Compact App Logo Badge
+                // App Logo Badge
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(Color.White)
-                        .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                        .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -154,11 +155,11 @@ fun HomeHeader(
                         contentDescription = "MaxBird Logo",
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(3.dp)
+                            .padding(4.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     // Animated Rainbow Multi-color Greeting
@@ -167,20 +168,23 @@ fun HomeHeader(
                         userName = userName
                     )
 
+                    Spacer(modifier = Modifier.height(2.dp))
+
                     // Subtitle (Class, Group, School)
                     Text(
                         text = subtitle,
                         color = Color(0xFF94A3B8),
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-            // Profile Avatar (Compact 42.dp)
+            // Profile Avatar with Gold Border Ring
             val fallbackInitial = remember(userName) {
                 userName.trim().firstOrNull()?.toString()?.uppercase() ?: "U"
             }
@@ -191,11 +195,11 @@ fun HomeHeader(
 
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(46.dp)
                     .clip(CircleShape)
                     .border(
-                        width = 1.5.dp,
-                        color = if (isPremium) Color(0xFFFFB800) else Color(0xFF38BDF8).copy(alpha = 0.6f),
+                        width = 2.dp,
+                        color = Color(0xFFF59E0B),
                         shape = CircleShape
                     )
                     .clickable { onAvatarClick() },
@@ -216,60 +220,75 @@ fun HomeHeader(
             }
         }
 
-        // Compact Course Switcher Pill
+        // Sleek Course Switcher Pill matching Screenshot 1
         if (!activeCourseTitle.isNullOrBlank() && onOpenCourseSwitcher != null) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(14.dp))
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
                     .clickable { onOpenCourseSwitcher() },
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF1E293B).copy(alpha = 0.6f),
-                border = BorderStroke(1.dp, courseSwitcherBorderGradient)
+                shape = RoundedCornerShape(24.dp),
+                color = Color(0xFF0B2446),
+                border = BorderStroke(1.2.dp, Color(0xFF0284C7).copy(alpha = 0.85f))
             ) {
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFF0B2446),
+                                    Color(0xFF0E325E),
+                                    Color(0xFF0B2446)
+                                )
+                            )
+                        )
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.School,
-                            contentDescription = null,
-                            tint = Color(0xFF38BDF8),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = activeCourseTitle,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFF38BDF8).copy(alpha = 0.15f),
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "কোর্স পরিবর্তন",
+                                imageVector = Icons.Default.School,
+                                contentDescription = null,
                                 tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(19.dp)
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = activeCourseTitle,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF0369A1).copy(alpha = 0.4f),
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "কোর্স পরিবর্তন",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }

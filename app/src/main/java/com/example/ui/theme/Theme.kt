@@ -10,35 +10,36 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = BrandPrimary,
-    secondary = BrandPrimaryDark,
-    tertiary = BrandPrimary,
-    background = CharcoalDark,
-    surface = NavyDark,
-    onPrimary = WhitePure,
-    onSecondary = WhitePure,
-    onTertiary = WhitePure,
-    onBackground = TextPrimaryDark,
-    onSurface = TextPrimaryDark,
+    primary = ShikhoSkyBlue,
+    secondary = ShikhoElectricBlue,
+    tertiary = ShikhoAmber,
+    background = ShikhoNavyDark,
+    surface = ShikhoNavyCard,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.White,
+    onBackground = Color.White,
+    onSurface = Color.White,
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = BrandPrimary,
-    secondary = BrandPrimaryDark,
-    tertiary = BrandPrimary,
-    background = SlateLight,
-    surface = WhitePure,
-    onPrimary = WhitePure,
-    onSecondary = WhitePure,
-    onTertiary = WhitePure,
-    onBackground = TextPrimaryLight,
-    onSurface = TextPrimaryLight,
+    primary = ShikhoElectricBlue,
+    secondary = ShikhoSkyBlue,
+    tertiary = ShikhoAmber,
+    background = CanvasLight,
+    surface = CanvasWhite,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.White,
+    onBackground = TextNavyDark,
+    onSurface = TextNavyDark,
 )
 
 @Composable

@@ -28,10 +28,10 @@ sealed class NavigationItem(
 
     object Courses : NavigationItem(
         route = "tab_courses",
-        title = "কোর্স",
+        title = "পাঠক্রম",
         selectedIcon = Icons.Filled.AutoStories,
         unselectedIcon = Icons.Outlined.AutoStories,
-        description = "সকল এনরোল্ড ও অফার করা কোর্স"
+        description = "সকল এনরোল্ড ও অফার করা পাঠক্রম"
     )
 
     object Downloads : NavigationItem(

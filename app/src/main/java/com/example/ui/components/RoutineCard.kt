@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
@@ -209,37 +210,66 @@ fun WeeklyRoutineSection(
     val selectedDay = daysList.getOrNull(selectedDayIndex) ?: daysList.firstOrNull()
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // 1. Header Row
+        // 1. Header Row matching Screenshot 1
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "রুটিন",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CalendarToday,
+                    contentDescription = null,
+                    tint = Color(0xFF0F172A),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "রুটিন",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF0F172A)
+                )
+            }
 
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1E293B),
-                modifier = Modifier.clickable { onSeeAllClick() }
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF0284C7),
+                shadowElevation = 2.dp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onSeeAllClick() }
             ) {
-                Text(
-                    text = "সব দেখুন",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF38BDF8),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "সব দেখুন",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 2. 7 Days Strip Header with Clean 3-Color Dark Theme
+        // 2. 7 Days Strip Header matching Screenshot 1
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -251,25 +281,25 @@ fun WeeklyRoutineSection(
                     Modifier
                         .weight(1f)
                         .padding(horizontal = 2.dp)
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(22.dp))
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color(0xFF0284C7), Color(0xFF38BDF8))
+                                colors = listOf(Color(0xFF00B4D8), Color(0xFF0284C7))
                             )
                         )
-                        .border(1.5.dp, Color(0xFF38BDF8), RoundedCornerShape(20.dp))
+                        .border(1.5.dp, Color(0xFF38BDF8), RoundedCornerShape(22.dp))
                 } else {
                     Modifier
                         .weight(1f)
                         .padding(horizontal = 2.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF1E293B))
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color(0xFF0D1B2A))
                 }
 
                 Column(
                     modifier = containerModifier
                         .clickable { selectedDayIndex = day.dayIndex }
-                        .padding(vertical = 10.dp, horizontal = 2.dp),
+                        .padding(vertical = 12.dp, horizontal = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -279,45 +309,32 @@ fun WeeklyRoutineSection(
                         color = if (isSelected) Color.White else Color(0xFF94A3B8)
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
 
                     Text(
                         text = day.dateNumBn,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSelected) Color.White else Color(0xFFF8FAFC)
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    if (day.lessons.isEmpty()) {
-                        Text(
-                            text = "—",
-                            fontSize = 11.sp,
-                            color = if (isSelected) Color.White.copy(alpha = 0.7f) else Color(0xFF64748B)
-                        )
-                    } else {
-                        if (isSelected) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color.White))
-                                Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color.White))
-                            }
-                        } else {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (day.classCount > 0) {
-                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFF38BDF8)))
-                                }
-                                if (day.examCount > 0) {
-                                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
-                                }
-                            }
+                    if (isSelected) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.size(4.5.dp).clip(CircleShape).background(Color.White))
+                            Box(modifier = Modifier.size(4.5.dp).clip(CircleShape).background(Color.White))
                         }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(4.5.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF38BDF8))
+                        )
                     }
                 }
             }
@@ -325,46 +342,55 @@ fun WeeklyRoutineSection(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 3. Selected Day Summary Row
+        // 3. Selected Day Summary Row matching Screenshot 1
         if (selectedDay != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = selectedDay.fullDateBn,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF94A3B8)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarToday,
+                        contentDescription = null,
+                        tint = Color(0xFF0F172A),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = selectedDay.fullDateBn,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF38BDF8))
+                            .background(Color(0xFF0284C7))
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "ক্লাস ${selectedDay.classCount.toString().toBengaliDigits()}",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFCBD5E1)
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "|",
                         fontSize = 12.sp,
-                        color = Color(0xFF475569)
+                        color = Color(0xFF94A3B8)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
                             .background(Color(0xFFF59E0B))
                     )
@@ -372,8 +398,8 @@ fun WeeklyRoutineSection(
                     Text(
                         text = "এক্সাম ${selectedDay.examCount.toString().toBengaliDigits()}",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFCBD5E1)
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
                     )
                 }
             }
@@ -461,16 +487,16 @@ fun WeeklyRoutineSection(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // 5. Redesigned Bento Card: "সাবজেক্ট সাজাও" (Customize Subjects) displaying selected subjects serially
+        // 5. Redesigned Bento Card: "সাবজেক্ট সাজাও" (Customize Subjects) matching Screenshot 1
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(22.dp))
                 .clickable { onCustomizeSubjectsClick() },
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF1E293B),
-            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
-            shadowElevation = 4.dp
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0xFF071731),
+            border = BorderStroke(1.dp, Color(0xFF1E3A5F)),
+            shadowElevation = 6.dp
         ) {
             Column(
                 modifier = Modifier
@@ -478,12 +504,12 @@ fun WeeklyRoutineSection(
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(
-                                Color(0xFF0F172A).copy(alpha = 0.8f),
-                                Color(0xFF1E293B)
+                                Color(0xFF071731),
+                                Color(0xFF0C2448)
                             )
                         )
                     )
-                    .padding(14.dp)
+                    .padding(16.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -496,21 +522,21 @@ fun WeeklyRoutineSection(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(42.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF0284C7).copy(alpha = 0.18f))
-                                .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f), CircleShape),
+                                .background(Color(0xFF0284C7).copy(alpha = 0.2f))
+                                .border(1.2.dp, Color(0xFF38BDF8), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Tune,
                                 contentDescription = null,
                                 tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
 
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -528,7 +554,7 @@ fun WeeklyRoutineSection(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
 
                             Text(
                                 text = if (selectedSubjectsCount > 0 && totalSubjectsCount > 0)
@@ -537,7 +563,7 @@ fun WeeklyRoutineSection(
                                     "${selectedSubjectsCount.toString().toBengaliDigits()} টি বিষয় নির্বাচন করা আছে"
                                 else
                                     "তোমার প্রয়োজনীয় সাবজেক্টগুলো বেছে নাও",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 color = Color(0xFF94A3B8)
                             )
                         }
@@ -545,14 +571,14 @@ fun WeeklyRoutineSection(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Action Pill Button
+                    // Action Pill Button matching Screenshot 1
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(20.dp),
                         color = Color(0xFF0284C7),
                         shadowElevation = 2.dp
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -561,7 +587,7 @@ fun WeeklyRoutineSection(
                                 tint = Color.White,
                                 modifier = Modifier.size(13.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "ফিল্টার",
                                 fontSize = 12.sp,
@@ -668,24 +694,24 @@ fun ShikhoRoutineCard(
 
     Card(
         modifier = modifier
-            .width(245.dp)
-            .height(148.dp)
+            .width(260.dp)
+            .height(154.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isLiveNow) Color(0xFFFFF1F2) else subjectColors.backgroundColor.copy(alpha = 0.25f)
+            containerColor = if (isLiveNow) Color(0xFFFFF1F2) else subjectColors.backgroundColor.copy(alpha = 0.35f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 4.dp else 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 4.dp else 1.5.dp),
         border = BorderStroke(
-            width = if (isLiveNow) 1.5.dp else 1.dp,
-            color = if (isLiveNow) Color(0xFFEF4444) else subjectColors.textColor.copy(alpha = 0.4f)
+            width = if (isLiveNow) 1.5.dp else 1.2.dp,
+            color = if (isLiveNow) Color(0xFFEF4444) else subjectColors.backgroundColor
         )
     ) {
         Row(modifier = Modifier.fillMaxHeight().fillMaxWidth()) {
             // Left Subject Accent Line
             Box(
                 modifier = Modifier
-                    .width(4.5.dp)
+                    .width(5.dp)
                     .fillMaxHeight()
                     .background(if (isLiveNow) Color(0xFFEF4444) else subjectColors.textColor)
             )
@@ -694,76 +720,49 @@ fun ShikhoRoutineCard(
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 // Top Tags Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (isLiveNow) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFEF4444)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                                Text(
-                                    text = "লাইভ চলছে",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-
                     // Server Subject Tag (Dynamic Server Colors)
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = subjectColors.backgroundColor
                     ) {
                         Text(
                             text = subjectName,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = subjectColors.textColor,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    if (!isLiveNow) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.8f)
-                        ) {
-                            Text(
-                                text = classTypeLabel,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF374151),
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    // Class Type Badge
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isLiveNow || isLive) Color(0xFFFEE2E2) else Color(0xFFE0F2FE)
+                    ) {
+                        Text(
+                            text = classTypeLabel,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isLiveNow || isLive) Color(0xFFDC2626) else Color(0xFF0284C7),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
-                // Lesson Title (responsive bounded weight)
+                // Lesson Title
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -773,8 +772,7 @@ fun ShikhoRoutineCard(
                 ) {
                     Text(
                         text = titleText,
-                        fontSize = titleFontSize,
-                        lineHeight = titleLineHeight,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF0F172A),
                         maxLines = 2,
@@ -788,13 +786,13 @@ fun ShikhoRoutineCard(
                         imageVector = Icons.Default.AccessTime,
                         contentDescription = null,
                         tint = subjectColors.textColor,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = fullTimeText,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
                         color = subjectColors.textColor
                     )
                 }

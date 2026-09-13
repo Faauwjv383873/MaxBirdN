@@ -135,94 +135,112 @@ fun ElementalFloatingBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-            .height(58.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .height(64.dp)
             .shadow(
-                elevation = 16.dp,
-                shape = RoundedCornerShape(26.dp),
-                spotColor = Color.Black.copy(alpha = 0.25f)
+                elevation = 20.dp,
+                shape = RoundedCornerShape(32.dp),
+                spotColor = Color.Black.copy(alpha = 0.45f)
             ),
-        shape = RoundedCornerShape(26.dp),
-        color = Color(0xFF0F172A),
-        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.3f))
+        shape = RoundedCornerShape(32.dp),
+        color = Color(0xFF07152B),
+        border = BorderStroke(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.7f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavigationItem.items.forEachIndexed { index, item ->
                 val isSelected = selectedIndex == index
 
-                val scale by animateFloatAsState(
-                    targetValue = if (isSelected) 1.12f else 1.0f,
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    label = "TabScale"
-                )
-
-                // Elemental Themes: 0: Fire 🔥, 1: Water 🌊, 2: Ice ❄️, 3: Light/Plasma ⚡
-                val elementalGradients = remember(index) {
+                val activePillBg = remember(index) {
                     when (index) {
-                        0 -> listOf(Color(0xFFEF4444), Color(0xFFF97316), Color(0xFFF59E0B)) // Fire / Flame Amber 🔥
-                        1 -> listOf(Color(0xFF0284C7), Color(0xFF06B6D4), Color(0xFF38BDF8)) // Water / Aqua 🌊
-                        2 -> listOf(Color(0xFF0284C7), Color(0xFF6366F1), Color(0xFFC084FC)) // Ice / Crystal Frost ❄️
-                        else -> listOf(Color(0xFF7C3AED), Color(0xFFC084FC), Color(0xFFE879F9)) // Plasma Light ⚡
+                        0 -> Color(0xFF261908) // Warm amber container
+                        1 -> Color(0xFF082744) // Deep navy-azure container
+                        2 -> Color(0xFF0C243D) // Ice blue container
+                        else -> Color(0xFF201338) // Violet container
                     }
                 }
 
-                val activeColor = remember(index) {
+                val activeBorderColor = remember(index) {
                     when (index) {
-                        0 -> Color(0xFFF97316)
+                        0 -> Color(0xFFF59E0B) // Amber
+                        1 -> Color(0xFF0284C7) // Azure
+                        2 -> Color(0xFF38BDF8) // Sky
+                        else -> Color(0xFFA855F7) // Purple
+                    }
+                }
+
+                val activeIconColor = remember(index) {
+                    when (index) {
+                        0 -> Color(0xFFF59E0B)
                         1 -> Color(0xFF38BDF8)
-                        2 -> Color(0xFF818CF8)
+                        2 -> Color(0xFF38BDF8)
                         else -> Color(0xFFC084FC)
                     }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(20.dp))
-                        .then(
-                            if (isSelected) {
-                                Modifier
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = elementalGradients.map { it.copy(alpha = 0.18f) }
-                                        )
-                                    )
-                                    .border(
-                                        width = 1.dp,
-                                        brush = Brush.linearGradient(elementalGradients),
-                                        shape = RoundedCornerShape(20.dp)
-                                    )
-                            } else Modifier
-                        )
-                        .clickable { onTabSelected(index) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.scale(scale)
-                    ) {
-                        Icon(
-                            imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-                            contentDescription = item.title,
-                            tint = if (isSelected) activeColor else Color(0xFF94A3B8),
-                            modifier = Modifier.size(20.dp)
-                        )
-
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.width(5.dp))
+                AnimatedContent(
+                    targetState = isSelected,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.92f))
+                            .togetherWith(fadeOut(animationSpec = tween(150)))
+                    },
+                    label = "TabPillTransition"
+                ) { selected ->
+                    if (selected) {
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = activePillBg,
+                            border = BorderStroke(1.5.dp, activeBorderColor),
+                            modifier = Modifier
+                                .height(46.dp)
+                                .clickable { onTabSelected(index) }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = item.selectedIcon,
+                                    contentDescription = item.title,
+                                    tint = activeIconColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = item.title,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { onTabSelected(index) }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = item.unselectedIcon,
+                                contentDescription = item.title,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = item.title,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF94A3B8)
                             )
                         }
                     }
