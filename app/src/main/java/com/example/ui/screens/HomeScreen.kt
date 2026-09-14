@@ -277,6 +277,9 @@ fun HomeScreen(
                 }
             }
         }
+
+        // Bottom Spacing to ensure floating bottom navigation bar doesn't overlap last items
+        Spacer(modifier = Modifier.height(110.dp))
     }
 }
 }
@@ -360,8 +363,6 @@ fun AccountCompletionBanner(
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(100.dp))
     }
 }
 

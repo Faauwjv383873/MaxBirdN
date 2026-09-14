@@ -1,0 +1,181 @@
+package com.example.utils
+
+import android.app.Activity
+import android.app.DownloadManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import android.os.Environment
+import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+
+/**
+ * Utility functions for Lesson Date/Time formatting, file downloads, and Context helpers.
+ */
+fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
+}
+
+fun formatBanglaDateTime(isoDateStr: String?): String {
+    if (isoDateStr.isNullOrBlank()) return "১ সেপ্টেম্বর ২০২৬ • ১৭:০০ pm"
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+        val date = parser.parse(isoDateStr) ?: return isoDateStr
+
+        val dayFormat = SimpleDateFormat("d", Locale.getDefault())
+        val monthFormat = SimpleDateFormat("MMMM", Locale("bn"))
+        val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
+        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+
+        val day = toBengaliDigits(dayFormat.format(date))
+        val month = monthFormat.format(date)
+        val year = toBengaliDigits(yearFormat.format(date))
+        val time = toBengaliDigits(timeFormat.format(date).lowercase())
+
+        "$day $month $year • $time"
+    } catch (e: Exception) {
+        isoDateStr
+    }
+}
+
+fun toBengaliDigits(input: Any?): String {
+    if (input == null) return "০"
+    val str = input.toString()
+    val banglaDigits = charArrayOf('০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯')
+    val sb = StringBuilder()
+    for (char in str) {
+        if (char in '0'..'9') {
+            sb.append(banglaDigits[char - '0'])
+        } else {
+            sb.append(char)
+        }
+    }
+    return sb.toString()
+}
+
+fun calculateTimeDifference(startTimeStr: String?): Long {
+    if (startTimeStr.isNullOrBlank()) return 0L
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+        parser.timeZone = TimeZone.getTimeZone("UTC")
+        val date = parser.parse(startTimeStr) ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(startTimeStr)
+        if (date != null) {
+            val diff = date.time - System.currentTimeMillis()
+            if (diff > 0) diff else 0L
+        } else 0L
+    } catch (_: Exception) {
+        0L
+    }
+}
+
+fun formatLessonDateDetailed(rawDate: String?): String {
+    if (rawDate.isNullOrBlank()) return "শীঘ্রই আসছে"
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+        parser.timeZone = TimeZone.getTimeZone("UTC")
+        val date = parser.parse(rawDate)
+        if (date != null) {
+            val formatter = SimpleDateFormat("EEEE, dd MMMM yyyy", Locale("bn", "BD"))
+            formatter.timeZone = TimeZone.getTimeZone("Asia/Dhaka")
+            formatter.format(date)
+        } else {
+            rawDate
+        }
+    } catch (_: Exception) {
+        rawDate
+    }
+}
+
+fun formatLessonTimeRange(startTimeStr: String?, endTimeStr: String?): String {
+    if (startTimeStr.isNullOrBlank()) return ""
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+        parser.timeZone = TimeZone.getTimeZone("UTC")
+        val start = parser.parse(startTimeStr)
+        val end = if (!endTimeStr.isNullOrBlank()) parser.parse(endTimeStr) else null
+
+        val timeFormatter = SimpleDateFormat("hh:mm a", Locale.getDefault())
+        timeFormatter.timeZone = TimeZone.getTimeZone("Asia/Dhaka")
+        val startFormatted = start?.let { timeFormatter.format(it) } ?: ""
+        val endFormatted = end?.let { timeFormatter.format(it) } ?: ""
+
+        if (startFormatted.isNotBlank() && endFormatted.isNotBlank()) {
+            "$startFormatted - $endFormatted"
+        } else if (startFormatted.isNotBlank()) {
+            startFormatted
+        } else {
+            ""
+        }
+    } catch (_: Exception) {
+        ""
+    }
+}
+
+fun downloadFile(context: Context, url: String, title: String) {
+    try {
+        val uri = Uri.parse(url)
+        val sanitizedTitle = title.replace("[^a-zA-Z0-9_\\-\\u0980-\\u09FF]".toRegex(), "_")
+        val fileName = if (sanitizedTitle.endsWith(".pdf", ignoreCase = true)) sanitizedTitle else "$sanitizedTitle.pdf"
+
+        val request = DownloadManager.Request(uri).apply {
+            setTitle(title)
+            setDescription("লেকচার স্লাইড ডাউনলোড হচ্ছে...")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            setMimeType("application/pdf")
+            addRequestHeader("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)")
+            addRequestHeader("referer", "https://shikho.com/")
+        }
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        dm.enqueue(request)
+        Toast.makeText(context, "ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(context, "ডাউনলোড করা যায়নি: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+fun openInExternalApp(context: Context, url: String) {
+    try {
+        val uri = Uri.parse(url)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        }
+        context.startActivity(Intent.createChooser(intent, "স্লাইড ওপেন করুন"))
+    } catch (_: Exception) {
+        try {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "ব্রাউজার বা পিডিএফ রিডার পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+fun copyToClipboard(context: Context, url: String) {
+    try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Lecture Slide URL", url)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "স্লাইড লিংক কপি করা হয়েছে", Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {}
+}

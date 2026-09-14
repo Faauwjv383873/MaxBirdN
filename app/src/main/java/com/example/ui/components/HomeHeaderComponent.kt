@@ -68,7 +68,8 @@ fun AnimatedRainbowGreetingText(
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
         )
         Spacer(modifier = Modifier.width(5.dp))
         Text(text = "👋", fontSize = 16.sp)
@@ -226,7 +227,7 @@ fun HomeHeader(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .clickable { onOpenCourseSwitcher() },
                 shape = RoundedCornerShape(24.dp),
@@ -235,7 +236,7 @@ fun HomeHeader(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
                         .background(
                             Brush.horizontalGradient(
                                 colors = listOf(
@@ -245,7 +246,7 @@ fun HomeHeader(
                                 )
                             )
                         )
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Row(
@@ -266,15 +267,17 @@ fun HomeHeader(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = activeCourseTitle,
-                                fontSize = 14.sp,
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 2,
+                                lineHeight = 18.sp,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Surface(
                             shape = CircleShape,

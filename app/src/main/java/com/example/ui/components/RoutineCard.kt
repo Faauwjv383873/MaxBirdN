@@ -539,7 +539,7 @@ fun WeeklyRoutineSection(
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "সাবজেক্ট সাজাও",
@@ -565,7 +565,9 @@ fun WeeklyRoutineSection(
                                 else
                                     "তোমার প্রয়োজনীয় সাবজেক্টগুলো বেছে নাও",
                                 fontSize = 11.5.sp,
-                                color = Color(0xFF94A3B8)
+                                color = Color(0xFF94A3B8),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
