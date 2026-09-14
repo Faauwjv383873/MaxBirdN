@@ -775,7 +775,11 @@ class CourseViewModel(
         }
     }
 
-    fun loadAnimatedLessonsForChapter(chapterId: String) {
+    fun loadAnimatedLessonsForChapter(
+        chapterId: String,
+        altChapterId: String? = null,
+        chapterName: String? = null
+    ) {
         _uiState.update {
             it.copy(
                 isChapterAnimationsLoading = true,
@@ -784,14 +788,50 @@ class CourseViewModel(
         }
         viewModelScope.launch {
             try {
-                val topicsList = repository.getTopics(chapterId)
-                val realAnimatedTopics = topicsList.filter { topic ->
-                    topic.videos?.data?.any { !it.playback_url.isNullOrBlank() } == true
+                val matching = _uiState.value.chapters.firstOrNull {
+                    it.id == chapterId || it.chapter_id == chapterId ||
+                    (!chapterName.isNullOrBlank() && it.effectiveName.equals(chapterName, ignoreCase = true))
+                }
+                val candidates = listOfNotNull(
+                    matching?.chapter_id,
+                    altChapterId,
+                    chapterId,
+                    matching?.id
+                ).filter { it.isNotBlank() }.distinct()
+
+                var topicsList = emptyList<TopicFullItem>()
+
+                for (candId in candidates) {
+                    try {
+                        val fetched = repository.getTopics(candId)
+                        if (fetched.isNotEmpty()) {
+                            topicsList = fetched
+                            break
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // If still empty, attempt to resolve chapter UUID from GetChapters(subject_code)
+                if (topicsList.isEmpty() && _uiState.value.selectedSubjectCode.isNotBlank()) {
+                    try {
+                        val subjectChapters = repository.getChaptersBySubjectCode(_uiState.value.selectedSubjectCode)
+                        val matchedByTitle = subjectChapters.find { ch ->
+                            (!chapterName.isNullOrBlank() && ch.effectiveName.equals(chapterName, ignoreCase = true)) ||
+                            (matching?.effectiveNo != null && ch.effectiveNo == matching.effectiveNo)
+                        } ?: subjectChapters.firstOrNull()
+
+                        if (matchedByTitle != null && matchedByTitle.id.isNotBlank()) {
+                            val fetched = repository.getTopics(matchedByTitle.id)
+                            if (fetched.isNotEmpty()) {
+                                topicsList = fetched
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
 
                 _uiState.update {
                     it.copy(
-                        chapterAnimatedLessons = realAnimatedTopics,
+                        chapterAnimatedLessons = topicsList,
                         isChapterAnimationsLoading = false
                     )
                 }
@@ -807,17 +847,7 @@ class CourseViewModel(
     }
 
     fun loadAnimatedLessonsForSubject() {
-        val chaptersList = _uiState.value.chapters
-        if (chaptersList.isEmpty()) {
-            _uiState.update {
-                it.copy(
-                    isSubjectAnimationsLoading = false,
-                    subjectAnimatedLessons = emptyList()
-                )
-            }
-            return
-        }
-
+        val subjectCode = _uiState.value.selectedSubjectCode
         _uiState.update {
             it.copy(
                 isSubjectAnimationsLoading = true,
@@ -827,15 +857,30 @@ class CourseViewModel(
 
         viewModelScope.launch {
             try {
-                val deferreds = chaptersList.map { chapter ->
-                    val chId = chapter.id.ifBlank { chapter.chapter_id ?: "" }
+                // 1. Fetch chapters by subject code to get actual Chapter UUIDs
+                val subjectChapters = if (subjectCode.isNotBlank()) {
+                    try { repository.getChaptersBySubjectCode(subjectCode) } catch (_: Exception) { emptyList() }
+                } else emptyList()
+
+                val chaptersToUse = if (subjectChapters.isNotEmpty()) subjectChapters else _uiState.value.chapters
+
+                if (chaptersToUse.isEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            subjectAnimatedLessons = emptyList(),
+                            isSubjectAnimationsLoading = false
+                        )
+                    }
+                    return@launch
+                }
+
+                val deferreds = chaptersToUse.map { chapter ->
+                    val chId = chapter.chapter_id?.takeIf { it.isNotBlank() }
+                        ?: chapter.id.takeIf { it.isNotBlank() } ?: ""
                     async {
                         if (chId.isBlank()) return@async emptyList<TopicFullItem>()
                         try {
-                            val fetched = repository.getTopics(chId)
-                            fetched.filter { topic ->
-                                topic.videos?.data?.any { !it.playback_url.isNullOrBlank() } == true
-                            }
+                            repository.getTopics(chId)
                         } catch (e: Exception) {
                             emptyList<TopicFullItem>()
                         }

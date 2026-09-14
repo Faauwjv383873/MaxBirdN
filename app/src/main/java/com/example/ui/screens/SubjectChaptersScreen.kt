@@ -448,7 +448,7 @@ fun SubjectChaptersScreen(
                                             chapterName = targetName,
                                             chapterStatus = targetStatus
                                         )
-                                        viewModel.loadAnimatedLessonsForChapter(primaryId)
+                                        viewModel.loadAnimatedLessonsForChapter(primaryId, altId, targetName)
                                         onChapterClick(primaryId, targetName, targetStatus, selectedMode)
                                     }
                                 )

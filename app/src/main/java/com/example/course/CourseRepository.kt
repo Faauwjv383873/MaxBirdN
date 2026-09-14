@@ -465,38 +465,73 @@ class CourseRepository(
     }
 
     suspend fun getTopics(chapterId: String, topicIds: List<String>? = null): List<TopicFullItem> {
-        val topQuery = GraphQlQuery(
-            operationName = "GetTopics",
-            query = """
-                query GetTopics(${'$'}chapter_id: String!, ${'$'}topic_ids: [String]) {
-                  topics(chapter_id: ${'$'}chapter_id, topic_ids: ${'$'}topic_ids, filter: { limit: 150 } ) {
-                    data {
-                      id
-                      no
-                      name
-                      description
-                      subscription_type
-                      session {
-                        progress
-                      }
-                      videos {
+        val topQuery = if (topicIds.isNullOrEmpty()) {
+            GraphQlQuery(
+                operationName = "GetTopics",
+                query = """
+                    query GetTopics(${'$'}chapter_id: String!) {
+                      topics(chapter_id: ${'$'}chapter_id, filter: { limit: 150 } ) {
                         data {
                           id
-                          playback_url
-                          video_thumbnail_url
-                          category
+                          no
+                          name
+                          description
+                          subscription_type
+                          session {
+                            progress
+                          }
+                          videos {
+                            data {
+                              id
+                              playback_url
+                              video_thumbnail_url
+                              category
+                            }
+                          }
+                          header {
+                            chapter_id
+                            chapter_name
+                          }
                         }
                       }
-                      header {
-                        chapter_id
-                        chapter_name
+                    }
+                """.trimIndent(),
+                variables = mapOf("chapter_id" to chapterId)
+            )
+        } else {
+            GraphQlQuery(
+                operationName = "GetTopics",
+                query = """
+                    query GetTopics(${'$'}chapter_id: String!, ${'$'}topic_ids: [String]) {
+                      topics(chapter_id: ${'$'}chapter_id, topic_ids: ${'$'}topic_ids, filter: { limit: 150 } ) {
+                        data {
+                          id
+                          no
+                          name
+                          description
+                          subscription_type
+                          session {
+                            progress
+                          }
+                          videos {
+                            data {
+                              id
+                              playback_url
+                              video_thumbnail_url
+                              category
+                            }
+                          }
+                          header {
+                            chapter_id
+                            chapter_name
+                          }
+                        }
                       }
                     }
-                  }
-                }
-            """.trimIndent(),
-            variables = mapOf("chapter_id" to chapterId, "topic_ids" to topicIds)
-        )
+                """.trimIndent(),
+                variables = mapOf("chapter_id" to chapterId, "topic_ids" to topicIds)
+            )
+        }
         val topRes = apiService.getTopics(topQuery)
         return topRes.data?.topics?.data ?: emptyList()
     }

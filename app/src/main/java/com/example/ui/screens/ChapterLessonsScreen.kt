@@ -110,7 +110,7 @@ fun ChapterLessonsScreen(
             chapterName = chapterName,
             chapterStatus = chapterStatus
         )
-        viewModel.loadAnimatedLessonsForChapter(chapterId)
+        viewModel.loadAnimatedLessonsForChapter(chapterId, altId, chapterName)
     }
 
     Scaffold(
@@ -241,7 +241,7 @@ fun ChapterLessonsScreen(
                                     chapterName = chapterName,
                                     chapterStatus = chapterStatus
                                 )
-                                viewModel.loadAnimatedLessonsForChapter(chapterId)
+                                viewModel.loadAnimatedLessonsForChapter(chapterId, altId, chapterName)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = subjectColor),
                             shape = RoundedCornerShape(12.dp)
@@ -266,7 +266,9 @@ fun ChapterLessonsScreen(
                                 onTabSelected = { newTab ->
                                     selectedTab = if (selectedTab == newTab) 0 else newTab
                                     if (selectedTab == 1 && uiState.chapterAnimatedLessons.isEmpty()) {
-                                        viewModel.loadAnimatedLessonsForChapter(chapterId)
+                                        val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+                                        val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
+                                        viewModel.loadAnimatedLessonsForChapter(chapterId, altId, chapterName)
                                     }
                                 }
                             )
