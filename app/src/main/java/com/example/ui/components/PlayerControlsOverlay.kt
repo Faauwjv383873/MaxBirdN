@@ -40,6 +40,8 @@ fun PlayerControlsOverlay(
     isFullscreen: Boolean,
     playbackSpeed: Float,
     isLive: Boolean = false,
+    viewerCount: Int? = null,
+    classType: com.example.player.PlayerClassType? = null,
     hasMeeting: Boolean = false,
     onSwitchToMeeting: (() -> Unit)? = null,
     onTogglePlayPause: () -> Unit,
@@ -57,6 +59,9 @@ fun PlayerControlsOverlay(
     onDownloadClick: () -> Unit = {},
     onBack: () -> Unit
 ) {
+    val effectiveClassType = remember(classType, isLive) {
+        classType ?: if (isLive) com.example.player.PlayerClassType.LIVE else com.example.player.PlayerClassType.RECORDED_LECTURE
+    }
     val interactionSource = remember { MutableInteractionSource() }
 
     Box(
@@ -120,19 +125,57 @@ fun PlayerControlsOverlay(
 
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (isLive) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFFE11D48),
-                                        modifier = Modifier.padding(end = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = "🔴 LIVE",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
+                                when (effectiveClassType) {
+                                    com.example.player.PlayerClassType.LIVE -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFE11D48),
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "🔴 LIVE",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                        if (viewerCount != null && viewerCount > 0) {
+                                            LiveViewerBadge(
+                                                viewerCount = viewerCount,
+                                                modifier = Modifier.padding(end = 6.dp)
+                                            )
+                                        }
+                                    }
+                                    com.example.player.PlayerClassType.ANIMATED -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF8B5CF6),
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "🎬 অ্যানিমেটেড",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    com.example.player.PlayerClassType.RECORDED_LECTURE -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF2563EB),
+                                            modifier = Modifier.padding(end = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "📖 লেকচার",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
                                 Text(

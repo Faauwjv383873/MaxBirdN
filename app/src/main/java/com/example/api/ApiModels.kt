@@ -1529,6 +1529,34 @@ data class AttachmentDataItem(
 )
 
 // ==========================================
+// 7.1. Taggable Resources Models (Smart Notes / E-Books)
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class TaggableResourcesResponse(
+    val data: TaggableResourcesDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TaggableResourcesDataContainer(
+    val listTaggableResourceType: TaggableResourcePayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TaggableResourcePayload(
+    val data: List<TaggableResourceItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class TaggableResourceItem(
+    val id: String? = null,
+    val title: String? = null,
+    val icon_url: String? = null,
+    val is_chapter_resource: Boolean? = null,
+    val is_subject_resource: Boolean? = null
+)
+
+// ==========================================
 // 8. Practice Quiz / MCQ Session Models
 // ==========================================
 

@@ -134,6 +134,12 @@ interface ShikhoApiService {
     suspend fun getLiveExamSolutions(@Body query: GraphQlQuery): GetLiveExamSolutionsResponse
 
     @POST("/graphql")
+    suspend fun listTaggableResources(@Body query: GraphQlQuery): TaggableResourcesResponse
+
+    @POST("/graphql")
+    suspend fun getResourceAttachmentsOfChapter(@Body query: GraphQlQuery): ResourceAttachmentsResponse
+
+    @POST("/graphql")
     suspend fun getResourceAttachments(@Body query: GraphQlQuery): ResourceAttachmentsResponse
 
     @POST("/graphql")
@@ -142,13 +148,13 @@ interface ShikhoApiService {
     @POST("/graphql")
     suspend fun getMcqSession(@Body query: GraphQlQuery): GetMcqSessionResponse
 
-    @POST("https://analytics.shikho.com/graphql")
+    @POST("/graphql")
     suspend fun submitPracticeQuizMcqSession(@Body query: GraphQlQuery): SubmitPracticeQuizResponse
 
-    @POST("https://analytics.shikho.com/graphql")
+    @POST("/graphql")
     suspend fun getQuizResultSummary(@Body query: GraphQlQuery): GetQuizResultSummaryResponse
 
-    @POST("https://analytics.shikho.com/graphql")
+    @POST("/graphql")
     suspend fun getMcqSessionFeedback(@Body query: GraphQlQuery): GetMcqSessionFeedbackResponse
 
     @POST("/graphql")

@@ -87,6 +87,8 @@ import coil.request.ImageRequest
 import com.example.api.LessonAttachmentItem
 import com.example.api.StudentLessonItem
 import com.example.player.ShikhoPlayerManager
+import com.example.player.HmsLiveSocketManager
+import com.example.player.PlayerClassType
 import com.example.player.VideoTrackQuality
 import com.example.ui.components.*
 import com.example.utils.*
@@ -95,6 +97,8 @@ import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -102,6 +106,7 @@ fun LessonDetailPlayerScreen(
     lesson: StudentLessonItem?,
     subjectName: String,
     subjectColorHex: String?,
+    socketManager: HmsLiveSocketManager? = null,
     onRefreshLesson: (() -> Unit)? = null,
     onJoinLiveClass: ((StudentLessonItem) -> Unit)? = null,
     onBack: () -> Unit
@@ -175,7 +180,13 @@ fun LessonDetailPlayerScreen(
         return
     }
 
-    var livePlayerMode by remember { mutableStateOf(if (isLive) "MEETING" else "STREAM") }
+    var livePlayerMode by remember { mutableStateOf("STREAM") }
+
+    val effectiveSocketManager = socketManager ?: remember { HmsLiveSocketManager() }
+    val viewerCount by effectiveSocketManager.viewerCount.collectAsState()
+    val isHandRaised by effectiveSocketManager.isHandRaised.collectAsState()
+    val pinnedMessage by effectiveSocketManager.pinnedMessage.collectAsState()
+    val activePoll by effectiveSocketManager.activePoll.collectAsState()
 
     // Parse Subject Color
     val subjectThemeColor = remember(subjectColorHex) {
@@ -208,6 +219,32 @@ fun LessonDetailPlayerScreen(
                 ?: lesson?.resolvedVideoUrl
                 ?: ""
         )
+    }
+
+    // Resolve class type: Animated vs Recorded Lecture vs Live
+    val classType = remember(lesson, activeStreamUrl, isLive) {
+        PlayerClassType.resolve(
+            isLive = isLive,
+            contentType = lesson?.content_type,
+            classType = lesson?.class_type ?: lesson?.live_class?.class_type,
+            title = lesson?.title,
+            url = activeStreamUrl
+        )
+    }
+
+    // Connect 100ms WebSocket when Live Class is active with valid HMS token
+    LaunchedEffect(isLive, lesson?.live_class?.hms_token, lesson?.live_class?.hms_room_id) {
+        val token = lesson?.live_class?.hms_token
+        val roomId = lesson?.live_class?.hms_room_id
+        if (isLive && !token.isNullOrBlank()) {
+            effectiveSocketManager.connect(token, roomId)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            effectiveSocketManager.disconnect()
+        }
     }
 
     LaunchedEffect(candidateStreams) {
@@ -248,13 +285,11 @@ fun LessonDetailPlayerScreen(
     // Expandable Accordion State for Topics
     var isTopicsExpanded by remember { mutableStateOf(true) }
 
-
-
     // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
     val trackSelector = remember { DefaultTrackSelector(context) }
-    val exoPlayer = remember {
-        ShikhoPlayerManager.buildExoPlayer(context, trackSelector).apply {
-            repeatMode = Player.REPEAT_MODE_OFF
+    val exoPlayer = remember(classType) {
+        ShikhoPlayerManager.buildExoPlayer(context, trackSelector, classType).apply {
+            repeatMode = if (classType == PlayerClassType.ANIMATED) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         }
     }
 
@@ -614,6 +649,7 @@ fun LessonDetailPlayerScreen(
                 )
 
                 // Fullscreen Player Controls Overlay
+                val seekStep = if (classType == PlayerClassType.ANIMATED) 5000L else 10000L
                 PlayerControlsOverlay(
                     title = lesson?.title ?: "রেকর্ডকৃত ক্লাস",
                     subjectName = subjectName,
@@ -626,6 +662,8 @@ fun LessonDetailPlayerScreen(
                     isFullscreen = true,
                     playbackSpeed = playbackSpeed,
                     isLive = isLive,
+                    viewerCount = if (isLive) viewerCount else null,
+                    classType = classType,
                     hasMeeting = effectiveMeetingUrl.isNotBlank(),
                     onSwitchToMeeting = {
                         exoPlayer.pause()
@@ -635,11 +673,11 @@ fun LessonDetailPlayerScreen(
                         if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                     },
                     onSeekBack = {
-                        val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                        val target = (exoPlayer.currentPosition - seekStep).coerceAtLeast(0L)
                         exoPlayer.seekTo(target)
                     },
                     onSeekForward = {
-                        val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(totalDuration)
+                        val target = (exoPlayer.currentPosition + seekStep).coerceAtMost(totalDuration)
                         exoPlayer.seekTo(target)
                     },
                     onSeekStarted = {
@@ -697,7 +735,6 @@ fun LessonDetailPlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
             ) {
                 // 1. Top Video Player (16:9 Aspect Ratio)
                 Box(
@@ -778,6 +815,7 @@ fun LessonDetailPlayerScreen(
                             )
                         } else {
                             // Player Controls Overlay
+                            val seekStep = if (classType == PlayerClassType.ANIMATED) 5000L else 10000L
                             PlayerControlsOverlay(
                                 title = lesson?.title ?: "ক্লাস",
                                 subjectName = subjectName,
@@ -790,6 +828,8 @@ fun LessonDetailPlayerScreen(
                                 isFullscreen = false,
                                 playbackSpeed = playbackSpeed,
                                 isLive = isLive,
+                                viewerCount = if (isLive) viewerCount else null,
+                                classType = classType,
                                 hasMeeting = effectiveMeetingUrl.isNotBlank(),
                                 onSwitchToMeeting = {
                                     exoPlayer.pause()
@@ -799,11 +839,11 @@ fun LessonDetailPlayerScreen(
                                     if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                                 },
                                 onSeekBack = {
-                                    val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                                    val target = (exoPlayer.currentPosition - seekStep).coerceAtLeast(0L)
                                     exoPlayer.seekTo(target)
                                 },
                                 onSeekForward = {
-                                    val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(totalDuration)
+                                    val target = (exoPlayer.currentPosition + seekStep).coerceAtMost(totalDuration)
                                     exoPlayer.seekTo(target)
                                 },
                                 onSeekStarted = {
@@ -846,61 +886,141 @@ fun LessonDetailPlayerScreen(
                     }
                 }
 
-                // Live Class Active Room Banner & Control Card (if live)
+                // 2. Below Player Content: Interactive Live Class (Chat, Hand Raise, Polls) vs Recorded/Animated Content
                 if (isLive) {
-                    LiveClassRoomBanner(
-                        isLiveOngoing = isLiveOngoing,
-                        liveProvider = liveProvider,
-                        hmsRoomId = hmsRoomId,
-                        livePlayerMode = livePlayerMode,
-                        effectiveMeetingUrl = effectiveMeetingUrl,
-                        onTogglePlayerMode = {
-                            if (livePlayerMode == "MEETING") {
-                                livePlayerMode = "STREAM"
-                                exoPlayer.play()
-                            } else {
-                                exoPlayer.pause()
-                                livePlayerMode = "MEETING"
+                    var selectedLiveTab by remember { mutableIntStateOf(0) }
+                    TabRow(
+                        selectedTabIndex = selectedLiveTab,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Tab(
+                            selected = selectedLiveTab == 0,
+                            onClick = { selectedLiveTab = 0 },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("💬 লাইভ চ্যাট", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    if (isHandRaised) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("✋", fontSize = 11.sp)
+                                    }
+                                }
                             }
-                        },
-                        onRefreshLesson = onRefreshLesson
-                    )
-                }
-
-                // 2. Class Header & Info Section
-                LessonDetailHeader(lesson = lesson)
-
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    thickness = 1.dp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                // 3. "ক্লাসের বিষয়বস্তু" (Expandable Accordion)
-                LessonTopicsAccordion(
-                    lesson = lesson,
-                    subjectThemeColor = subjectThemeColor,
-                    isExpanded = isTopicsExpanded,
-                    onToggleExpand = { isTopicsExpanded = !isTopicsExpanded },
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // 4. "লেকচার স্লাইডস ও ডকুমেন্টস"
-                LessonDocumentsSection(
-                    lesson = lesson,
-                    context = context,
-                    coroutineScope = coroutineScope,
-                    onRefreshLesson = onRefreshLesson,
-                    onViewAttachment = { attachment ->
-                        viewingSlideItem = attachment
+                        )
+                        Tab(
+                            selected = selectedLiveTab == 1,
+                            onClick = { selectedLiveTab = 1 },
+                            text = {
+                                Text("📑 লেকচার ও স্লাইডস", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            }
+                        )
                     }
-                )
 
-                Spacer(modifier = Modifier.height(40.dp))
+                    if (selectedLiveTab == 0) {
+                        LiveClassPlayerOverlay(
+                            socketManager = effectiveSocketManager,
+                            title = lesson?.title ?: "লাইভ ক্লাস",
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            LiveClassRoomBanner(
+                                isLiveOngoing = isLiveOngoing,
+                                liveProvider = liveProvider,
+                                hmsRoomId = hmsRoomId,
+                                livePlayerMode = livePlayerMode,
+                                effectiveMeetingUrl = effectiveMeetingUrl,
+                                onTogglePlayerMode = {
+                                    if (livePlayerMode == "MEETING") {
+                                        livePlayerMode = "STREAM"
+                                        exoPlayer.play()
+                                    } else {
+                                        exoPlayer.pause()
+                                        livePlayerMode = "MEETING"
+                                    }
+                                },
+                                onRefreshLesson = onRefreshLesson
+                            )
+
+                            LessonDetailHeader(lesson = lesson)
+
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                thickness = 1.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            LessonTopicsAccordion(
+                                lesson = lesson,
+                                subjectThemeColor = subjectThemeColor,
+                                isExpanded = isTopicsExpanded,
+                                onToggleExpand = { isTopicsExpanded = !isTopicsExpanded },
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            LessonDocumentsSection(
+                                lesson = lesson,
+                                context = context,
+                                coroutineScope = coroutineScope,
+                                onRefreshLesson = onRefreshLesson,
+                                onViewAttachment = { attachment ->
+                                    viewingSlideItem = attachment
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(40.dp))
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        // Class Header & Info Section
+                        LessonDetailHeader(lesson = lesson)
+
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                            thickness = 1.dp,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // "ক্লাসের বিষয়বস্তু" (Expandable Accordion)
+                        LessonTopicsAccordion(
+                            lesson = lesson,
+                            subjectThemeColor = subjectThemeColor,
+                            isExpanded = isTopicsExpanded,
+                            onToggleExpand = { isTopicsExpanded = !isTopicsExpanded },
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // "লেকচার স্লাইডস ও ডকুমেন্টস"
+                        LessonDocumentsSection(
+                            lesson = lesson,
+                            context = context,
+                            coroutineScope = coroutineScope,
+                            onRefreshLesson = onRefreshLesson,
+                            onViewAttachment = { attachment ->
+                                viewingSlideItem = attachment
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(40.dp))
+                    }
+                }
             }
         }
     }

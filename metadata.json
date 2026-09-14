@@ -1,6 +1,6 @@
 {
   "name": "MaxBird",
-  "description": "A cross-platform compatible application starting on Android.",
+  "description": "Shikho Learning Platform with Animated, Recorded, and Real-Time Interactive Live Classes with 100ms WebSocket.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

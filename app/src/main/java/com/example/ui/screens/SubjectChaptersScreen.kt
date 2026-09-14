@@ -49,6 +49,7 @@ fun SubjectChaptersScreen(
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onNavigateToAnimatedChapters: ((subjectCode: String, subjectTitle: String) -> Unit)? = null,
     onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?) -> Unit)? = null,
+    onNavigateToSmartNotes: ((subjectCode: String, subjectTitle: String, subjectColor: String?, phaseId: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -278,6 +279,8 @@ fun SubjectChaptersScreen(
                                         onNavigateToAnimatedChapters?.invoke(subjectCode, subjectTitle)
                                     } else if (mode == 2) {
                                         onNavigateToPracticeQuiz?.invoke(subjectCode, subjectTitle, subjectColorHex)
+                                    } else if (mode == 3) {
+                                        onNavigateToSmartNotes?.invoke(subjectCode, subjectTitle, subjectColorHex, uiState.activePhaseId)
                                     }
                                 }
                             )

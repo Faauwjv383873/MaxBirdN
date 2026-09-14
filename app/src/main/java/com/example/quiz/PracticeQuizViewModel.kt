@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.api.*
 import com.example.auth.SessionManager
+import com.example.database.SavedItemEntity
+import com.example.database.SavedItemRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +17,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class PracticeQuizViewModel(
-    private val repository: PracticeQuizRepository
+    private val repository: PracticeQuizRepository,
+    private val savedItemRepository: SavedItemRepository? = null
 ) : ViewModel() {
 
     companion object {
@@ -27,6 +30,18 @@ class PracticeQuizViewModel(
 
     private var timerJob: Job? = null
     private var saveAnswerJob: Job? = null
+
+    init {
+        savedItemRepository?.let { repo ->
+            viewModelScope.launch {
+                repo.allSavedItemIds.collect { savedIds ->
+                    _uiState.update { state ->
+                        state.copy(bookmarkedQuestionIds = (state.bookmarkedQuestionIds + savedIds).toSet())
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Step 1: Load subject chapters with question counts
@@ -259,16 +274,10 @@ class PracticeQuizViewModel(
         val nowIso = getIsoUtcString(System.currentTimeMillis())
         val startIso = getIsoUtcString(System.currentTimeMillis() - 15000L)
 
-        val questions = session?.questions ?: emptyList()
-        val qaList = session?.question_answer ?: emptyList()
-
-        // শুধুমাত্র যে প্রশ্নগুলোর উত্তর দেওয়া হয়েছে সেগুলো পাঠাতে হবে
         return userAnswers.mapNotNull { (qId, ans) ->
             if (ans.isNotBlank()) {
-                val qIndex = questions.indexOfFirst { it.id == qId }
-                val targetId = if (qIndex >= 0) qaList.getOrNull(qIndex)?.id ?: qId else qId
                 mapOf(
-                    "id" to targetId,
+                    "id" to qId,
                     "given_ans" to ans,
                     "start_time" to startIso,
                     "submit_time" to nowIso
@@ -481,21 +490,72 @@ class PracticeQuizViewModel(
                     bookmarkMessage = "বুকমার্ক সরানো হয়েছে"
                 )
             }
+            viewModelScope.launch {
+                try {
+                    savedItemRepository?.deleteSavedItemById(questionId)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error deleting saved question from database", e)
+                }
+            }
             return
         }
 
         _uiState.update {
             it.copy(
                 bookmarkedQuestionIds = it.bookmarkedQuestionIds + questionId,
-                bookmarkMessage = "প্রশ্নটি বুকমার্ক করা হয়েছে"
+                bookmarkMessage = "প্রশ্নটি সংরক্ষণ করা হয়েছে"
             )
         }
 
         viewModelScope.launch {
+            // 1. Save question to local Room database
+            try {
+                val session = _uiState.value.session
+                val feedbackSession = _uiState.value.feedbackSession
+                val question = session?.questions?.find { it.id == questionId }
+                    ?: feedbackSession?.questions?.find { it.id == questionId }
+
+                val correctOpt = question?.correct_option
+                    ?: feedbackSession?.question_answer?.find { it.id == questionId }?.correct_ans
+                val userGivenAns = _uiState.value.userAnswers[questionId]
+                    ?: question?.given_ans
+                    ?: feedbackSession?.question_answer?.find { it.id == questionId }?.given_ans
+
+                val explanation = question?.description?.takeIf { it.isNotBlank() }
+                val subjectTitle = _uiState.value.subjectTitle.ifBlank { null }
+                val chapterName = question?.chapter?.name ?: _uiState.value.targetChapterName
+
+                val optionsList = question?.mcq_options?.map { opt ->
+                    (opt.no ?: "") to (opt.description ?: "")
+                } ?: emptyList()
+
+                val contentJson = SavedItemEntity.buildQuestionContentJson(
+                    options = optionsList,
+                    correctOption = correctOpt,
+                    userGivenAns = userGivenAns,
+                    explanation = explanation,
+                    chapterName = chapterName
+                )
+
+                val entity = SavedItemEntity(
+                    id = questionId,
+                    type = SavedItemEntity.TYPE_QUESTION,
+                    title = question?.title?.takeIf { it.isNotBlank() } ?: "প্রশ্ন",
+                    subtitle = listOfNotNull(subjectTitle, chapterName).filter { it.isNotBlank() }.joinToString(" • ").ifBlank { null },
+                    contentJson = contentJson,
+                    timestamp = System.currentTimeMillis()
+                )
+
+                savedItemRepository?.saveItem(entity)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error saving question to local database", e)
+            }
+
+            // 2. Call backend GraphQL mutation to sync
             try {
                 repository.createSavedQuestion(sessionId, questionId)
             } catch (e: Exception) {
-                Log.w(TAG, "Error creating saved question", e)
+                Log.w(TAG, "Error creating saved question on backend", e)
             }
         }
     }
@@ -532,13 +592,14 @@ class PracticeQuizViewModel(
 
 class PracticeQuizViewModelFactory(
     private val apiService: ShikhoApiService,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val savedItemRepository: SavedItemRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PracticeQuizViewModel::class.java)) {
             val repository = PracticeQuizRepository(apiService, sessionManager)
-            return PracticeQuizViewModel(repository) as T
+            return PracticeQuizViewModel(repository, savedItemRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

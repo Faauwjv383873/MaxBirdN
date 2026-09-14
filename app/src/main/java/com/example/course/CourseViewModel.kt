@@ -25,6 +25,25 @@ class CourseViewModel(
     private val _uiState = MutableStateFlow(CourseUiState())
     val uiState: StateFlow<CourseUiState> = _uiState.asStateFlow()
 
+    // 100ms Live Class Interactive WebSocket Manager
+    val liveSocketManager = com.example.player.HmsLiveSocketManager()
+
+    fun connectLiveSocket(token: String, roomId: String?) {
+        val userName = sessionManager.getUserFullName()
+            ?: sessionManager.getUserFirstName()
+            ?: "Student"
+        liveSocketManager.connect(token, roomId, userName)
+    }
+
+    fun disconnectLiveSocket() {
+        liveSocketManager.disconnect()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        liveSocketManager.disconnect()
+    }
+
     init {
         fetchEnrolledPrograms()
         loadSubjects()
@@ -282,6 +301,10 @@ class CourseViewModel(
                         )
                         _uiState.update {
                             it.copy(selectedLesson = currentSelected.copy(live_class = updatedLiveClass))
+                        }
+
+                        if (!hmsToken.isNullOrBlank()) {
+                            connectLiveSocket(hmsToken, effectiveRoomId)
                         }
                     }
                 }

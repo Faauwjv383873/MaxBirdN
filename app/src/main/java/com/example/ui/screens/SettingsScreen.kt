@@ -58,6 +58,7 @@ fun SettingsScreen(
     onNavigateToChangeSyllabus: () -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToCourseEnrollment: () -> Unit = {},
+    onNavigateToSavedItems: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -252,6 +253,19 @@ fun SettingsScreen(
                     subtitle = "ভর্তি হওয়া কোর্স, কোয়ার্টার ও মেয়াদের বিবরণ",
                     badge = "বিস্তারিত",
                     onClick = onNavigateToCourseEnrollment
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 5. সংরক্ষিত আইটেম (Saved Items)
+                SettingsRowItem(
+                    icon = Icons.Default.Bookmark,
+                    iconTint = Color(0xFFF59E0B),
+                    iconBg = Color(0xFFFEF3C7),
+                    title = "সংরক্ষিত আইটেম",
+                    subtitle = "বুকমার্ক করা প্রশ্ন ও অফলাইন স্টাডি ম্যাটেরিয়াল",
+                    badge = "সংরক্ষিত",
+                    onClick = onNavigateToSavedItems
                 )
             }
 

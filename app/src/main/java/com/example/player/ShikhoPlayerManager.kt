@@ -16,6 +16,46 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.common.TrackSelectionOverride
 import java.util.Locale
 
+enum class PlayerClassType(
+    val labelBangla: String,
+    val iconEmoji: String,
+    val isLive: Boolean
+) {
+    ANIMATED("অ্যানিমেটেড ক্লাস", "🎬", false),
+    RECORDED_LECTURE("রেকর্ডেড লেকচার", "📖", false),
+    LIVE("লাইভ ক্লাস", "🔴", true);
+
+    companion object {
+        fun resolve(
+            isLive: Boolean,
+            contentType: String? = null,
+            classType: String? = null,
+            title: String? = null,
+            url: String? = null
+        ): PlayerClassType {
+            if (isLive) return LIVE
+
+            val lowerContent = (contentType ?: "").lowercase()
+            val lowerClass = (classType ?: "").lowercase()
+            val lowerTitle = (title ?: "").lowercase()
+            val lowerUrl = (url ?: "").lowercase()
+
+            if (lowerContent.contains("live") || lowerClass.contains("live") || lowerTitle.contains("live") || lowerUrl.contains("100ms.live")) {
+                return LIVE
+            }
+
+            if (lowerContent.contains("animated") || lowerClass.contains("animated") ||
+                lowerTitle.contains("animated") || lowerTitle.contains("অ্যানিমেটেড") ||
+                lowerUrl.contains("animated")
+            ) {
+                return ANIMATED
+            }
+
+            return RECORDED_LECTURE
+        }
+    }
+}
+
 @OptIn(UnstableApi::class)
 data class VideoTrackQuality(
     val id: String,
@@ -63,10 +103,11 @@ object ShikhoPlayerManager {
     fun createMediaSource(
         url: String,
         isLive: Boolean = false,
+        classType: PlayerClassType = if (isLive) PlayerClassType.LIVE else PlayerClassType.RECORDED_LECTURE,
         dataSourceFactory: DefaultHttpDataSource.Factory = createHttpDataSourceFactory()
     ): MediaSource {
         val uri = Uri.parse(url)
-        val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("hls", ignoreCase = true) || isLive
+        val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("hls", ignoreCase = true) || isLive || classType == PlayerClassType.LIVE
 
         val mediaItem = MediaItem.Builder()
             .setUri(uri)
@@ -74,7 +115,7 @@ object ShikhoPlayerManager {
                 if (isHls) {
                     setMimeType(MimeTypes.APPLICATION_M3U8)
                 }
-                if (isLive) {
+                if (isLive || classType == PlayerClassType.LIVE) {
                     setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder()
                             .setMaxPlaybackSpeed(1.02f)
@@ -101,13 +142,15 @@ object ShikhoPlayerManager {
     fun buildExoPlayer(
         context: Context,
         trackSelector: DefaultTrackSelector? = null,
+        classType: PlayerClassType = PlayerClassType.RECORDED_LECTURE,
         dataSourceFactory: DefaultHttpDataSource.Factory = createHttpDataSourceFactory()
     ): ExoPlayer {
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        val seekIncrement = if (classType == PlayerClassType.ANIMATED) 5000L else 10000L
         val builder = ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setSeekBackIncrementMs(10000)
-            .setSeekForwardIncrementMs(10000)
+            .setSeekBackIncrementMs(seekIncrement)
+            .setSeekForwardIncrementMs(seekIncrement)
 
         if (trackSelector != null) {
             builder.setTrackSelector(trackSelector)

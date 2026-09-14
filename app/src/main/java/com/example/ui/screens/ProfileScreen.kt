@@ -1,10 +1,13 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
@@ -13,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +34,7 @@ fun ProfileScreen(
     viewModel: AuthViewModel,
     authState: AuthState,
     onNavigateToEditProfile: () -> Unit = {},
+    onNavigateToSavedItems: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     LaunchedEffect(Unit) {
@@ -41,6 +46,13 @@ fun ProfileScreen(
             TopAppBar(
                 title = { Text("প্রোফাইল বিবরণ") },
                 actions = {
+                    IconButton(onClick = onNavigateToSavedItems) {
+                        Icon(
+                            Icons.Default.Bookmark,
+                            contentDescription = "Saved Items",
+                            tint = Color(0xFFF59E0B)
+                        )
+                    }
                     IconButton(onClick = onNavigateToEditProfile) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Profile", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -85,7 +97,10 @@ fun ProfileScreen(
                 }
                 is AuthState.ProfileLoaded -> {
                     val profile = (authState as AuthState.ProfileLoaded).profile
-                    ProfileContent(profile = profile)
+                    ProfileContent(
+                        profile = profile,
+                        onNavigateToSavedItems = onNavigateToSavedItems
+                    )
                 }
                 else -> {
                     // Waiting state or idle
@@ -96,7 +111,10 @@ fun ProfileScreen(
 }
 
 @Composable
-fun ProfileContent(profile: UserProfile) {
+fun ProfileContent(
+    profile: UserProfile,
+    onNavigateToSavedItems: () -> Unit = {}
+) {
     val context = LocalContext.current
     val imageRequest = remember(profile.avatar, profile.first_name, context) {
         AvatarUtils.buildImageRequest(context, profile.avatar, profile.first_name)
@@ -165,6 +183,64 @@ fun ProfileContent(profile: UserProfile) {
                 ProfileDetailRow(label = "Study Group", value = profile.study_group ?: "N/A")
                 Divider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f))
                 ProfileDetailRow(label = "School", value = profile.school?.name ?: "N/A")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Saved Items Navigation Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onNavigateToSavedItems),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFEF3C7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bookmark,
+                        contentDescription = null,
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "সংরক্ষিত আইটেম",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "বুকমার্ক করা প্রশ্ন ও গুরুত্বপূর্ণ স্টাডি ম্যাটেরিয়াল",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
             }
         }
     }

@@ -47,6 +47,12 @@ import com.example.syllabus.ChangeSyllabusViewModel
 import com.example.syllabus.ChangeSyllabusViewModelFactory
 import com.example.quiz.PracticeQuizViewModel
 import com.example.quiz.PracticeQuizViewModelFactory
+import com.example.database.AppDatabase
+import com.example.database.SavedItemRepository
+import com.example.saved.SavedViewModel
+import com.example.saved.SavedViewModelFactory
+import com.example.smartnotes.SmartNotesViewModel
+import com.example.smartnotes.SmartNotesViewModelFactory
 import com.example.ui.screens.*
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -61,6 +67,9 @@ object Routes {
     const val PROFILE = "profile"
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_SYLLABUS = "change_syllabus"
+    const val SAVED_ITEMS = "saved_items"
+    const val SMART_NOTES = "smart_notes/{subjectCode}?title={title}&color={color}&phaseId={phaseId}"
+    const val CHAPTER_RESOURCES = "chapter_resources/{chapterId}?name={name}&subjectCode={subjectCode}&phaseId={phaseId}"
     const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
     const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}&initialTab={initialTab}&subjectCode={subjectCode}&subjectTitle={subjectTitle}&subjectColor={subjectColor}"
     const val LESSON_DETAIL_PLAYER = "lesson_detail_player"
@@ -198,12 +207,23 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         factory = AnimatedLessonsViewModelFactory(apiService, sessionManager)
     )
 
+    val appDatabase = remember { AppDatabase.getDatabase(context) }
+    val savedItemRepository = remember { SavedItemRepository(appDatabase.savedItemDao()) }
+
     val chapterExamViewModel: ChapterExamViewModel = viewModel(
         factory = ChapterExamViewModelFactory(apiService, sessionManager)
     )
 
     val practiceQuizViewModel: PracticeQuizViewModel = viewModel(
-        factory = PracticeQuizViewModelFactory(apiService, sessionManager)
+        factory = PracticeQuizViewModelFactory(apiService, sessionManager, savedItemRepository)
+    )
+
+    val savedViewModel: SavedViewModel = viewModel(
+        factory = SavedViewModelFactory(savedItemRepository)
+    )
+
+    val smartNotesViewModel: SmartNotesViewModel = viewModel(
+        factory = SmartNotesViewModelFactory(apiService, sessionManager)
     )
 
     val authState by authViewModel.authState.collectAsState()
@@ -334,6 +354,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToFullRoutine = {
                     navController.navigate(Routes.ROUTINE_FULL)
                 },
+                onNavigateToSavedItems = {
+                    navController.navigate(Routes.SAVED_ITEMS)
+                },
                 onOpenLessonDetail = { lesson ->
                     courseViewModel.selectLesson(lesson)
                     navController.navigate(Routes.LESSON_DETAIL_PLAYER)
@@ -423,6 +446,12 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
                     val encodedColor = URLEncoder.encode(sColor ?: "", "UTF-8")
                     navController.navigate("practice_quiz_chapters/$sCode?title=$encodedTitle&color=$encodedColor&chapterId=&chapterName=")
+                },
+                onNavigateToSmartNotes = { sCode, sTitle, sColor, phId ->
+                    val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
+                    val encodedColor = URLEncoder.encode(sColor ?: "", "UTF-8")
+                    val ph = phId ?: ""
+                    navController.navigate("smart_notes/$sCode?title=$encodedTitle&color=$encodedColor&phaseId=$ph")
                 },
                 onChapterClick = { chapterId, chapterName, chapterStatus, initialTab ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
@@ -588,6 +617,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 lesson = courseUiState.selectedLesson,
                 subjectName = courseUiState.selectedSubjectTitle,
                 subjectColorHex = courseUiState.selectedSubjectColor,
+                socketManager = courseViewModel.liveSocketManager,
                 onRefreshLesson = {
                     courseViewModel.reloadSelectedLesson()
                 },
@@ -595,6 +625,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     courseViewModel.joinLiveClass(lesson)
                 },
                 onBack = {
+                    courseViewModel.disconnectLiveSocket()
                     navController.popBackStack()
                 }
             )
@@ -635,6 +666,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 authState = authState,
                 onNavigateToEditProfile = {
                     navController.navigate(Routes.EDIT_PROFILE)
+                },
+                onNavigateToSavedItems = {
+                    navController.navigate(Routes.SAVED_ITEMS)
                 },
                 onLogout = {
                     authViewModel.logout()
@@ -759,6 +793,112 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 },
                 onDone = {
                     navController.popBackStack(Routes.PRACTICE_QUIZ_CHAPTERS, inclusive = true)
+                }
+            )
+        }
+
+        animatedComposable(Routes.SAVED_ITEMS, anim = NavAnim.forward) {
+            SavedItemsScreen(
+                viewModel = savedViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.SMART_NOTES,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("subjectCode") { type = NavType.StringType },
+                navArgument("title") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+                navArgument("color") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+                navArgument("phaseId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                }
+            )
+        ) { backStackEntry ->
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
+            val rawTitle = backStackEntry.arguments?.getString("title") ?: ""
+            val title = try {
+                URLDecoder.decode(rawTitle, "UTF-8")
+            } catch (_: Exception) {
+                rawTitle
+            }
+            val rawColor = backStackEntry.arguments?.getString("color") ?: ""
+            val color = try {
+                URLDecoder.decode(rawColor, "UTF-8")
+            } catch (_: Exception) {
+                rawColor
+            }
+            val phaseId = backStackEntry.arguments?.getString("phaseId") ?: ""
+
+            SmartNotesScreen(
+                subjectCode = subjectCode,
+                subjectTitle = title,
+                subjectColorHex = color,
+                phaseId = phaseId,
+                viewModel = smartNotesViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToChapterResources = { chapterId, chapterName, subCode, phId ->
+                    val encodedName = URLEncoder.encode(chapterName, "UTF-8")
+                    navController.navigate("chapter_resources/$chapterId?name=$encodedName&subjectCode=$subCode&phaseId=$phId")
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.CHAPTER_RESOURCES,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("chapterId") { type = NavType.StringType },
+                navArgument("name") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+                navArgument("subjectCode") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+                navArgument("phaseId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                }
+            )
+        ) { backStackEntry ->
+            val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
+            val rawName = backStackEntry.arguments?.getString("name") ?: ""
+            val chapterName = try {
+                URLDecoder.decode(rawName, "UTF-8")
+            } catch (_: Exception) {
+                rawName
+            }
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
+            val phaseId = backStackEntry.arguments?.getString("phaseId") ?: ""
+
+            ChapterResourcesScreen(
+                chapterId = chapterId,
+                chapterName = chapterName,
+                subjectCode = subjectCode,
+                phaseId = phaseId,
+                viewModel = smartNotesViewModel,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }
