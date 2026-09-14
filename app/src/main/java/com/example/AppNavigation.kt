@@ -20,6 +20,8 @@ import com.example.course.CourseViewModel
 import com.example.course.CourseViewModelFactory
 import com.example.course.AnimatedLessonsViewModel
 import com.example.course.AnimatedLessonsViewModelFactory
+import com.example.course.ChapterExamViewModel
+import com.example.course.ChapterExamViewModelFactory
 import com.example.home.HomeViewModel
 import com.example.home.HomeViewModelFactory
 import com.example.profile.EditProfileViewModel
@@ -48,6 +50,7 @@ object Routes {
     const val COURSE_ENROLLMENT_DETAILS = "course_enrollment_details"
     const val ANIMATED_CHAPTERS = "animated_chapters/{subjectCode}?title={title}"
     const val ANIMATED_TOPICS = "animated_topics/{chapterId}?name={name}&subjectCode={subjectCode}"
+    const val CHAPTER_EXAM = "chapter_exam/{sessionId}?lessonId={lessonId}&title={title}&chapter={chapter}"
 }
 
 @Composable
@@ -72,6 +75,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
     val animatedLessonsViewModel: AnimatedLessonsViewModel = viewModel(
         factory = AnimatedLessonsViewModelFactory(apiService, sessionManager)
+    )
+
+    val chapterExamViewModel: ChapterExamViewModel = viewModel(
+        factory = ChapterExamViewModelFactory(apiService, sessionManager)
     )
     
     val authState by authViewModel.authState.collectAsState()
@@ -329,6 +336,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedCode = URLEncoder.encode(sCode, "UTF-8")
                     navController.navigate("animated_topics/$cId?name=$encodedName&subjectCode=$encodedCode")
                 },
+                onNavigateToExam = { sessionId, lessonId, title, chapter ->
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
+                    navController.navigate("chapter_exam/$sessionId?lessonId=$lessonId&title=$encodedTitle&chapter=$encodedChapter")
+                },
                 onOpenLessonDetail = { _ ->
                     navController.navigate(Routes.LESSON_DETAIL_PLAYER)
                 },
@@ -389,6 +401,30 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
                     navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject")
                 }
+            )
+        }
+
+        composable(
+            route = Routes.CHAPTER_EXAM,
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType },
+                navArgument("lessonId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("chapter") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+            val lessonId = backStackEntry.arguments?.getString("lessonId") ?: ""
+            val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val chapter = backStackEntry.arguments?.getString("chapter")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+
+            ChapterExamScreen(
+                sessionId = sessionId,
+                lessonId = lessonId,
+                examTitle = title,
+                chapterName = chapter,
+                viewModel = chapterExamViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

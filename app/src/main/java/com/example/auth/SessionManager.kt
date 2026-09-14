@@ -162,9 +162,16 @@ class SessionManager(context: Context) {
     }
 
     // Account Completion Status
+    fun setAccountComplete(completed: Boolean) {
+        sharedPreferences.edit().putBoolean("is_account_completed", completed).apply()
+    }
+
     fun isAccountComplete(): Boolean {
+        if (sharedPreferences.contains("is_account_completed")) {
+            return sharedPreferences.getBoolean("is_account_completed", true)
+        }
         val firstName = getUserFirstName()?.trim()
-        return !firstName.isNullOrBlank() && firstName != "শিক্ষার্থী"
+        return !firstName.isNullOrBlank()
     }
 
     fun isAccountIncomplete(): Boolean = !isAccountComplete()

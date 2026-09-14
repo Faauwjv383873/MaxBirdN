@@ -224,11 +224,19 @@ fun VideoPlayerScreen(
     // Handle App Lifecycle (Pause video on background)
 
     val mediaSession = remember(exoPlayer) {
-        MediaSession.Builder(context, exoPlayer).build()
+        try {
+            MediaSession.Builder(context, exoPlayer)
+                .setId("session_vp_${System.currentTimeMillis()}_${java.util.UUID.randomUUID()}")
+                .build()
+        } catch (_: Exception) {
+            null
+        }
     }
     DisposableEffect(mediaSession) {
         onDispose {
-            mediaSession.release()
+            try {
+                mediaSession?.release()
+            } catch (_: Exception) {}
         }
     }
     

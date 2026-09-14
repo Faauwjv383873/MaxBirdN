@@ -497,6 +497,8 @@ class EditProfileViewModel(
                     classDisplay = state.userClassDisplay
                 )
 
+                sessionManager.setAccountComplete(true)
+                sessionManager.setJustSignedUp(false)
                 _uiState.update { it.copy(isSaving = false, successMessage = "প্রোফাইল সফলভাবে আপডেট করা হয়েছে!") }
                 delay(600)
                 onSuccess()

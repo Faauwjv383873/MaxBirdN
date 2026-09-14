@@ -1367,3 +1367,146 @@ data class SubjectRunningChapterItem(
     val status: String? = null
 )
 
+// ==========================================
+// Chapter Live Exam API Models
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class GetLiveExamInfoResponse(
+    val data: LiveExamInfoDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveExamInfoDataContainer(
+    val liveExamSession: LiveExamSessionDetails? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveExamSessionDetails(
+    val id: String? = null,
+    val start_time: String? = null,
+    val end_time: String? = null,
+    val title: String? = null,
+    val markdown_version: Int? = null,
+    val total_number_of_question: Int? = null,
+    val chapters: List<ExamChapterInfo>? = emptyList(),
+    val subject: ExamSubjectInfo? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ExamChapterInfo(
+    val id: String? = null,
+    val name: String? = null,
+    val no: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ExamSubjectInfo(
+    val display: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetLiveQuestionsResponse(
+    val data: LiveQuestionsDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveQuestionsDataContainer(
+    val academicProgramLiveExamQuestions: LiveExamQuestionsListContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveExamQuestionsListContainer(
+    val data: List<LiveExamQuestionItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveExamQuestionItem(
+    val id: String? = null,
+    val title: String? = null,
+    val solution: String? = null,
+    val markdown_version: Int? = null,
+    val mcq_options: List<McqOptionItem>? = emptyList(),
+    val correct_option: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class McqOptionItem(
+    val no: String? = null,
+    val description: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubmitLiveExamResponse(
+    val data: SubmitLiveExamDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubmitLiveExamDataContainer(
+    val acpLiveExamResult: SubmitResultPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubmitResultPayload(
+    val code: Int? = null,
+    val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetLiveExamPerformanceAnalysisResponse(
+    val data: LiveExamPerformanceDataContainer? = null
+)
+
+typealias GetLiveExamSolutionsResponse = GetLiveExamPerformanceAnalysisResponse
+
+@JsonClass(generateAdapter = true)
+data class LiveExamPerformanceDataContainer(
+    val acpLiveExamResultHistory: LiveExamResultHistoryPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LiveExamResultHistoryPayload(
+    val live_exam_session_id: String? = null,
+    val result_summary: ExamResultSummary? = null,
+    val answers: List<ExamAnswerSolutionItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class ExamResultSummary(
+    val correct_ans: String? = null,
+    val incorrect_ans: String? = null,
+    val total_length_of_exam: String? = null,
+    val total_question: String? = null,
+    val total_time_spent: String? = null,
+    val unanswered: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ExamAnswerSolutionItem(
+    val given_ans: String? = null,
+    val question: LiveExamQuestionItem? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ResourceAttachmentsResponse(
+    val data: AttachmentListDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AttachmentListDataContainer(
+    val attachmentList: AttachmentListPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AttachmentListPayload(
+    val data: List<AttachmentDataItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class AttachmentDataItem(
+    val id: String? = null,
+    val title: String? = null,
+    val description: String? = null,
+    val url: String? = null
+)
+

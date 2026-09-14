@@ -81,6 +81,7 @@ fun ChapterLessonsScreen(
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     onNavigateToAnimatedTopics: ((chapterId: String, chapterName: String, subjectCode: String) -> Unit)? = null,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapterName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -310,7 +311,20 @@ fun ChapterLessonsScreen(
                                     sessionManager.markLessonCompleted(lesson.id)
                                     lessonCompletionCounter++
                                     viewModel.selectLesson(lesson)
-                                    if (onOpenLessonDetail != null) {
+
+                                    val lessonTitle = lesson.title ?: ""
+                                    val isExamLesson = lesson.isExam ||
+                                            lesson.content_type?.contains("EXAM", ignoreCase = true) == true ||
+                                            lesson.class_type?.contains("EXAM", ignoreCase = true) == true ||
+                                            lessonTitle.contains("Exam", ignoreCase = true) ||
+                                            lessonTitle.contains("এক্সাম", ignoreCase = true) ||
+                                            lessonTitle.contains("পরীক্ষা", ignoreCase = true)
+
+                                    if (isExamLesson && onNavigateToExam != null) {
+                                        val sessionId = lesson.id
+                                        val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson.title)
+                                        onNavigateToExam(sessionId, lesson.id, formattedTitle, chapterName)
+                                    } else if (onOpenLessonDetail != null) {
                                         onOpenLessonDetail(lesson)
                                     } else {
                                         val videoUrl = lesson.resolvedVideoUrl

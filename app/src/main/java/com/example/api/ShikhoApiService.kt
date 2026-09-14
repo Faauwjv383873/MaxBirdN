@@ -114,6 +114,24 @@ interface ShikhoApiService {
     @POST("/graphql")
     suspend fun updateUserSchool(@Body query: GraphQlQuery): UpdateSchoolResponse
 
+    @POST("/graphql")
+    suspend fun getLiveExamInfo(@Body query: GraphQlQuery): GetLiveExamInfoResponse
+
+    @POST("/graphql")
+    suspend fun getLiveQuestions(@Body query: GraphQlQuery): GetLiveQuestionsResponse
+
+    @POST("/graphql")
+    suspend fun submitLiveExam(@Body query: GraphQlQuery): SubmitLiveExamResponse
+
+    @POST("/graphql")
+    suspend fun getLiveExamPerformance(@Body query: GraphQlQuery): GetLiveExamPerformanceAnalysisResponse
+
+    @POST("/graphql")
+    suspend fun getLiveExamSolutions(@Body query: GraphQlQuery): GetLiveExamSolutionsResponse
+
+    @POST("/graphql")
+    suspend fun getResourceAttachments(@Body query: GraphQlQuery): ResourceAttachmentsResponse
+
     @GET("https://analytics.shikho.com/api/v1/results/quarterly/quarter/{programId}/{phaseId}")
     suspend fun getQuarterlyResults(
         @Path("programId") programId: String,
