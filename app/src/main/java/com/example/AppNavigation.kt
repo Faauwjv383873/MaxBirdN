@@ -62,7 +62,7 @@ object Routes {
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
-    const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}&initialTab={initialTab}"
+    const val CHAPTER_LESSONS = "chapter_lessons/{chapterId}?name={name}&status={status}&initialTab={initialTab}&subjectCode={subjectCode}&subjectTitle={subjectTitle}&subjectColor={subjectColor}"
     const val LESSON_DETAIL_PLAYER = "lesson_detail_player"
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
     const val ROUTINE_FULL = "routine_full"
@@ -70,7 +70,7 @@ object Routes {
     const val ANIMATED_CHAPTERS = "animated_chapters/{subjectCode}?title={title}"
     const val ANIMATED_TOPICS = "animated_topics/{chapterId}?name={name}&subjectCode={subjectCode}"
     const val CHAPTER_EXAM = "chapter_exam/{sessionId}?lessonId={lessonId}&title={title}&chapter={chapter}"
-    const val PRACTICE_QUIZ_CHAPTERS = "practice_quiz_chapters/{subjectCode}?title={title}&color={color}"
+    const val PRACTICE_QUIZ_CHAPTERS = "practice_quiz_chapters/{subjectCode}?title={title}&color={color}&chapterId={chapterId}&chapterName={chapterName}"
     const val PRACTICE_QUIZ_COUNT = "practice_quiz_count"
     const val PRACTICE_QUIZ_PLAYER = "practice_quiz_player/{sessionId}"
     const val PRACTICE_QUIZ_RESULT = "practice_quiz_result/{sessionId}"
@@ -422,12 +422,15 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToPracticeQuiz = { sCode, sTitle, sColor ->
                     val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
                     val encodedColor = URLEncoder.encode(sColor ?: "", "UTF-8")
-                    navController.navigate("practice_quiz_chapters/$sCode?title=$encodedTitle&color=$encodedColor")
+                    navController.navigate("practice_quiz_chapters/$sCode?title=$encodedTitle&color=$encodedColor&chapterId=&chapterName=")
                 },
                 onChapterClick = { chapterId, chapterName, chapterStatus, initialTab ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
-                    navController.navigate("chapter_lessons/$chapterId?name=$encodedName&status=$encodedStatus&initialTab=$initialTab")
+                    val encodedSubCode = URLEncoder.encode(subjectCode, "UTF-8")
+                    val encodedSubTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedSubColor = URLEncoder.encode(color ?: "", "UTF-8")
+                    navController.navigate("chapter_lessons/$chapterId?name=$encodedName&status=$encodedStatus&initialTab=$initialTab&subjectCode=$encodedSubCode&subjectTitle=$encodedSubTitle&subjectColor=$encodedSubColor")
                 },
                 onPlayVideo = { videoUrl, videoTitle, subjectName, subjectColor, isLive ->
                     val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
@@ -446,19 +449,28 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 navArgument("chapterId") { type = NavType.StringType },
                 navArgument("name") { type = NavType.StringType; defaultValue = "" },
                 navArgument("status") { type = NavType.StringType; defaultValue = "" },
-                navArgument("initialTab") { type = NavType.IntType; defaultValue = 0 }
+                navArgument("initialTab") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("subjectCode") { type = NavType.StringType; defaultValue = "" },
+                navArgument("subjectTitle") { type = NavType.StringType; defaultValue = "" },
+                navArgument("subjectColor") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val name = backStackEntry.arguments?.getString("name")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
             val status = backStackEntry.arguments?.getString("status")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
             val initialTab = backStackEntry.arguments?.getInt("initialTab") ?: 0
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val subjectTitle = backStackEntry.arguments?.getString("subjectTitle")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val subjectColor = backStackEntry.arguments?.getString("subjectColor")?.let { URLDecoder.decode(it, "UTF-8") }
 
             ChapterLessonsScreen(
                 chapterId = chapterId,
                 chapterName = name,
                 chapterStatus = status,
                 initialTab = initialTab,
+                subjectCode = subjectCode,
+                subjectTitle = subjectTitle,
+                subjectColorHex = subjectColor,
                 viewModel = courseViewModel,
                 onBack = {
                     navController.popBackStack()
@@ -467,6 +479,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedName = URLEncoder.encode(cName, "UTF-8")
                     val encodedCode = URLEncoder.encode(sCode, "UTF-8")
                     navController.navigate("animated_topics/$cId?name=$encodedName&subjectCode=$encodedCode")
+                },
+                onNavigateToPracticeQuiz = { sCode, sTitle, sColor, cId, cName ->
+                    val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
+                    val encodedColor = URLEncoder.encode(sColor ?: "", "UTF-8")
+                    val encodedChapterId = URLEncoder.encode(cId, "UTF-8")
+                    val encodedChapterName = URLEncoder.encode(cName, "UTF-8")
+                    navController.navigate("practice_quiz_chapters/$sCode?title=$encodedTitle&color=$encodedColor&chapterId=$encodedChapterId&chapterName=$encodedChapterName")
                 },
                 onNavigateToExam = { sessionId, lessonId, title, chapter ->
                     val encodedTitle = URLEncoder.encode(title, "UTF-8")
@@ -636,17 +655,23 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             arguments = listOf(
                 navArgument("subjectCode") { type = NavType.StringType },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
-                navArgument("color") { type = NavType.StringType; defaultValue = "" }
+                navArgument("color") { type = NavType.StringType; defaultValue = "" },
+                navArgument("chapterId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("chapterName") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
             val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
             val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
             val color = backStackEntry.arguments?.getString("color")?.let { URLDecoder.decode(it, "UTF-8") }
+            val chapterId = backStackEntry.arguments?.getString("chapterId")?.let { URLDecoder.decode(it, "UTF-8") }?.ifBlank { null }
+            val chapterName = backStackEntry.arguments?.getString("chapterName")?.let { URLDecoder.decode(it, "UTF-8") }?.ifBlank { null }
 
             PracticeQuizChapterSelectionScreen(
                 subjectCode = subjectCode,
                 subjectTitle = title,
                 subjectColorHex = color,
+                targetChapterId = chapterId,
+                targetChapterName = chapterName,
                 viewModel = practiceQuizViewModel,
                 onBack = {
                     navController.popBackStack()

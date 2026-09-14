@@ -17,7 +17,11 @@ data class PracticeQuizUiState(
     val subjectIcon: String? = null,
     val totalActiveQuestionsInSubject: Int = 0,
     val chapters: List<HierarchyChapterItem> = emptyList(),
+    val allSubjectChapters: List<HierarchyChapterItem> = emptyList(),
     val selectedChapterIds: Set<String> = emptySet(),
+    val targetChapterId: String? = null,
+    val targetChapterName: String? = null,
+    val isSingleChapterMode: Boolean = false,
     val isChaptersLoading: Boolean = false,
     val chaptersError: String? = null,
 

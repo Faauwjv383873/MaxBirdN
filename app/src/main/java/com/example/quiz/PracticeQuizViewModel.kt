@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.api.ShikhoApiService
+import com.example.api.*
 import com.example.auth.SessionManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -31,12 +31,21 @@ class PracticeQuizViewModel(
     /**
      * Step 1: Load subject chapters with question counts
      */
-    fun loadSubjectChapters(subjectCode: String, subjectTitle: String, subjectColorHex: String?) {
+    fun loadSubjectChapters(
+        subjectCode: String,
+        subjectTitle: String,
+        subjectColorHex: String?,
+        targetChapterId: String? = null,
+        targetChapterName: String? = null
+    ) {
         _uiState.update {
             it.copy(
                 subjectCode = subjectCode,
                 subjectTitle = subjectTitle,
                 subjectColorHex = subjectColorHex,
+                targetChapterId = targetChapterId?.ifBlank { null },
+                targetChapterName = targetChapterName?.ifBlank { null },
+                isSingleChapterMode = !targetChapterId.isNullOrBlank(),
                 isChaptersLoading = true,
                 chaptersError = null
             )
@@ -51,17 +60,47 @@ class PracticeQuizViewModel(
 
                 val limits = repository.checkPracticeQuizAccess()
 
-                val allChapterIds = chapters.map { it.id }.toSet()
+                val cleanTargetId = targetChapterId?.trim()?.ifBlank { null }
+                val cleanTargetName = targetChapterName?.trim()?.ifBlank { null }
+
+                // Find matching chapter if targetChapterId or targetChapterName is specified
+                val matchedChapter = if (cleanTargetId != null || cleanTargetName != null) {
+                    chapters.find { ch ->
+                        (cleanTargetId != null && (ch.id == cleanTargetId || ch.id.contains(cleanTargetId) || cleanTargetId.contains(ch.id))) ||
+                        (cleanTargetName != null && ch.name?.trim()?.equals(cleanTargetName, ignoreCase = true) == true)
+                    } ?: if (cleanTargetId != null) {
+                        HierarchyChapterItem(
+                            id = cleanTargetId,
+                            name = cleanTargetName ?: "অধ্যায়",
+                            should_render = true,
+                            total_active_questions = null
+                        )
+                    } else null
+                } else null
+
+                val effectiveChapters = if (matchedChapter != null) {
+                    listOf(matchedChapter)
+                } else {
+                    chapters
+                }
+
+                val selectedIds = if (matchedChapter != null) {
+                    setOf(matchedChapter.id)
+                } else {
+                    chapters.map { it.id }.toSet()
+                }
 
                 _uiState.update {
                     it.copy(
                         isChaptersLoading = false,
-                        chapters = chapters,
-                        selectedChapterIds = allChapterIds, // Default select all
+                        chapters = effectiveChapters,
+                        allSubjectChapters = chapters,
+                        selectedChapterIds = selectedIds,
+                        isSingleChapterMode = matchedChapter != null,
                         subjectIcon = subjectItem?.icon,
                         totalActiveQuestionsInSubject = subjectItem?.total_active_questions ?: chapters.sumOf { ch -> ch.total_active_questions ?: 0 },
                         practiceLimits = limits,
-                        chaptersError = if (chapters.isEmpty()) "এই বিষয়ে বর্তমানে কোনো প্র্যাকটিস কুইজ উপলব্ধ নেই" else null
+                        chaptersError = if (effectiveChapters.isEmpty()) "এই বিষয়ে বর্তমানে কোনো প্র্যাকটিস কুইজ উপলব্ধ নেই" else null
                     )
                 }
             } catch (e: Exception) {
@@ -73,6 +112,17 @@ class PracticeQuizViewModel(
                     )
                 }
             }
+        }
+    }
+
+    fun showAllChapters() {
+        _uiState.update { state ->
+            val all = state.allSubjectChapters
+            state.copy(
+                chapters = all,
+                isSingleChapterMode = false,
+                selectedChapterIds = all.map { it.id }.toSet()
+            )
         }
     }
 

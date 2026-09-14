@@ -76,11 +76,15 @@ fun ChapterLessonsScreen(
     chapterName: String,
     chapterStatus: String,
     initialTab: Int = 0,
+    subjectCode: String = "",
+    subjectTitle: String = "",
+    subjectColorHex: String? = null,
     viewModel: CourseViewModel,
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     onNavigateToAnimatedTopics: ((chapterId: String, chapterName: String, subjectCode: String) -> Unit)? = null,
+    onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?, chapterId: String, chapterName: String) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapterName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -89,10 +93,14 @@ fun ChapterLessonsScreen(
     var lessonCompletionCounter by remember { mutableIntStateOf(0) }
     val uiState by viewModel.uiState.collectAsState()
 
-    val subjectColor = remember(uiState.selectedSubjectColor) {
+    val effectiveSubjectCode = subjectCode.ifBlank { uiState.selectedSubjectCode }
+    val effectiveSubjectTitle = subjectTitle.ifBlank { uiState.selectedSubjectTitle }
+    val effectiveSubjectColor = subjectColorHex?.ifBlank { null } ?: uiState.selectedSubjectColor
+
+    val subjectColor = remember(effectiveSubjectColor) {
         try {
-            if (uiState.selectedSubjectColor.isNotBlank()) {
-                Color(android.graphics.Color.parseColor(uiState.selectedSubjectColor))
+            if (effectiveSubjectColor.isNotBlank()) {
+                Color(android.graphics.Color.parseColor(effectiveSubjectColor))
             } else {
                 Color(0xFF0072EC)
             }
@@ -266,7 +274,15 @@ fun ChapterLessonsScreen(
                                         onNavigateToAnimatedTopics?.invoke(
                                             chapterId,
                                             chapterName,
-                                            uiState.selectedSubjectCode
+                                            effectiveSubjectCode
+                                        )
+                                    } else if (tab == 2) {
+                                        onNavigateToPracticeQuiz?.invoke(
+                                            effectiveSubjectCode,
+                                            effectiveSubjectTitle,
+                                            effectiveSubjectColor,
+                                            chapterId,
+                                            chapterName
                                         )
                                     }
                                 }

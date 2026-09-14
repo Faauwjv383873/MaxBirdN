@@ -59,6 +59,8 @@ fun PracticeQuizChapterSelectionScreen(
     subjectCode: String,
     subjectTitle: String,
     subjectColorHex: String?,
+    targetChapterId: String? = null,
+    targetChapterName: String? = null,
     viewModel: PracticeQuizViewModel,
     onBack: () -> Unit,
     onProceedToCountSelection: () -> Unit,
@@ -78,12 +80,14 @@ fun PracticeQuizChapterSelectionScreen(
         }
     }
 
-    LaunchedEffect(subjectCode) {
-        if (uiState.chapters.isEmpty() || uiState.subjectCode != subjectCode) {
+    LaunchedEffect(subjectCode, targetChapterId) {
+        if (uiState.chapters.isEmpty() || uiState.subjectCode != subjectCode || uiState.targetChapterId != targetChapterId) {
             viewModel.loadSubjectChapters(
                 subjectCode = subjectCode,
                 subjectTitle = subjectTitle,
-                subjectColorHex = subjectColorHex
+                subjectColorHex = subjectColorHex,
+                targetChapterId = targetChapterId,
+                targetChapterName = targetChapterName
             )
         }
     }
@@ -350,78 +354,115 @@ fun PracticeQuizChapterSelectionScreen(
                             }
                         }
 
-                        // Section Header
+                        // Section Header / Single Chapter Mode indicator
                         item {
-                            Text(
-                                text = "অধ্যায় ও টপিক সিলেক্ট করো",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                            )
-                        }
-
-                        // "Select All Chapters" Card
-                        item {
-                            val isAllSelected = uiState.areAllChaptersSelected
-                            val checkScale by animateFloatAsState(
-                                targetValue = if (isAllSelected) 1f else 0.85f,
-                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-                                label = "checkScale"
-                            )
-
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isAllSelected) subjectColor.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(
-                                    width = if (isAllSelected) 1.5.dp else 1.dp,
-                                    color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable { viewModel.toggleSelectAllChapters() }
-                                    .testTag("select_all_chapters_card")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            if (uiState.isSingleChapterMode) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = subjectColor.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, subjectColor.copy(alpha = 0.25f)),
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        border = BorderStroke(
-                                            width = 1.5.dp,
-                                            color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.outlineVariant
-                                        ),
-                                        modifier = Modifier.size(24.dp).scale(checkScale)
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        if (isAllSelected) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "এই অধ্যায়ের প্র্যাকটিস কুইজ",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = subjectColor
+                                            )
+                                            Text(
+                                                text = "নির্দিষ্ট অধ্যায় থেকে প্রশ্নের সেট তৈরি হবে",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.showAllChapters() },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = subjectColor)
+                                        ) {
+                                            Text("সব অধ্যায়", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
+                                }
+                            } else {
+                                Text(
+                                    text = "অধ্যায় ও টপিক সিলেক্ট করো",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                )
+                            }
+                        }
 
-                                    Spacer(modifier = Modifier.width(14.dp))
+                        // "Select All Chapters" Card (only in multi-chapter mode)
+                        if (!uiState.isSingleChapterMode && uiState.chapters.size > 1) {
+                            item {
+                                val isAllSelected = uiState.areAllChaptersSelected
+                                val checkScale by animateFloatAsState(
+                                    targetValue = if (isAllSelected) 1f else 0.85f,
+                                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                    label = "checkScale"
+                                )
 
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "সকল অধ্যায়",
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "সবগুলো অধ্যায় একসাথে অনুশীলন করতে",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isAllSelected) subjectColor.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(
+                                        width = if (isAllSelected) 1.5.dp else 1.dp,
+                                        color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { viewModel.toggleSelectAllChapters() }
+                                        .testTag("select_all_chapters_card")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                            border = BorderStroke(
+                                                width = 1.5.dp,
+                                                color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.outlineVariant
+                                            ),
+                                            modifier = Modifier.size(24.dp).scale(checkScale)
+                                        ) {
+                                            if (isAllSelected) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "সকল অধ্যায়",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isAllSelected) subjectColor else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "সবগুলো অধ্যায় একসাথে অনুশীলন করতে",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }

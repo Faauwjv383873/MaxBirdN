@@ -1442,7 +1442,7 @@ data class LiveExamQuestionItem(
     val id: String? = null,
     val title: String? = null,
     val solution: String? = null,
-    val markdown_version: Int? = null,
+    val markdown_version: String? = null,
     val mcq_options: List<McqOptionItem>? = emptyList(),
     val correct_option: String? = null
 )
@@ -1557,7 +1557,7 @@ data class PracticeQuizSessionItem(
     val is_started: Boolean? = null,
     val is_timeout: Boolean? = null,
     val last_submission_time: String? = null,
-    val last_submitted_index: Int? = null,
+    val last_submitted_index: String? = null,
     val quiz_type: String? = null,
     val set_id: String? = null,
     val user_id: String? = null,
@@ -1582,14 +1582,14 @@ data class PracticeQuizQuestionAnswerItem(
 @JsonClass(generateAdapter = true)
 data class PracticeQuizQuestionItem(
     val id: String = "",
-    val question_no: Int? = null,
+    val question_no: String? = null,
     val title: String? = null,
     val description: String? = null,
     val difficulty_level: String? = null,
-    val allocated_marks: Double? = null,
-    val allocated_time: Int? = null,
+    val allocated_marks: String? = null,
+    val allocated_time: String? = null,
     val has_math_equation: Boolean? = null,
-    val markdown_version: Int? = null,
+    val markdown_version: String? = null,
     val question_type: String? = null,
     val source: String? = null,
     val u_code: String? = null,
@@ -1604,7 +1604,7 @@ data class PracticeQuizQuestionItem(
 data class HierarchyChapterRef(
     val id: String? = null,
     val name: String? = null,
-    val no: Any? = null
+    val no: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -1644,11 +1644,11 @@ data class QuizResultSummaryPayload(
     val badge_image_base_url: String? = null,
     val badge_image_name: String? = null,
     val quiz_type: String? = null,
-    val total_correct: Int? = null,
-    val total_incorrect: Int? = null,
-    val total_questions: Int? = null,
+    val total_correct: String? = null,
+    val total_incorrect: String? = null,
+    val total_questions: String? = null,
     val parent_id: String? = null,
-    val total_spent_time: Double? = null,
+    val total_spent_time: String? = null,
     val subjects: List<QuizResultSubjectItem>? = emptyList(),
     val subject_results: List<QuizSubjectResultDetailItem>? = emptyList()
 ) {
@@ -1671,9 +1671,9 @@ data class QuizSubjectResultDetailItem(
     val proficiency: String? = null,
     val title: String? = null,
     val title_bn: String? = null,
-    val total_correct: Int? = null,
-    val total_in_correct: Int? = null,
-    val total_questions: Int? = null
+    val total_correct: String? = null,
+    val total_in_correct: String? = null,
+    val total_questions: String? = null
 )
 
 @JsonClass(generateAdapter = true)

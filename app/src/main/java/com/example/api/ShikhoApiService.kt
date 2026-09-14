@@ -1,7 +1,11 @@
 package com.example.api
 
 import com.example.auth.SessionManager
+import com.squareup.moshi.FromJson
+import com.squareup.moshi.JsonReader
+import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.ToJson
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -225,6 +229,26 @@ interface ShikhoApiService {
                 .build()
 
             val moshi = Moshi.Builder()
+                .add(object {
+                    @FromJson
+                    fun fromJson(reader: JsonReader): String? {
+                        return when (reader.peek()) {
+                            JsonReader.Token.NULL -> reader.nextNull()
+                            JsonReader.Token.STRING,
+                            JsonReader.Token.NUMBER -> reader.nextString()
+                            JsonReader.Token.BOOLEAN -> reader.nextBoolean().toString()
+                            else -> {
+                                reader.skipValue()
+                                null
+                            }
+                        }
+                    }
+
+                    @ToJson
+                    fun toJson(writer: JsonWriter, value: String?) {
+                        writer.value(value)
+                    }
+                })
                 .addLast(KotlinJsonAdapterFactory())
                 .build()
 

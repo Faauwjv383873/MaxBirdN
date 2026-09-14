@@ -407,9 +407,11 @@ fun PracticeQuizPlayerScreen(
                                     )
                                 }
 
-                                if (currentQuestion.allocated_marks != null) {
+                                val marks = currentQuestion.allocated_marks?.toDoubleOrNull()?.toInt()
+                                    ?: currentQuestion.allocated_marks?.toIntOrNull()
+                                if (marks != null) {
                                     Text(
-                                        text = "মান: ${toBengaliDigits(currentQuestion.allocated_marks.toInt())}",
+                                        text = "মান: ${toBengaliDigits(marks)}",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
