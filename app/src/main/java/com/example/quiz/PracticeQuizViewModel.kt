@@ -243,11 +243,44 @@ class PracticeQuizViewModel(
     }
 
     /**
+     * Helper to build properly structured question_answer payload with session qa IDs
+     */
+    private fun buildQuestionAnswersPayload(
+        session: PracticeQuizSessionItem?,
+        userAnswers: Map<String, String>
+    ): List<Map<String, Any?>> {
+        val questions = session?.questions ?: emptyList()
+        val questionAnswers = session?.question_answer ?: emptyList()
+
+        if (questions.isNotEmpty()) {
+            return questions.mapIndexed { index, question ->
+                val qaId = questionAnswers.getOrNull(index)?.id ?: question.id
+                val givenAns = userAnswers[question.id]
+                val isSubmitted = givenAns != null
+                mapOf(
+                    "id" to qaId,
+                    "given_ans" to (givenAns ?: ""),
+                    "is_submitted" to isSubmitted
+                )
+            }
+        }
+
+        return userAnswers.map { (qId, ans) ->
+            mapOf(
+                "id" to qId,
+                "given_ans" to ans,
+                "is_submitted" to true
+            )
+        }
+    }
+
+    /**
      * In Quiz: Select Option & debounce save
      */
     fun selectOption(questionId: String, optionNo: String) {
+        val updatedAnswers = _uiState.value.userAnswers + (questionId to optionNo)
         _uiState.update {
-            it.copy(userAnswers = it.userAnswers + (questionId to optionNo))
+            it.copy(userAnswers = updatedAnswers)
         }
 
         // Debounced save progress in background
@@ -256,14 +289,9 @@ class PracticeQuizViewModel(
             delay(400L)
             try {
                 val sessionId = _uiState.value.sessionId
+                val session = _uiState.value.session
                 if (sessionId.isNotBlank()) {
-                    val answersList = _uiState.value.userAnswers.map { (qId, ans) ->
-                        mapOf(
-                            "id" to qId,
-                            "given_ans" to ans,
-                            "is_submitted" to true
-                        )
-                    }
+                    val answersList = buildQuestionAnswersPayload(session, updatedAnswers)
                     repository.submitPracticeQuizSession(
                         sessionId = sessionId,
                         isFinal = false,
@@ -272,7 +300,7 @@ class PracticeQuizViewModel(
                     )
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Background answer progress save error", e)
+                Log.w(TAG, "Background answer progress save error: ${e.message}")
             }
         }
     }
@@ -322,30 +350,17 @@ class PracticeQuizViewModel(
         viewModelScope.launch {
             try {
                 val session = _uiState.value.session
-                val answersList = _uiState.value.userAnswers.map { (qId, ans) ->
-                    val qaId = session?.let { s ->
-                        val qIndex = s.questions?.indexOfFirst { it.id == qId } ?: -1
-                        if (qIndex in 0 until (s.question_answer?.size ?: 0)) {
-                            s.question_answer?.get(qIndex)?.id
-                        } else null
-                    } ?: qId
-
-                    mapOf(
-                        "id" to qaId,
-                        "given_ans" to ans,
-                        "is_submitted" to true
-                    )
-                }
+                val answersList = buildQuestionAnswersPayload(session, _uiState.value.userAnswers)
 
                 try {
                     Log.d(TAG, "Attempting submitPracticeQuizSession with ${answersList.size} answers...")
-                    repository.submitPracticeQuizSession(
+                    val result = repository.submitPracticeQuizSession(
                         sessionId = sessionId,
                         isFinal = true,
                         isTimeout = isTimeout,
                         questionAnswers = answersList
                     )
-                    Log.d(TAG, "Primary submitPracticeQuizSession call succeeded.")
+                    Log.d(TAG, "Primary submitPracticeQuizSession call succeeded: isFinal=${result?.session?.is_final_submitted}")
                 } catch (apiEx: Exception) {
                     Log.e(TAG, "Primary submitPracticeQuizSession failed: ${apiEx.message}. Attempting fallback minimal submission...", apiEx)
                     try {
@@ -360,6 +375,9 @@ class PracticeQuizViewModel(
                         Log.e(TAG, "Fallback minimal submission also encountered error: ${fallbackEx.message}. Proceeding so user can view results.", fallbackEx)
                     }
                 }
+
+                // Buffer delay to allow server background workers to aggregate scores
+                delay(600L)
 
                 _uiState.update {
                     it.copy(
@@ -387,6 +405,7 @@ class PracticeQuizViewModel(
      * Step 4: Load Quiz Result
      */
     fun loadQuizResult(sessionId: String) {
+        Log.d(TAG, "loadQuizResult called for sessionId=$sessionId")
         _uiState.update {
             it.copy(
                 sessionId = sessionId,
@@ -397,7 +416,28 @@ class PracticeQuizViewModel(
 
         viewModelScope.launch {
             try {
-                val summary = repository.getQuizResultSummary(sessionId)
+                var summary = repository.getQuizResultSummary(sessionId)
+
+                // If result shows 0 correct and 0 incorrect despite user having answered questions,
+                // give server backend another 1s to finish aggregation and retry once.
+                val answeredCount = _uiState.value.userAnswers.size
+                val totalCorrect = summary.total_correct?.toIntOrNull() ?: 0
+                val totalIncorrect = summary.total_incorrect?.toIntOrNull() ?: 0
+                if (answeredCount > 0 && totalCorrect == 0 && totalIncorrect == 0) {
+                    Log.d(TAG, "Result shows 0/0 despite answeredCount=$answeredCount. Retrying getQuizResultSummary in 1000ms...")
+                    delay(1000L)
+                    try {
+                        val retrySummary = repository.getQuizResultSummary(sessionId)
+                        val retryCorrect = retrySummary.total_correct?.toIntOrNull() ?: 0
+                        val retryIncorrect = retrySummary.total_incorrect?.toIntOrNull() ?: 0
+                        if (retryCorrect > 0 || retryIncorrect > 0 || retrySummary.total_spent_time != null) {
+                            summary = retrySummary
+                        }
+                    } catch (retryEx: Exception) {
+                        Log.w(TAG, "Retry getQuizResultSummary failed", retryEx)
+                    }
+                }
+
                 _uiState.update {
                     it.copy(
                         isResultLoading = false,

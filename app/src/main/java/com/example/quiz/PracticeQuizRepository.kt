@@ -234,7 +234,10 @@ class PracticeQuizRepository(
         isTimeout: Boolean,
         questionAnswers: List<Map<String, Any?>>?
     ): PracticeQuizSessionPayload? {
-        Log.d(TAG, "submitPracticeQuizSession: sessionId=$sessionId, isFinal=$isFinal, isTimeout=$isTimeout, answersCount=${questionAnswers?.size ?: 0}")
+        Log.d(TAG, "submitPracticeQuizSession [REQUEST]: sessionId=$sessionId, isFinal=$isFinal, isTimeout=$isTimeout, answersCount=${questionAnswers?.size ?: 0}")
+        questionAnswers?.forEachIndexed { idx, item ->
+            Log.d(TAG, "  answer[$idx] -> id=${item["id"]}, given_ans=${item["given_ans"]}, is_submitted=${item["is_submitted"]}")
+        }
 
         val queryStr = """
             mutation SubmitPracticeQuizMcqSession(
@@ -272,10 +275,17 @@ class PracticeQuizRepository(
 
         val response = apiService.submitPracticeQuizMcqSession(query)
         if (!response.errors.isNullOrEmpty()) {
-            Log.e(TAG, "SubmitPracticeQuizMcqSession GraphQL errors: ${response.errors}")
+            Log.e(TAG, "submitPracticeQuizSession [GRAPHQL ERROR]: ${response.errors}")
         }
         val result = response.data?.submitPracticeQuizMcqSession
-        Log.d(TAG, "submitPracticeQuizSession completed, message=${result?.message}, sessionIsFinal=${result?.session?.is_final_submitted}")
+        Log.d(TAG, "submitPracticeQuizSession [RESPONSE]: message=${result?.message}, sessionIsFinal=${result?.session?.is_final_submitted}, qaSize=${result?.session?.question_answer?.size}")
+        result?.session?.question_answer?.forEachIndexed { idx, qa ->
+            Log.d(TAG, "  session.qa[$idx] -> id=${qa.id}, given_ans=${qa.given_ans}, is_submitted=${qa.is_submitted}")
+        }
+
+        if (result == null && !response.errors.isNullOrEmpty()) {
+            throw IllegalStateException(response.errors.firstOrNull()?.message ?: "সাবমিশন প্রক্রিয়াকরণে সমস্যা হয়েছে")
+        }
         return result
     }
 
@@ -283,6 +293,7 @@ class PracticeQuizRepository(
      * Get quiz result summary (Badge, score, breakdown)
      */
     suspend fun getQuizResultSummary(sessionId: String): QuizResultSummaryPayload {
+        Log.d(TAG, "getQuizResultSummary [REQUEST]: sessionId=$sessionId")
         val queryStr = """
             query GetQuizResult(${'$'}id: String!) {
               getQuizResultSummery(id: ${'$'}id) {
@@ -304,8 +315,14 @@ class PracticeQuizRepository(
         )
 
         val response = apiService.getQuizResultSummary(query)
-        return response.data?.getQuizResultSummery
-            ?: throw IllegalStateException("ফলাফল লোড করা সম্ভব হয়নি")
+        if (!response.errors.isNullOrEmpty()) {
+            Log.e(TAG, "getQuizResultSummary [GRAPHQL ERROR]: ${response.errors}")
+        }
+        val summary = response.data?.getQuizResultSummery
+        Log.d(TAG, "getQuizResultSummary [RAW RESPONSE]: id=${summary?.id}, badge=${summary?.badge}, total_correct=${summary?.total_correct}, total_incorrect=${summary?.total_incorrect}, total_questions=${summary?.total_questions}, total_spent_time=${summary?.total_spent_time}, subject_results=${summary?.subject_results}")
+
+        return summary
+            ?: throw IllegalStateException(response.errors?.firstOrNull()?.message ?: "ফলাফল লোড করা সম্ভব হয়নি")
     }
 
     /**
