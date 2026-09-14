@@ -421,15 +421,15 @@ class PracticeQuizViewModel(
                 // If result shows 0 correct and 0 incorrect despite user having answered questions,
                 // give server backend another 1s to finish aggregation and retry once.
                 val answeredCount = _uiState.value.userAnswers.size
-                val totalCorrect = summary.total_correct?.toIntOrNull() ?: 0
-                val totalIncorrect = summary.total_incorrect?.toIntOrNull() ?: 0
+                val totalCorrect = summary.correctCount
+                val totalIncorrect = summary.incorrectCount
                 if (answeredCount > 0 && totalCorrect == 0 && totalIncorrect == 0) {
                     Log.d(TAG, "Result shows 0/0 despite answeredCount=$answeredCount. Retrying getQuizResultSummary in 1000ms...")
                     delay(1000L)
                     try {
                         val retrySummary = repository.getQuizResultSummary(sessionId)
-                        val retryCorrect = retrySummary.total_correct?.toIntOrNull() ?: 0
-                        val retryIncorrect = retrySummary.total_incorrect?.toIntOrNull() ?: 0
+                        val retryCorrect = retrySummary.correctCount
+                        val retryIncorrect = retrySummary.incorrectCount
                         if (retryCorrect > 0 || retryIncorrect > 0 || retrySummary.total_spent_time != null) {
                             summary = retrySummary
                         }

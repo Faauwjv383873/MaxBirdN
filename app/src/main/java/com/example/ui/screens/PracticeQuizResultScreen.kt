@@ -327,8 +327,8 @@ fun PracticeQuizResultScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 // Large Score Display (e.g. "৩/১০")
-                                val totalCorrect = result.total_correct?.toIntOrNull() ?: 0
-                                val totalQuestions = result.total_questions?.toIntOrNull() ?: uiState.totalQuestionsCount
+                                val totalCorrect = result.correctCount
+                                val totalQuestions = if (result.questionsCount > 0) result.questionsCount else uiState.totalQuestionsCount
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = Color(0xFF38BDF8).copy(alpha = 0.15f),
@@ -364,7 +364,7 @@ fun PracticeQuizResultScreen(
                                     icon = Icons.Default.CheckCircle,
                                     iconTint = Color(0xFF10B981),
                                     title = "সঠিক",
-                                    value = "${toBengaliDigits(result.total_correct?.toIntOrNull() ?: 0)}টি"
+                                    value = "${toBengaliDigits(result.correctCount)}টি"
                                 )
 
                                 Box(
@@ -379,7 +379,7 @@ fun PracticeQuizResultScreen(
                                     icon = Icons.Default.Cancel,
                                     iconTint = Color(0xFFEF4444),
                                     title = "ভুল",
-                                    value = "${toBengaliDigits(result.total_incorrect?.toIntOrNull() ?: 0)}টি"
+                                    value = "${toBengaliDigits(result.incorrectCount)}টি"
                                 )
 
                                 Box(
@@ -394,7 +394,7 @@ fun PracticeQuizResultScreen(
                                     icon = Icons.Default.AccessTime,
                                     iconTint = Color(0xFF38BDF8),
                                     title = "সময় লেগেছে",
-                                    value = formatSecondsToBengaliTime(result.total_spent_time?.toDoubleOrNull())
+                                    value = formatSecondsToBengaliTime(result.spentTimeSeconds.toDouble())
                                 )
                             }
                         }
@@ -440,8 +440,8 @@ fun PracticeQuizResultScreen(
 
                                     Spacer(modifier = Modifier.height(10.dp))
 
-                                    val correct = subjectDetail.total_correct?.toIntOrNull() ?: 0
-                                    val total = (subjectDetail.total_questions?.toIntOrNull() ?: 1).coerceAtLeast(1)
+                                    val correct = subjectDetail.correctCount
+                                    val total = (if (subjectDetail.questionsCount > 0) subjectDetail.questionsCount else 1).coerceAtLeast(1)
                                     val pct = (correct.toFloat() / total.toFloat()).coerceIn(0f, 1f)
 
                                     LinearProgressIndicator(

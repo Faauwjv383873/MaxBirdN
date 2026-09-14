@@ -1,5 +1,6 @@
 package com.example.api
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 fun parseIsoToDhakaMillis(isoString: String?): Long? {
@@ -1630,53 +1631,74 @@ data class SubmitPracticeQuizDataContainer(
 
 @JsonClass(generateAdapter = true)
 data class GetQuizResultSummaryResponse(
-    val data: GetQuizResultSummaryDataContainer? = null,
-    val errors: List<GraphQlError>? = null
+    @Json(name = "data") val data: GetQuizResultSummaryDataContainer? = null,
+    @Json(name = "errors") val errors: List<GraphQlError>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GetQuizResultSummaryDataContainer(
-    val getQuizResultSummery: QuizResultSummaryPayload? = null
+    @Json(name = "getQuizResultSummery") val getQuizResultSummery: QuizResultSummaryPayload? = null
 )
 
 @JsonClass(generateAdapter = true)
+data class QuizChapterIdItem(
+    @Json(name = "id") val id: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class QuizTopicIdItem(
+    @Json(name = "id") val id: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class QuizResultSubjectItem(
+    @Json(name = "code") val code: String? = null,
+    @Json(name = "icon") val icon: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class QuizSubjectResultDetailItem(
+    @Json(name = "code") val code: String? = null,
+    @Json(name = "proficiency") val proficiency: String? = null,
+    @Json(name = "title") val title: String? = null,
+    @Json(name = "title_bn") val title_bn: String? = null,
+    @Json(name = "total_correct") val total_correct: Int? = null,
+    @Json(name = "total_in_correct") val total_in_correct: Int? = null,
+    @Json(name = "total_questions") val total_questions: Int? = null
+) {
+    val correctCount: Int get() = total_correct ?: 0
+    val inCorrectCount: Int get() = total_in_correct ?: 0
+    val questionsCount: Int get() = total_questions ?: 0
+}
+
+@JsonClass(generateAdapter = true)
 data class QuizResultSummaryPayload(
-    val id: String? = null,
-    val badge: String? = null,
-    val badge_image_base_url: String? = null,
-    val badge_image_name: String? = null,
-    val quiz_type: String? = null,
-    val total_correct: String? = null,
-    val total_incorrect: String? = null,
-    val total_questions: String? = null,
-    val parent_id: String? = null,
-    val total_spent_time: String? = null,
-    val subjects: List<QuizResultSubjectItem>? = emptyList(),
-    val subject_results: List<QuizSubjectResultDetailItem>? = emptyList()
+    @Json(name = "id") val id: String? = null,
+    @Json(name = "badge") val badge: String? = null,
+    @Json(name = "badge_image_base_url") val badge_image_base_url: String? = null,
+    @Json(name = "badge_image_name") val badge_image_name: String? = null,
+    @Json(name = "quiz_type") val quiz_type: String? = null,
+    @Json(name = "total_correct") val total_correct: Int? = null,
+    @Json(name = "total_incorrect") val total_incorrect: Int? = null,
+    @Json(name = "total_questions") val total_questions: Int? = null,
+    @Json(name = "parent_id") val parent_id: String? = null,
+    @Json(name = "total_spent_time") val total_spent_time: Long? = null,
+    @Json(name = "chapters") val chapters: List<QuizChapterIdItem>? = emptyList(),
+    @Json(name = "topics") val topics: List<QuizTopicIdItem>? = emptyList(),
+    @Json(name = "subjects") val subjects: List<QuizResultSubjectItem>? = emptyList(),
+    @Json(name = "subject_results") val subject_results: List<QuizSubjectResultDetailItem>? = emptyList()
 ) {
     val fullBadgeImageUrl: String?
         get() = if (!badge_image_base_url.isNullOrBlank() && !badge_image_name.isNullOrBlank()) {
             val base = if (badge_image_base_url.endsWith("/")) badge_image_base_url else "$badge_image_base_url/"
             base + badge_image_name
         } else null
+
+    val correctCount: Int get() = total_correct ?: 0
+    val incorrectCount: Int get() = total_incorrect ?: 0
+    val questionsCount: Int get() = total_questions ?: 0
+    val spentTimeSeconds: Long get() = total_spent_time ?: 0L
 }
-
-@JsonClass(generateAdapter = true)
-data class QuizResultSubjectItem(
-    val code: String? = null,
-    val icon: String? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class QuizSubjectResultDetailItem(
-    val code: String? = null,
-    val proficiency: String? = null,
-    val title: String? = null,
-    val title_bn: String? = null,
-    val total_correct: String? = null,
-    val total_in_correct: String? = null,
-    val total_questions: String? = null
-)
 
 @JsonClass(generateAdapter = true)
 data class GetMcqSessionFeedbackResponse(

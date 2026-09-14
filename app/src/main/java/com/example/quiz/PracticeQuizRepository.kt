@@ -319,7 +319,7 @@ class PracticeQuizRepository(
             Log.e(TAG, "getQuizResultSummary [GRAPHQL ERROR]: ${response.errors}")
         }
         val summary = response.data?.getQuizResultSummery
-        Log.d(TAG, "getQuizResultSummary [RAW RESPONSE]: id=${summary?.id}, badge=${summary?.badge}, total_correct=${summary?.total_correct}, total_incorrect=${summary?.total_incorrect}, total_questions=${summary?.total_questions}, total_spent_time=${summary?.total_spent_time}, subject_results=${summary?.subject_results}")
+        Log.d(TAG, "getQuizResultSummary [PARSED SUMMARY]: id=${summary?.id}, badge=${summary?.badge}, correct=${summary?.correctCount}, incorrect=${summary?.incorrectCount}, questions=${summary?.questionsCount}, spentTime=${summary?.spentTimeSeconds}, badgeUrl=${summary?.fullBadgeImageUrl}, subjectsCount=${summary?.subject_results?.size}")
 
         return summary
             ?: throw IllegalStateException(response.errors?.firstOrNull()?.message ?: "ফলাফল লোড করা সম্ভব হয়নি")

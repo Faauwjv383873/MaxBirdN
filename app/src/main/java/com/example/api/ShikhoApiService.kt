@@ -214,6 +214,9 @@ interface ShikhoApiService {
                         }
                         
                         val newBody = modifiedString.toResponseBody(contentType)
+                        if (modifiedString.contains("getQuizResultSummery") || modifiedString.contains("SubmitPracticeQuizMcqSession") || modifiedString.contains("submitPracticeQuizMcqSession")) {
+                            android.util.Log.d("QUIZ_RAW_RESPONSE", ">>> RAW GRAPHQL RESPONSE:\n$modifiedString")
+                        }
                         return@Interceptor response.newBuilder().body(newBody).build()
                     }
                 } catch (_: Exception) {}
@@ -229,6 +232,8 @@ interface ShikhoApiService {
                 .build()
 
             val moshi = Moshi.Builder()
+                .add(FlexibleIntAdapter())
+                .add(FlexibleLongAdapter())
                 .add(object {
                     @FromJson
                     fun fromJson(reader: JsonReader): String? {
@@ -258,6 +263,60 @@ interface ShikhoApiService {
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
                 .create(ShikhoApiService::class.java)
+        }
+    }
+}
+
+class FlexibleIntAdapter {
+    @FromJson
+    fun fromJson(reader: JsonReader): Int? {
+        return when (reader.peek()) {
+            JsonReader.Token.NULL -> reader.nextNull()
+            JsonReader.Token.NUMBER -> reader.nextInt()
+            JsonReader.Token.STRING -> {
+                val str = reader.nextString().trim()
+                str.toIntOrNull() ?: str.toDoubleOrNull()?.toInt()
+            }
+            else -> {
+                reader.skipValue()
+                null
+            }
+        }
+    }
+
+    @ToJson
+    fun toJson(writer: JsonWriter, value: Int?) {
+        if (value == null) {
+            writer.nullValue()
+        } else {
+            writer.value(value)
+        }
+    }
+}
+
+class FlexibleLongAdapter {
+    @FromJson
+    fun fromJson(reader: JsonReader): Long? {
+        return when (reader.peek()) {
+            JsonReader.Token.NULL -> reader.nextNull()
+            JsonReader.Token.NUMBER -> reader.nextLong()
+            JsonReader.Token.STRING -> {
+                val str = reader.nextString().trim()
+                str.toLongOrNull() ?: str.toDoubleOrNull()?.toLong()
+            }
+            else -> {
+                reader.skipValue()
+                null
+            }
+        }
+    }
+
+    @ToJson
+    fun toJson(writer: JsonWriter, value: Long?) {
+        if (value == null) {
+            writer.nullValue()
+        } else {
+            writer.value(value)
         }
     }
 }
