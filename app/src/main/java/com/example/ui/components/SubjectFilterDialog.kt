@@ -37,6 +37,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.api.AcademicSubjectItem
 import com.example.utils.SubjectColorUtils
+import com.example.utils.SubjectIconBadge
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -281,17 +282,16 @@ fun SubjectFilterDialog(
                                                 modifier = Modifier.weight(1f),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                if (!subject.icon.isNullOrBlank()) {
-                                                    AsyncImage(
-                                                        model = subject.icon,
-                                                        contentDescription = subjectName,
-                                                        modifier = Modifier
-                                                            .size(28.dp)
-                                                            .clip(CircleShape),
-                                                        contentScale = ContentScale.Fit
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                }
+                                                SubjectIconBadge(
+                                                    iconUrl = subject.icon,
+                                                    subjectName = subjectName,
+                                                    subjectCode = code,
+                                                    color = colors.textColor,
+                                                    size = 32.dp,
+                                                    iconSize = 18.dp
+                                                )
+
+                                                Spacer(modifier = Modifier.width(8.dp))
 
                                                 Text(
                                                     text = subjectName,

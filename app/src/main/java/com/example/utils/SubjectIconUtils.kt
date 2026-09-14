@@ -40,10 +40,13 @@ object SubjectIconUtils {
             raw.contains("ভূগোল") || raw.contains("geography") || raw.contains("geo") -> Icons.Default.Public
             raw.contains("ইতিহাস") || raw.contains("history") -> Icons.Default.HistoryEdu
             raw.contains("যুক্তি") || raw.contains("logic") || raw.contains("মনোবিজ্ঞান") -> Icons.Default.Psychology
-            raw.contains("হিসাব") || raw.contains("accounting") || raw.contains("ফিন্যান্স") || raw.contains("ব্যবসায়") -> Icons.Default.ReceiptLong
+            raw.contains("হিসাব") || raw.contains("accounting") || raw.contains("ফিন্যান্স") || raw.contains("ব্যবসায়") || raw.contains("ব্যবস্থাপনা") -> Icons.Default.ReceiptLong
             raw.contains("সমাজ") || raw.contains("social") -> Icons.Default.Groups
             raw.contains("ইসলাম") || raw.contains("islam") -> Icons.Default.AutoStories
-            else -> Icons.Default.AutoStories
+            raw.contains("কৃষি") || raw.contains("agri") -> Icons.Default.Agriculture
+            raw.contains("পরিসংখ্যান") || raw.contains("stat") -> Icons.Default.BarChart
+            raw.contains("গার্হস্থ্য") || raw.contains("home") -> Icons.Default.HomeWork
+            else -> Icons.Default.Book
         }
     }
 }

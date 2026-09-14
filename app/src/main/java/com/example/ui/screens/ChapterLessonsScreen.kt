@@ -216,37 +216,19 @@ fun ChapterLessonsScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+                        val errorMsg = uiState.lessonsErrorMessage
+                        val displayMsg = if (errorMsg.isNullOrBlank() || errorMsg.contains("আইডি") || errorMsg.contains("http") || errorMsg.contains("HTTP") || errorMsg.contains("এরর") || errorMsg.contains("Error")) {
+                            "এই অধ্যায়ে কোনো ক্লাস বা লেকচার পাওয়া যায়নি"
+                        } else {
+                            errorMsg
+                        }
                         Text(
-                            text = uiState.lessonsErrorMessage ?: "এই অধ্যায়ে কোনো ক্লাস বা লেকচার পাওয়া যায়নি",
+                            text = displayMsg,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center
                         )
-                        if (!uiState.lessonsDiagnosticInfo.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = "সার্ভার অনুসন্ধান তথ্য:",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = uiState.lessonsDiagnosticInfo ?: "",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        lineHeight = 16.sp
-                                    )
-                                }
-                            }
-                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = {

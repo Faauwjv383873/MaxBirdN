@@ -12,6 +12,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.res.painterResource
 import com.example.R
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -193,6 +194,8 @@ private fun CourseFilterChip(
             fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) Color.White else Color(0xFF475569),
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
         )
     }
@@ -220,7 +223,7 @@ private fun MyCoursesListView(
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        // Seamless header matching page background (no white surface or shadow!)
+        // Header matching page background
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -262,57 +265,50 @@ private fun MyCoursesListView(
                     color = Color(0xFF64748B)
                 )
             }
-
-            IconButton(
-                onClick = onRefresh,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Refresh",
-                    tint = Color(0xFF0284C7),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
         }
 
-        // Category Filter Chips if multiple categories exist
+        // Category Filter Chips if multiple categories exist - LazyRow prevents vertical text wrapping
         if (free.isNotEmpty() || other.isNotEmpty()) {
-            Row(
+            LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                    .padding(vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                CourseFilterChip(
-                    label = "সকল (${enrolled.size + free.size + other.size})",
-                    selected = selectedFilter == "all",
-                    onClick = { selectedFilter = "all" }
-                )
-                if (enrolled.isNotEmpty()) {
+                item {
                     CourseFilterChip(
-                        label = "আমার (${enrolled.size})",
-                        selected = selectedFilter == "enrolled",
-                        onClick = { selectedFilter = "enrolled" }
+                        label = "সকল (${enrolled.size + free.size + other.size})",
+                        selected = selectedFilter == "all",
+                        onClick = { selectedFilter = "all" }
                     )
+                }
+                if (enrolled.isNotEmpty()) {
+                    item {
+                        CourseFilterChip(
+                            label = "আমার (${enrolled.size})",
+                            selected = selectedFilter == "enrolled",
+                            onClick = { selectedFilter = "enrolled" }
+                        )
+                    }
                 }
                 if (free.isNotEmpty()) {
-                    CourseFilterChip(
-                        label = "ফ্রি (${free.size})",
-                        selected = selectedFilter == "free",
-                        onClick = { selectedFilter = "free" }
-                    )
+                    item {
+                        CourseFilterChip(
+                            label = "ফ্রি (${free.size})",
+                            selected = selectedFilter == "free",
+                            onClick = { selectedFilter = "free" }
+                        )
+                    }
                 }
                 if (other.isNotEmpty()) {
-                    CourseFilterChip(
-                        label = "অন্যান্য (${other.size})",
-                        selected = selectedFilter == "other",
-                        onClick = { selectedFilter = "other" }
-                    )
+                    item {
+                        CourseFilterChip(
+                            label = "অন্যান্য (${other.size})",
+                            selected = selectedFilter == "other",
+                            onClick = { selectedFilter = "other" }
+                        )
+                    }
                 }
             }
         }
@@ -476,39 +472,6 @@ private fun getCourseGradient(title: String): Brush {
     }
 }
 
-/**
- * Micro feature pill displayed in course cards
- */
-@Composable
-private fun CourseFeaturePill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color.White.copy(alpha = 0.12f)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.5.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(12.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = text,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.90f)
-            )
-        }
-    }
-}
-
 @Composable
 private fun EnrolledCourseBannerCard(
     program: EnrolledProgram,
@@ -538,10 +501,10 @@ private fun EnrolledCourseBannerCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start
             ) {
-                // Top Row: Status badge on left, class/batch tag on right
+                // Top Row: Status badge on left
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.Start,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // "ভর্তি হয়েছো" badge with verified checkmark
@@ -568,22 +531,6 @@ private fun EnrolledCourseBannerCard(
                                 color = Color(0xFFECFDF5)
                             )
                         }
-                    }
-
-                    // Class or Batch tag (e.g. HSC '27 or একাডেমিক)
-                    val classTag = program.classes?.firstOrNull() ?: if (title.contains("27") || title.contains("২৭")) "এইচএসসি '২৭" else "একাডেমিক"
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color.White.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f))
-                    ) {
-                        Text(
-                            text = classTag,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.95f),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
                     }
                 }
 
@@ -624,19 +571,6 @@ private fun EnrolledCourseBannerCard(
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 24.sp
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Micro Feature Pills Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CourseFeaturePill(icon = Icons.Default.SlowMotionVideo, text = "ভিডিও ক্লাস")
-                    CourseFeaturePill(icon = Icons.Default.MenuBook, text = "নোটস ও শিট")
-                    CourseFeaturePill(icon = Icons.Default.FactCheck, text = "কুইজ ও এক্সাম")
-                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -731,21 +665,6 @@ private fun FreeCourseBannerCard(
                                 color = Color.White
                             )
                         }
-                    }
-
-                    val classTag = program.classes?.firstOrNull() ?: "সকলের জন্য"
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color.White.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f))
-                    ) {
-                        Text(
-                            text = classTag,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.95f),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
                     }
                 }
 
@@ -880,22 +799,6 @@ private fun OtherCourseBannerCard(
                 .padding(20.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                val classLabel = program.classes?.firstOrNull() ?: "নতুন ব্যাচ"
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.White.copy(alpha = 0.16f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                    modifier = Modifier.padding(bottom = 12.dp)
-                ) {
-                    Text(
-                        text = classLabel,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                    )
-                }
-
                 if (!program.banner_url.isNullOrBlank()) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
