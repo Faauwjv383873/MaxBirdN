@@ -6,22 +6,24 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -35,7 +37,7 @@ import com.example.utils.AvatarUtils
 
 /**
  * Animated Clean Greeting Text Composable
- * Keeps full Bengali words intact without breaking grapheme clusters.
+ * LOGIC: হুবহু সেম (hueShift 190-220) — শুধু 👋 ইমোজিতে wave animation যোগ হয়েছে
  */
 @Composable
 fun AnimatedRainbowGreetingText(
@@ -45,8 +47,8 @@ fun AnimatedRainbowGreetingText(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "GreetingTransition")
     val hueShift by infiniteTransition.animateFloat(
-        initialValue = 190f, // Sky Blue
-        targetValue = 220f, // Royal Indigo
+        initialValue = 190f,
+        targetValue = 220f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 3500, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
@@ -57,6 +59,17 @@ fun AnimatedRainbowGreetingText(
     val textColor = remember(hueShift) {
         Color.hsv(hue = hueShift, saturation = 0.75f, value = 0.98f)
     }
+
+    // NEW: waving hand emoji
+    val waveAngle by infiniteTransition.animateFloat(
+        initialValue = -14f,
+        targetValue = 14f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(550, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "waveAngle"
+    )
 
     Row(
         modifier = modifier,
@@ -72,13 +85,20 @@ fun AnimatedRainbowGreetingText(
             modifier = Modifier.weight(1f, fill = false)
         )
         Spacer(modifier = Modifier.width(5.dp))
-        Text(text = "👋", fontSize = 16.sp)
+        Text(
+            text = "👋",
+            fontSize = 16.sp,
+            modifier = Modifier.graphicsLayer {
+                rotationZ = waveAngle
+                transformOrigin = TransformOrigin(0.7f, 0.8f)
+            }
+        )
     }
 }
 
 /**
- * High-Density Compact Home Header Component
- * Minimizes top status bar waste, features animated letter colors & sleek course switcher.
+ * High-Density Compact Home Header
+ * LOGIC: সব প্যারামিটার ও কলব্যাক সেম — শুধু ভিজ্যুয়াল আপগ্রেড
  */
 @Composable
 fun HomeHeader(
@@ -93,7 +113,7 @@ fun HomeHeader(
 ) {
     val context = LocalContext.current
 
-    // Glowing subtle border animation for course switcher
+    // LOGIC: গ্লো বর্ডার অ্যানিমেশন (সেম)
     val infiniteTransition = rememberInfiniteTransition(label = "HeaderGlow")
     val borderGlowOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -109,8 +129,8 @@ fun HomeHeader(
         Brush.horizontalGradient(
             colors = listOf(
                 Color(0xFF38BDF8).copy(alpha = 0.4f),
-                Color(0xFF818CF8).copy(alpha = 0.5f),
-                Color(0xFFC084FC).copy(alpha = 0.4f),
+                Color(0xFF818CF8).copy(alpha = 0.6f),
+                Color(0xFFC084FC).copy(alpha = 0.5f),
                 Color(0xFF38BDF8).copy(alpha = 0.4f)
             ),
             startX = borderGlowOffset * 500f,
@@ -118,16 +138,29 @@ fun HomeHeader(
         )
     }
 
+    // NEW: course switcher press animation
+    val switcherInteraction = remember { MutableInteractionSource() }
+    val isSwitcherPressed by switcherInteraction.collectIsPressedAsState()
+    val switcherScale by animateFloatAsState(
+        targetValue = if (isSwitcherPressed) 0.975f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "switcherScale"
+    )
+
+    // NEW: avatar gentle glow pulse
+    val avatarGlow by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "avatarGlow"
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF051124),
-                        Color(0xFF07152B),
-                        Color(0xFF0A1E3C)
-                    )
+                    colors = listOf(Color(0xFF051124), Color(0xFF07152B), Color(0xFF0A1E3C))
                 )
             )
             .statusBarsPadding()
@@ -142,13 +175,22 @@ fun HomeHeader(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // App Logo Badge
+                // App Logo Badge — gradient border + glow
                 Box(
                     modifier = Modifier
                         .size(42.dp)
+                        .shadow(
+                            elevation = 8.dp,
+                            shape = RoundedCornerShape(12.dp),
+                            spotColor = Color(0xFF38BDF8).copy(alpha = 0.4f)
+                        )
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color.White)
-                        .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
+                        .border(
+                            1.dp,
+                            Brush.linearGradient(listOf(Color(0xFF38BDF8), Color(0xFF818CF8))),
+                            RoundedCornerShape(12.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -163,7 +205,6 @@ fun HomeHeader(
                 Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    // Animated Rainbow Multi-color Greeting
                     AnimatedRainbowGreetingText(
                         greetingPrefix = "হ্যালো,",
                         userName = userName
@@ -171,7 +212,6 @@ fun HomeHeader(
 
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // Subtitle (Class, Group, School)
                     Text(
                         text = subtitle,
                         color = Color(0xFF94A3B8),
@@ -185,7 +225,7 @@ fun HomeHeader(
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            // Profile Avatar with Gold Border Ring
+            // Profile Avatar — animated gradient ring
             val fallbackInitial = remember(userName) {
                 userName.trim().firstOrNull()?.toString()?.uppercase() ?: "U"
             }
@@ -196,54 +236,58 @@ fun HomeHeader(
 
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(50.dp)
+                    .graphicsLayer { alpha = avatarGlow }
                     .clip(CircleShape)
-                    .border(
-                        width = 2.dp,
-                        color = Color(0xFFF59E0B),
-                        shape = CircleShape
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFFF59E0B), Color(0xFFFB7185), Color(0xFF818CF8))
+                        )
                     )
+                    .padding(2.dp)
                     .clickable { onAvatarClick() },
                 contentAlignment = Alignment.Center
             ) {
-                SubcomposeAsyncImage(
-                    model = imageRequest,
-                    contentDescription = "Profile Avatar",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    error = {
-                        AvatarFallbackBadge(fallbackInitial)
-                    },
-                    loading = {
-                        AvatarFallbackBadge(fallbackInitial)
-                    }
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .background(Color(0xFF07152B))
+                ) {
+                    SubcomposeAsyncImage(
+                        model = imageRequest,
+                        contentDescription = "Profile Avatar",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        error = { AvatarFallbackBadge(fallbackInitial) },
+                        loading = { AvatarFallbackBadge(fallbackInitial) }
+                    )
+                }
             }
         }
 
-        // Sleek Course Switcher Pill matching Screenshot 1
+        // Course Switcher Pill — glow border + press scale
         if (!activeCourseTitle.isNullOrBlank() && onOpenCourseSwitcher != null) {
             Spacer(modifier = Modifier.height(14.dp))
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
+                    .graphicsLayer { scaleX = switcherScale; scaleY = switcherScale }
                     .clip(RoundedCornerShape(24.dp))
-                    .clickable { onOpenCourseSwitcher() },
+                    .clickable(interactionSource = switcherInteraction, indication = null) {
+                        onOpenCourseSwitcher()
+                    },
                 shape = RoundedCornerShape(24.dp),
                 color = Color(0xFF0B2446),
-                border = BorderStroke(1.2.dp, Color(0xFF0284C7).copy(alpha = 0.85f))
+                border = BorderStroke(1.2.dp, courseSwitcherBorderGradient)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
                             Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color(0xFF0B2446),
-                                    Color(0xFF0E325E),
-                                    Color(0xFF0B2446)
-                                )
+                                colors = listOf(Color(0xFF0B2446), Color(0xFF0E325E), Color(0xFF0B2446))
                             )
                         )
                         .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -306,12 +350,7 @@ private fun AvatarFallbackBadge(initial: String) {
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF0284C7),
-                        Color(0xFF6366F1)
-                    )
-                )
+                Brush.linearGradient(colors = listOf(Color(0xFF0284C7), Color(0xFF6366F1)))
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -323,4 +362,3 @@ private fun AvatarFallbackBadge(initial: String) {
         )
     }
 }
-

@@ -4,8 +4,10 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,10 +17,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,79 +46,118 @@ fun MainContainerScreen(
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
+    val haptic = LocalHapticFeedback.current
+    val isDark = isSystemInDarkTheme()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(
+                if (isDark) {
+                    Brush.verticalGradient(listOf(Color(0xFF0B1120), Color(0xFF0F172A)))
+                } else {
+                    Brush.verticalGradient(listOf(Color(0xFFF8FAFC), Color(0xFFEFF6FF), Color(0xFFF8FAFC)))
+                }
+            )
     ) {
-        // Tab Content fills full screen
+        // Soft ambient glows (decorative)
         Box(
+            modifier = Modifier
+                .size(320.dp)
+                .offset(x = (-100).dp, y = (-120).dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0xFF2D5BFF).copy(alpha = if (isDark) 0.15f else 0.08f), Color.Transparent)
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .size(280.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 90.dp, y = (-110).dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0xFF00BFA6).copy(alpha = if (isDark) 0.12f else 0.07f), Color.Transparent)
+                    )
+                )
+        )
+
+        // Tab Content — directional slide + fade transition
+        AnimatedContent(
+            targetState = selectedIndex,
+            transitionSpec = {
+                val direction = if (targetState > initialState) 1 else -1
+                (fadeIn(tween(260, easing = FastOutSlowInEasing)) +
+                        slideInHorizontally(
+                            animationSpec = tween(280, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it / 14 * direction }
+                        )) togetherWith
+                        (fadeOut(tween(160)) +
+                                slideOutHorizontally(
+                                    tween(200),
+                                    targetOffsetX = { -it / 18 * direction }
+                                ))
+            },
+            label = "TabContentTransition",
             modifier = Modifier.fillMaxSize()
-        ) {
-            AnimatedContent(
-                targetState = selectedIndex,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
-                },
-                label = "TabContentTransition",
-                modifier = Modifier.fillMaxSize()
-            ) { tabIndex ->
-                when (tabIndex) {
-                    0 -> {
-                        HomeScreen(
-                            viewModel = homeViewModel,
-                            onNavigateToProfile = { selectedIndex = 3 },
-                            onNavigateToEditProfile = onNavigateToEditProfile,
-                            onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
-                            onCourseSelected = { program ->
-                                homeViewModel.switchActiveCourse(program)
-                                courseViewModel.openCourse(program)
-                                selectedIndex = 1
-                            },
-                            onOpenCourse = { phaseId ->
-                                val activeProg = homeViewModel.uiState.value.activeProgram
-                                if (activeProg != null) {
-                                    courseViewModel.switchProgram(
-                                        newProgramId = activeProg.id,
-                                        newProgramTitle = activeProg.title_bn ?: "",
-                                        batchId = activeProg.enrollment_details?.batch_id,
-                                        classCode = activeProg.classes?.firstOrNull(),
-                                        targetPhaseId = phaseId
-                                    )
-                                } else {
-                                    courseViewModel.loadSubjects(targetPhaseId = phaseId)
-                                }
-                                selectedIndex = 1
-                            },
-                            onOpenFullRoutine = onNavigateToFullRoutine,
-                            onOpenLessonDetail = onOpenLessonDetail
-                        )
-                    }
-                    1 -> {
-                        CourseSubjectsScreen(
-                            viewModel = courseViewModel,
-                            onSubjectClick = onNavigateToSubjectChapters
-                        )
-                    }
-                    3 -> {
-                        SettingsScreen(
-                            sessionManager = sessionManager,
-                            onNavigateToEditProfile = onNavigateToEditProfile,
-                            onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
-                            onNavigateToProfile = onNavigateToProfile,
-                            onNavigateToCourseEnrollment = onNavigateToCourseEnrollment,
-                            onLogout = onLogout
-                        )
-                    }
-                    else -> {
-                        ComingSoonScreen(tabItem = NavigationItem.items[tabIndex])
-                    }
+        ) { tabIndex ->
+            when (tabIndex) {
+                0 -> {
+                    HomeScreen(
+                        viewModel = homeViewModel,
+                        onNavigateToProfile = { selectedIndex = 3 },
+                        onNavigateToEditProfile = onNavigateToEditProfile,
+                        onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
+                        onCourseSelected = { program ->
+                            homeViewModel.switchActiveCourse(program)
+                            courseViewModel.openCourse(program)
+                            selectedIndex = 1
+                        },
+                        onOpenCourse = { phaseId ->
+                            val activeProg = homeViewModel.uiState.value.activeProgram
+                            if (activeProg != null) {
+                                courseViewModel.switchProgram(
+                                    newProgramId = activeProg.id,
+                                    newProgramTitle = activeProg.title_bn ?: "",
+                                    batchId = activeProg.enrollment_details?.batch_id,
+                                    classCode = activeProg.classes?.firstOrNull(),
+                                    targetPhaseId = phaseId
+                                )
+                            } else {
+                                courseViewModel.loadSubjects(targetPhaseId = phaseId)
+                            }
+                            selectedIndex = 1
+                        },
+                        onOpenFullRoutine = onNavigateToFullRoutine,
+                        onOpenLessonDetail = onOpenLessonDetail
+                    )
+                }
+                1 -> {
+                    CourseSubjectsScreen(
+                        viewModel = courseViewModel,
+                        onSubjectClick = onNavigateToSubjectChapters
+                    )
+                }
+                3 -> {
+                    SettingsScreen(
+                        sessionManager = sessionManager,
+                        onNavigateToEditProfile = onNavigateToEditProfile,
+                        onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
+                        onNavigateToProfile = onNavigateToProfile,
+                        onNavigateToCourseEnrollment = onNavigateToCourseEnrollment,
+                        onLogout = onLogout
+                    )
+                }
+                else -> {
+                    ComingSoonScreen(tabItem = NavigationItem.items[tabIndex])
                 }
             }
         }
 
-        // Floating Bottom Bar overlaid cleanly at bottom (no white background block)
+        // Floating Bottom Bar
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -123,9 +166,12 @@ fun MainContainerScreen(
             ElementalFloatingBottomBar(
                 selectedIndex = selectedIndex,
                 onTabSelected = { index ->
-                    selectedIndex = index
-                    if (index == 1) {
-                        courseViewModel.loadSubjects()
+                    if (index != selectedIndex) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        selectedIndex = index
+                        if (index == 1) {
+                            courseViewModel.loadSubjects()
+                        }
                     }
                 }
             )
@@ -134,81 +180,117 @@ fun MainContainerScreen(
 }
 
 /**
- * Compact Floating Dock Navigation Bar with Water, Fire, Ice & Light Animations
+ * Premium Floating Dock — glow shadow, icon bounce spring, gradient shine border
  */
+private data class TabTheme(val pillBg: Color, val border: Color, val icon: Color)
+
 @Composable
 fun ElementalFloatingBottomBar(
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit
 ) {
+    val themes = remember {
+        listOf(
+            TabTheme(Color(0xFF261908), Color(0xFFF59E0B), Color(0xFFFBBF24)), // Amber
+            TabTheme(Color(0xFF082744), Color(0xFF0284C7), Color(0xFF38BDF8)), // Azure
+            TabTheme(Color(0xFF0C243D), Color(0xFF38BDF8), Color(0xFF7DD3FC)), // Sky
+            TabTheme(Color(0xFF201338), Color(0xFFA855F7), Color(0xFFC084FC))  // Violet
+        )
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .height(64.dp)
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .height(66.dp)
             .shadow(
-                elevation = 20.dp,
-                shape = RoundedCornerShape(32.dp),
-                spotColor = Color.Black.copy(alpha = 0.45f)
+                elevation = 26.dp,
+                shape = RoundedCornerShape(33.dp),
+                spotColor = Color.Black.copy(alpha = 0.5f)
             ),
-        shape = RoundedCornerShape(32.dp),
+        shape = RoundedCornerShape(33.dp),
         color = Color(0xFF07152B),
-        border = BorderStroke(1.dp, Color(0xFF1E3A5F).copy(alpha = 0.7f))
+        border = BorderStroke(
+            1.dp,
+            Brush.horizontalGradient(
+                listOf(Color(0xFF1E3A5F).copy(alpha = 0.9f), Color(0xFF2D5BFF).copy(alpha = 0.45f), Color(0xFF1E3A5F).copy(alpha = 0.9f))
+            )
+        )
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Top shine line
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 32.dp)
+                    .height(1.dp)
+                    .width(120.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color.Transparent, Color.White.copy(alpha = 0.25f), Color.Transparent)
+                        )
+                    )
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             NavigationItem.items.forEachIndexed { index, item ->
                 val isSelected = selectedIndex == index
+                val theme = themes.getOrElse(index) { themes.last() }
 
-                val activePillBg = remember(index) {
-                    when (index) {
-                        0 -> Color(0xFF261908) // Warm amber container
-                        1 -> Color(0xFF082744) // Deep navy-azure container
-                        2 -> Color(0xFF0C243D) // Ice blue container
-                        else -> Color(0xFF201338) // Violet container
-                    }
-                }
+                // Icon bounce on selection
+                val iconScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.18f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "iconScale$index"
+                )
 
-                val activeBorderColor = remember(index) {
-                    when (index) {
-                        0 -> Color(0xFFF59E0B) // Amber
-                        1 -> Color(0xFF0284C7) // Azure
-                        2 -> Color(0xFF38BDF8) // Sky
-                        else -> Color(0xFFA855F7) // Purple
-                    }
-                }
+                // Unselected → selected color transition
+                val iconTint by animateColorAsState(
+                    targetValue = if (isSelected) theme.icon else Color(0xFF94A3B8),
+                    animationSpec = tween(250),
+                    label = "iconTint$index"
+                )
 
-                val activeIconColor = remember(index) {
-                    when (index) {
-                        0 -> Color(0xFFF59E0B)
-                        1 -> Color(0xFF38BDF8)
-                        2 -> Color(0xFF38BDF8)
-                        else -> Color(0xFFC084FC)
-                    }
-                }
+                // Press feedback
+                val interaction = remember { MutableInteractionSource() }
+                val isPressed by interaction.collectIsPressedAsState()
+                val itemScale by animateFloatAsState(
+                    targetValue = if (isPressed) 0.92f else 1f,
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                    label = "itemScale$index"
+                )
 
                 AnimatedContent(
                     targetState = isSelected,
                     transitionSpec = {
-                        (fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.92f))
-                            .togetherWith(fadeOut(animationSpec = tween(150)))
+                        (fadeIn(tween(200)) + scaleIn(initialScale = 0.9f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)))
+                            .togetherWith(fadeOut(tween(140)))
                     },
-                    label = "TabPillTransition"
+                    label = "TabPillTransition$index"
                 ) { selected ->
                     if (selected) {
                         Surface(
                             shape = RoundedCornerShape(24.dp),
-                            color = activePillBg,
-                            border = BorderStroke(1.5.dp, activeBorderColor),
+                            color = theme.pillBg,
+                            border = BorderStroke(
+                                1.5.dp,
+                                Brush.horizontalGradient(listOf(theme.border, theme.border.copy(alpha = 0.5f), theme.border))
+                            ),
+                            shadowElevation = 8.dp,
                             modifier = Modifier
                                 .height(46.dp)
-                                .clickable { onTabSelected(index) }
+                                .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
+                                .clickable(interactionSource = interaction, indication = null) { onTabSelected(index) }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -218,8 +300,10 @@ fun ElementalFloatingBottomBar(
                                 Icon(
                                     imageVector = item.selectedIcon,
                                     contentDescription = item.title,
-                                    tint = activeIconColor,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = theme.icon,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
@@ -236,21 +320,24 @@ fun ElementalFloatingBottomBar(
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { onTabSelected(index) }
+                                .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
+                                .clickable(interactionSource = interaction, indication = null) { onTabSelected(index) }
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Icon(
                                 imageVector = item.unselectedIcon,
                                 contentDescription = item.title,
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(20.dp)
+                                tint = iconTint,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = item.title,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color(0xFF94A3B8)
+                                color = iconTint
                             )
                         }
                     }
@@ -259,5 +346,4 @@ fun ElementalFloatingBottomBar(
         }
     }
 }
-
-
+}

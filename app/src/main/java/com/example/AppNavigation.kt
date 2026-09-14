@@ -1,5 +1,19 @@
 package com.example
 
+import androidx.compose.animation.AnimatedContentScope
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -7,6 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,18 +70,115 @@ object Routes {
     const val CHAPTER_EXAM = "chapter_exam/{sessionId}?lessonId={lessonId}&title={title}&chapter={chapter}"
 }
 
+// ============================================================
+//  NEW: Premium Navigation Transition System
+//  লজিক অপরিবর্তিত — শুধু স্ক্রিন বদলের অ্যানিমেশন যোগ হয়েছে
+// ============================================================
+
+private data class NavTransitions(
+    val enter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition,
+    val exit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition,
+    val popEnter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition,
+    val popExit: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition
+)
+
+private object NavAnim {
+    /** Auth flow: নিচ থেকে হালকা ভেসে ওঠা + fade */
+    val auth = NavTransitions(
+        enter = {
+            slideInVertically(tween(380, easing = FastOutSlowInEasing)) { it / 7 } +
+                    fadeIn(tween(340))
+        },
+        exit = { fadeOut(tween(220)) },
+        popEnter = { fadeIn(tween(280)) },
+        popExit = {
+            slideOutVertically(tween(320, easing = FastOutSlowInEasing)) { it / 7 } +
+                    fadeOut(tween(260))
+        }
+    )
+
+    /** Home: soft scale + fade — প্রিমিয়াম landing feel */
+    val home = NavTransitions(
+        enter = {
+            scaleIn(tween(380, easing = FastOutSlowInEasing), initialScale = 0.93f) +
+                    fadeIn(tween(340))
+        },
+        exit = { fadeOut(tween(220)) },
+        popEnter = { fadeIn(tween(300)) },
+        popExit = {
+            scaleOut(tween(300, easing = FastOutSlowInEasing), targetScale = 0.95f) +
+                    fadeOut(tween(280))
+        }
+    )
+
+    /** Main flow: ডান থেকে slide + scale, back-এ বামে slide */
+    val forward = NavTransitions(
+        enter = {
+            slideInHorizontally(tween(360, easing = FastOutSlowInEasing)) { it / 5 } +
+                    fadeIn(tween(300)) +
+                    scaleIn(tween(360, easing = FastOutSlowInEasing), initialScale = 0.97f)
+        },
+        exit = {
+            slideOutHorizontally(tween(280)) { -it / 9 } +
+                    fadeOut(tween(220))
+        },
+        popEnter = {
+            slideInHorizontally(tween(300)) { -it / 9 } +
+                    fadeIn(tween(260))
+        },
+        popExit = {
+            slideOutHorizontally(tween(340, easing = FastOutSlowInEasing)) { it / 5 } +
+                    fadeOut(tween(260))
+        }
+    )
+
+    /** Immersive: Video/Exam/Player — পুরো নিচ থেকে ওঠে, back-এ নামে */
+    val immersive = NavTransitions(
+        enter = {
+            slideInVertically(tween(400, easing = FastOutSlowInEasing)) { it } +
+                    fadeIn(tween(300))
+        },
+        exit = { fadeOut(tween(200)) },
+        popEnter = { fadeIn(tween(260)) },
+        popExit = {
+            slideOutVertically(tween(360, easing = FastOutSlowInEasing)) { it } +
+                    fadeOut(tween(300))
+        }
+    )
+}
+
+/**
+ * Reusable animated composable — সব রাউটে একই লজিক, ভিন্ন অ্যানিমেশন
+ */
+private fun NavGraphBuilder.animatedComposable(
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    anim: NavTransitions = NavAnim.forward,
+    content: @Composable AnimatedContentScope.(NavBackStackEntry) -> Unit
+) {
+    composable(
+        route = route,
+        arguments = arguments,
+        enterTransition = anim.enter,
+        exitTransition = anim.exit,
+        popEnterTransition = anim.popEnter,
+        popExitTransition = anim.popExit,
+        content = { entry -> content(entry) }
+    )
+}
+
 @Composable
 fun AppNavigation(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
     val context = LocalContext.current
-    
+
     val sessionManager = remember { SessionManager(context) }
     val apiService = remember { ShikhoApiService.create(sessionManager) }
-    
+
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModelFactory(apiService, sessionManager)
     )
-    
+
     val homeViewModel: HomeViewModel = viewModel(
         factory = HomeViewModelFactory(apiService, sessionManager)
     )
@@ -80,9 +194,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
     val chapterExamViewModel: ChapterExamViewModel = viewModel(
         factory = ChapterExamViewModelFactory(apiService, sessionManager)
     )
-    
+
     val authState by authViewModel.authState.collectAsState()
-    
+
     val startDestination = if (sessionManager.getAccessToken() != null) {
         Routes.HOME
     } else {
@@ -94,7 +208,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         startDestination = startDestination,
         modifier = modifier
     ) {
-        composable(Routes.LOGIN) {
+        animatedComposable(Routes.LOGIN, anim = NavAnim.auth) {
             LoginScreen(
                 viewModel = authViewModel,
                 authState = authState,
@@ -106,8 +220,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 }
             )
         }
-        
-        composable(Routes.PIN) { backStackEntry ->
+
+        animatedComposable(Routes.PIN, anim = NavAnim.auth) { backStackEntry ->
             val phone = backStackEntry.arguments?.getString("phone") ?: ""
             PinScreen(
                 phone = phone,
@@ -135,8 +249,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 }
             )
         }
-        
-        composable(Routes.OTP) { backStackEntry ->
+
+        animatedComposable(Routes.OTP, anim = NavAnim.auth) { backStackEntry ->
             val phone = backStackEntry.arguments?.getString("phone") ?: ""
             val authType = backStackEntry.arguments?.getString("authType") ?: "signup"
             OtpScreen(
@@ -155,7 +269,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.SET_PIN) { backStackEntry ->
+        animatedComposable(Routes.SET_PIN, anim = NavAnim.auth) { backStackEntry ->
             val phone = backStackEntry.arguments?.getString("phone") ?: ""
             SetPinScreen(
                 phone = phone,
@@ -172,7 +286,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.RESET_SUCCESS) { backStackEntry ->
+        animatedComposable(Routes.RESET_SUCCESS, anim = NavAnim.auth) { backStackEntry ->
             val phone = backStackEntry.arguments?.getString("phone") ?: ""
             ResetSuccessScreen(
                 phone = phone,
@@ -184,7 +298,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.HOME) {
+        animatedComposable(Routes.HOME, anim = NavAnim.home) {
             MainContainerScreen(
                 homeViewModel = homeViewModel,
                 courseViewModel = courseViewModel,
@@ -222,7 +336,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.ROUTINE_FULL) {
+        animatedComposable(Routes.ROUTINE_FULL, anim = NavAnim.forward) {
             FullRoutineScreen(
                 viewModel = homeViewModel,
                 onBack = {
@@ -235,7 +349,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.EDIT_PROFILE) {
+        animatedComposable(Routes.EDIT_PROFILE, anim = NavAnim.forward) {
             val editProfileViewModel: EditProfileViewModel = viewModel(
                 factory = EditProfileViewModelFactory(apiService, sessionManager)
             )
@@ -247,7 +361,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.CHANGE_SYLLABUS) {
+        animatedComposable(Routes.CHANGE_SYLLABUS, anim = NavAnim.forward) {
             val changeSyllabusViewModel: ChangeSyllabusViewModel = viewModel(
                 factory = ChangeSyllabusViewModelFactory(apiService, sessionManager)
             )
@@ -259,7 +373,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.COURSE_ENROLLMENT_DETAILS) {
+        animatedComposable(Routes.COURSE_ENROLLMENT_DETAILS, anim = NavAnim.forward) {
             com.example.ui.screens.CourseEnrollmentDetailsScreen(
                 apiService = apiService,
                 sessionManager = sessionManager,
@@ -269,8 +383,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(
+        animatedComposable(
             route = Routes.SUBJECT_CHAPTERS,
+            anim = NavAnim.forward,
             arguments = listOf(
                 navArgument("subjectCode") { type = NavType.StringType },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
@@ -308,8 +423,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(
+        animatedComposable(
             route = Routes.CHAPTER_LESSONS,
+            anim = NavAnim.forward,
             arguments = listOf(
                 navArgument("chapterId") { type = NavType.StringType },
                 navArgument("name") { type = NavType.StringType; defaultValue = "" },
@@ -354,8 +470,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(
+        animatedComposable(
             route = Routes.ANIMATED_CHAPTERS,
+            anim = NavAnim.forward,
             arguments = listOf(
                 navArgument("subjectCode") { type = NavType.StringType },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" }
@@ -377,8 +494,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(
+        animatedComposable(
             route = Routes.ANIMATED_TOPICS,
+            anim = NavAnim.forward,
             arguments = listOf(
                 navArgument("chapterId") { type = NavType.StringType },
                 navArgument("name") { type = NavType.StringType; defaultValue = "" },
@@ -404,8 +522,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(
+        animatedComposable(
             route = Routes.CHAPTER_EXAM,
+            anim = NavAnim.immersive,
             arguments = listOf(
                 navArgument("sessionId") { type = NavType.StringType },
                 navArgument("lessonId") { type = NavType.StringType; defaultValue = "" },
@@ -428,7 +547,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(Routes.LESSON_DETAIL_PLAYER) {
+        animatedComposable(Routes.LESSON_DETAIL_PLAYER, anim = NavAnim.immersive) {
             val courseUiState by courseViewModel.uiState.collectAsState()
             LessonDetailPlayerScreen(
                 lesson = courseUiState.selectedLesson,
@@ -446,8 +565,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        composable(
+        animatedComposable(
             route = Routes.VIDEO_PLAYER,
+            anim = NavAnim.immersive,
             arguments = listOf(
                 navArgument("url") { type = NavType.StringType; defaultValue = "" },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
@@ -473,8 +593,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 }
             )
         }
-        
-        composable(Routes.PROFILE) {
+
+        animatedComposable(Routes.PROFILE, anim = NavAnim.forward) {
             ProfileScreen(
                 viewModel = authViewModel,
                 authState = authState,

@@ -1,9 +1,13 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -15,7 +19,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Tune
@@ -24,9 +27,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
 import com.example.api.AcademicSubjectItem
 import com.example.utils.SubjectColorUtils
 import com.example.utils.SubjectIconBadge
@@ -55,6 +57,7 @@ fun SubjectFilterDialog(
 ) {
     val totalCount = subjects.size
     val selectedCount = selectedSubjectCodes.size
+    val primary = MaterialTheme.colorScheme.primary
 
     Dialog(
         onDismissRequest = { if (!isSaving) onDismiss() },
@@ -63,8 +66,7 @@ fun SubjectFilterDialog(
         Card(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
-                .fillMaxHeight(0.85f)
-                .shadow(elevation = 16.dp, shape = RoundedCornerShape(24.dp)),
+                .fillMaxHeight(0.85f),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
@@ -73,7 +75,7 @@ fun SubjectFilterDialog(
                     .fillMaxSize()
                     .padding(20.dp)
             ) {
-                // 1. Header with Close Button
+                // 1. Header — NEW: gradient Tune badge
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -81,20 +83,21 @@ fun SubjectFilterDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(end = 8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Brush.linearGradient(listOf(primary, MaterialTheme.colorScheme.secondary))),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Tune,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .padding(4.dp)
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "সাবজেক্ট সাজাও",
                                 fontSize = 18.sp,
@@ -108,7 +111,7 @@ fun SubjectFilterDialog(
                             text = courseTitle.ifBlank { "সিলেক্টেড কোর্স" },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -116,23 +119,27 @@ fun SubjectFilterDialog(
 
                     IconButton(
                         onClick = { if (!isSaving) onDismiss() },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "বন্ধ করুন",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Explanatory Banner
+                // Banner — NEW: theme-aware (ডার্ক মোডেও সুন্দর দেখাবে)
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFEFF6FF),
-                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    color = primary.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, primary.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -142,14 +149,14 @@ fun SubjectFilterDialog(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = null,
-                            tint = Color(0xFF2563EB),
+                            tint = primary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "যে সাবজেক্টগুলো সিলেক্ট করবেন শুধু সেগুলোর রুটিন প্রদর্শিত হবে।",
                             fontSize = 12.sp,
-                            color = Color(0xFF1E40AF),
+                            color = MaterialTheme.colorScheme.onSurface,
                             lineHeight = 16.sp
                         )
                     }
@@ -157,14 +164,14 @@ fun SubjectFilterDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Quick Action Bar: Select All / Clear All
+                // 2. Quick Action Bar — LOGIC সেম
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (selectedCount == 0) "সব বিষয় সিলেক্টেড (ডিফল্ট)" else "$selectedCount/$totalCount টি বিষয় নির্বাচিত",
+                        text = if (selectedCount == 0) "সব বিষয় সিলেক্টেড (ডিফল্ট)" else "${selectedCount.toString().toBengaliDigits()}/${totalCount.toString().toBengaliDigits()} টি বিষয় নির্বাচিত",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -176,12 +183,9 @@ fun SubjectFilterDialog(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(
-                                text = "সবগুলো",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Icon(Icons.Default.FilterList, null, tint = primary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("সবগুলো", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = primary)
                         }
 
                         TextButton(
@@ -189,12 +193,7 @@ fun SubjectFilterDialog(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(
-                                text = "রিসেট",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.error
-                            )
+                            Text("রিসেট", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -204,7 +203,7 @@ fun SubjectFilterDialog(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 )
 
-                // Subject Grid Content
+                // 3. Subject Grid Content — LOGIC states সেম
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -212,33 +211,19 @@ fun SubjectFilterDialog(
                 ) {
                     when {
                         isLoading -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator(
-                                        strokeWidth = 3.dp,
-                                        modifier = Modifier.size(36.dp),
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(36.dp), color = primary)
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    Text(
-                                        text = "সাবজেক্ট লোড হচ্ছে...",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Text("সাবজেক্ট লোড হচ্ছে...", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
 
                         subjects.isEmpty() -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "এই কোর্সের জন্য কোনো সাবজেক্ট পাওয়া যায়নি।",
+                                    text = "এই কোর্সের জন্য কোনো সাবজেক্ট পাওয়া যায়নি।",
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -256,8 +241,18 @@ fun SubjectFilterDialog(
                                 items(subjects, key = { it.code ?: it.display_bn ?: "" }) { subject ->
                                     val code = subject.code ?: subject.display_bn ?: ""
                                     val isSelected = selectedSubjectCodes.contains(code)
-                                    val subjectName = subject.display_bn ?: subject.code ?: "বিষয়"
+                                    val subjectName = subject.display_bn ?: subject.code ?: "বিষয়"
                                     val colors = SubjectColorUtils.getColorScheme(subjectName)
+
+                                    // NEW: spring checkmark animation
+                                    val checkScale by animateFloatAsState(
+                                        targetValue = if (isSelected) 1f else 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        ),
+                                        label = "checkScale$code"
+                                    )
 
                                     Surface(
                                         modifier = Modifier
@@ -272,16 +267,11 @@ fun SubjectFilterDialog(
                                         )
                                     ) {
                                         Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
+                                            modifier = Modifier.fillMaxWidth().padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Row(
-                                                modifier = Modifier.weight(1f),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
+                                            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                                                 SubjectIconBadge(
                                                     iconUrl = subject.icon,
                                                     subjectName = subjectName,
@@ -305,36 +295,32 @@ fun SubjectFilterDialog(
 
                                             Spacer(modifier = Modifier.width(6.dp))
 
-                                            // Checkbox indicator
-                                            if (isSelected) {
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = colors.textColor,
-                                                    modifier = Modifier.size(20.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Check,
-                                                        contentDescription = "Selected",
-                                                        tint = Color.White,
-                                                        modifier = Modifier
-                                                            .size(14.dp)
-                                                            .padding(2.dp)
-                                                    )
-                                                }
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(20.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color.Transparent)
-                                                        .padding(2.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
+                                            Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                                                if (!isSelected) {
                                                     Icon(
                                                         imageVector = Icons.Default.RadioButtonUnchecked,
                                                         contentDescription = "Unselected",
                                                         tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                                                         modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                // Animated checkmark
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = colors.textColor,
+                                                    modifier = Modifier
+                                                        .size(20.dp)
+                                                        .graphicsLayer {
+                                                            scaleX = checkScale
+                                                            scaleY = checkScale
+                                                            alpha = checkScale
+                                                        }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Selected",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.padding(3.dp)
                                                     )
                                                 }
                                             }
@@ -348,7 +334,7 @@ fun SubjectFilterDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Bottom Action Buttons
+                // 4. Bottom Buttons — NEW: gradient save button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -363,30 +349,41 @@ fun SubjectFilterDialog(
                         Text("বাতিল", fontSize = 14.sp)
                     }
 
-                    Button(
-                        onClick = onSave,
-                        shape = RoundedCornerShape(12.dp),
-                        enabled = !isSaving,
+                    // Gradient Save
+                    val saveInteraction = remember { MutableInteractionSource() }
+                    val savePressed by saveInteraction.collectIsPressedAsState()
+                    val saveScale by animateFloatAsState(
+                        targetValue = if (savePressed) 0.97f else 1f,
+                        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                        label = "saveScale"
+                    )
+
+                    Box(
                         modifier = Modifier
                             .weight(1.4f)
                             .height(46.dp)
+                            .graphicsLayer { scaleX = saveScale; scaleY = saveScale }
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSaving) Brush.horizontalGradient(
+                                    listOf(primary.copy(alpha = 0.5f), MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f))
+                                ) else Brush.horizontalGradient(listOf(primary, MaterialTheme.colorScheme.secondary))
+                            )
+                            .clickable(
+                                interactionSource = saveInteraction,
+                                indication = null,
+                                enabled = !isSaving
+                            ) { onSave() },
+                        contentAlignment = Alignment.Center
                     ) {
                         if (isSaving) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = Color.White
-                            )
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("সেভ হচ্ছে...", fontSize = 14.sp)
+                            Text("সেভ হচ্ছে...", fontSize = 14.sp, color = Color.White)
                         } else {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("সেভ করুন", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("সেভ করুন", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 }

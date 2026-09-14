@@ -1,9 +1,12 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,7 +16,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,19 +48,27 @@ fun CourseProgressSection(
             .fillMaxWidth()
             .padding(vertical = 12.dp)
     ) {
-        // Section Title matching design language
+        // Section Title — NEW: gradient icon badge
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF10B981), Color(0xFF34D399)))),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "কোর্স প্রগ্রেস",
@@ -66,10 +78,8 @@ fun CourseProgressSection(
             )
         }
 
-        // Timeline Items
-        Column(
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
+        // Timeline Items — LOGIC: status determination হুবহু সেম
+        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             displayPhases.forEachIndexed { index, phase ->
                 val isLast = index == displayPhases.size - 1
 
@@ -91,69 +101,52 @@ fun CourseProgressSection(
                             .width(42.dp)
                             .fillMaxHeight()
                     ) {
-                        // Node Icon Box
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.size(36.dp)
-                        ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(42.dp)) {
+                            // NEW: pulsing halo for active node
+                            if (isActive) {
+                                val pulse = rememberInfiniteTransition(label = "nodePulse")
+                                val pulseScale by pulse.animateFloat(
+                                    initialValue = 1f, targetValue = 1.3f,
+                                    animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                                    label = "pulseScale"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
+                                        .border(3.dp, Color(0xFF3B82F6).copy(alpha = 0.3f), CircleShape)
+                                )
+                            }
+
                             when {
                                 isCompleted -> {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = Color(0xFF22C55E), // Solid Green
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
+                                    Surface(shape = CircleShape, color = Color(0xFF22C55E), modifier = Modifier.size(32.dp)) {
                                         Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = "Completed",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            Icon(Icons.Default.Check, "Completed", tint = Color.White, modifier = Modifier.size(18.dp))
                                         }
                                     }
                                 }
-
                                 isActive -> {
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
                                             .size(34.dp)
-                                            .border(
-                                                width = 3.dp,
-                                                color = Color(0xFF3B82F6), // Blue Outer Ring
-                                                shape = CircleShape
-                                            )
+                                            .border(3.dp, Color(0xFF3B82F6), CircleShape)
                                             .background(Color.White, CircleShape)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(16.dp)
-                                                .background(Color(0xFF3B82F6), CircleShape) // Inner Blue Dot
-                                        )
+                                        Box(Modifier.size(16.dp).background(Color(0xFF3B82F6), CircleShape))
                                     }
                                 }
-
                                 else -> {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = Color(0xFFE2E8F0), // Light Grey
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
+                                    Surface(shape = CircleShape, color = Color(0xFFE2E8F0), modifier = Modifier.size(32.dp)) {
                                         Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.Lock,
-                                                contentDescription = "Locked",
-                                                tint = Color(0xFF94A3B8),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                            Icon(Icons.Default.Lock, "Locked", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // Connecting Line Down (if not last item)
                         if (!isLast) {
                             if (isCompleted) {
                                 Box(
@@ -163,11 +156,7 @@ fun CourseProgressSection(
                                         .background(Color(0xFF22C55E))
                                 )
                             } else {
-                                Canvas(
-                                    modifier = Modifier
-                                        .width(3.dp)
-                                        .weight(1f)
-                                ) {
+                                Canvas(modifier = Modifier.width(3.dp).weight(1f)) {
                                     val pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
                                     drawLine(
                                         color = Color(0xFFCBD5E1),
@@ -183,7 +172,6 @@ fun CourseProgressSection(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Right Content Card
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -211,23 +199,41 @@ private fun QuarterCard(
     isUpcoming: Boolean,
     onClick: () -> Unit
 ) {
-    val cardBackground = if (isUpcoming) {
-        Color(0xFFF1F5F9)
-    } else {
-        Color(0xFF8B96B8) // Premium slate-blue gradient card matching screenshot
+    // LOGIC: badge text/colors হুবহু সেম
+    val (badgeText, badgeBg, badgeTextColor) = when {
+        isCompleted -> Triple("পড়ানো শেষ", Color(0xFFDCFCE7), Color(0xFF15803D))
+        isActive -> Triple("চলছে", Color(0xFFDBEAFE), Color(0xFF1E40AF))
+        else -> Triple("ভর্তি হয়েছো", Color(0xFFDCFCE7), Color(0xFF15803D))
     }
 
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (isPressed && !isUpcoming) 0.975f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "quarterScale"
+    )
+
+    // NEW: gradient backgrounds (upcoming flat সেম)
+    val cardBrush = when {
+        isUpcoming -> Brush.verticalGradient(listOf(Color(0xFFF1F5F9), Color(0xFFE8EEF5)))
+        isActive -> Brush.linearGradient(listOf(Color(0xFF0B3B8C), Color(0xFF1D4ED8), Color(0xFF2563EB)))
+        else -> Brush.linearGradient(listOf(Color(0xFF64748B), Color(0xFF8B96B8)))
+    }
+
+    val interaction1 = interaction
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = cardBackground),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isUpcoming) 0.dp else 2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isUpcoming) 0.dp else 4.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
             .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction1, indication = null, onClick = onClick)
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            // Left edge dark blue vertical accent bar for active/completed cards
+        Box(modifier = Modifier.fillMaxWidth().background(cardBrush)) {
+            // Left accent bar — LOGIC সেম
             if (!isUpcoming) {
                 Box(
                     modifier = Modifier
@@ -235,7 +241,7 @@ private fun QuarterCard(
                         .height(88.dp)
                         .align(Alignment.CenterStart)
                         .background(
-                            color = Color(0xFF1D4ED8),
+                            color = if (isActive) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
                             shape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
                         )
                 )
@@ -248,18 +254,14 @@ private fun QuarterCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    // Title and Badge Row
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = phase.title ?: "কোয়ার্টার",
+                            text = phase.title ?: "কোয়ার্টার",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isUpcoming) Color(0xFF1E293B) else Color.White,
@@ -268,17 +270,7 @@ private fun QuarterCard(
                             modifier = Modifier.weight(1f, fill = false)
                         )
 
-                        // Pill Badge
-                        val (badgeText, badgeBg, badgeTextColor) = when {
-                            isCompleted -> Triple("পড়ানো শেষ", Color(0xFFDCFCE7), Color(0xFF15803D))
-                            isActive -> Triple("চলছে", Color(0xFFDBEAFE), Color(0xFF1E40AF))
-                            else -> Triple("ভর্তি হয়েছো", Color(0xFFDCFCE7), Color(0xFF15803D))
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = badgeBg
-                        ) {
+                        Surface(shape = RoundedCornerShape(20.dp), color = badgeBg) {
                             Text(
                                 text = badgeText,
                                 fontSize = 11.sp,
@@ -293,7 +285,6 @@ private fun QuarterCard(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Date Range Subtitle (visible on all cards)
                     val dateRangeText = formatQuarterDateRange(phase.start_date, phase.end_date)
                     if (dateRangeText.isNotBlank()) {
                         Text(
@@ -306,11 +297,31 @@ private fun QuarterCard(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Progress %
+                    // NEW: thin progress bar for active/completed
                     if (!isUpcoming) {
                         val pct = (phase.course_progress_percentage ?: 0.0).roundToInt()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.White.copy(alpha = 0.2f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(pct / 100f)
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            if (isActive) listOf(Color(0xFF93C5FD), Color(0xFF38BDF8))
+                                            else listOf(Color(0xFF86EFAC), Color(0xFF4ADE80))
+                                        )
+                                    )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "${pct.toString().toBengaliDigits()}%",
                             fontSize = 18.sp,
@@ -320,20 +331,9 @@ private fun QuarterCard(
                     }
                 }
 
-                // Arrow Button
-                Surface(
-                    shape = CircleShape,
-                    color = Color.White,
-                    shadowElevation = 1.dp,
-                    modifier = Modifier.size(36.dp)
-                ) {
+                Surface(shape = CircleShape, color = Color.White, shadowElevation = 1.dp, modifier = Modifier.size(36.dp)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = "Open",
-                            tint = Color(0xFF334155),
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Icon(Icons.Default.ChevronRight, "Open", tint = Color(0xFF334155), modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -341,21 +341,19 @@ private fun QuarterCard(
     }
 }
 
+// ==================== UNCHANGED UTILITIES (হুবহু সেম) ====================
+
 private val bengaliMonths = arrayOf(
-    "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+    "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
     "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
 )
 
 private fun parseDateSafe(dateStr: String?): java.util.Date? {
     if (dateStr.isNullOrBlank()) return null
     val formats = listOf(
-        "yyyy-MM-dd'T'HH:mm:ss.SSSX",
-        "yyyy-MM-dd'T'HH:mm:ssX",
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd"
+        "yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"
     )
     for (fmt in formats) {
         try {
@@ -410,59 +408,9 @@ private fun formatQuarterDateRange(startDateStr: String?, endDateStr: String?): 
 }
 
 val defaultCoursePhases = listOf(
-    PhaseItem(
-        id = "q1",
-        academic_program_id = "",
-        title = "কোয়ার্টার ১",
-        status = "COMPLETED",
-        is_current = false,
-        has_enrolment = true,
-        course_progress_percentage = 1.0,
-        start_date = "2025-01-01T00:00:00Z",
-        end_date = "2025-03-31T23:59:59Z"
-    ),
-    PhaseItem(
-        id = "q2",
-        academic_program_id = "",
-        title = "কোয়ার্টার ২",
-        status = "COMPLETED",
-        is_current = false,
-        has_enrolment = true,
-        course_progress_percentage = 6.0,
-        start_date = "2025-04-01T00:00:00Z",
-        end_date = "2025-06-30T23:59:59Z"
-    ),
-    PhaseItem(
-        id = "q3",
-        academic_program_id = "",
-        title = "কোয়ার্টার ৩",
-        status = "COMPLETED",
-        is_current = false,
-        has_enrolment = true,
-        course_progress_percentage = 5.0,
-        start_date = "2025-07-01T00:00:00Z",
-        end_date = "2025-09-30T23:59:59Z"
-    ),
-    PhaseItem(
-        id = "q4",
-        academic_program_id = "",
-        title = "কোয়ার্টার ৪",
-        status = "ACTIVE",
-        is_current = true,
-        has_enrolment = true,
-        course_progress_percentage = 8.0,
-        start_date = "2025-10-01T00:00:00Z",
-        end_date = "2025-12-31T23:59:59Z"
-    ),
-    PhaseItem(
-        id = "q5",
-        academic_program_id = "",
-        title = "কোয়ার্টার ৫",
-        status = "UPCOMING",
-        is_current = false,
-        has_enrolment = true,
-        course_progress_percentage = 0.0,
-        start_date = "2026-01-01T00:00:00Z",
-        end_date = "2026-03-31T23:59:59Z"
-    )
+    PhaseItem(id = "q1", academic_program_id = "", title = "কোয়ার্টার ১", status = "COMPLETED", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 1.0, start_date = "2025-01-01T00:00:00Z", end_date = "2025-03-31T23:59:59Z"),
+    PhaseItem(id = "q2", academic_program_id = "", title = "কোয়ার্টার ২", status = "COMPLETED", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 6.0, start_date = "2025-04-01T00:00:00Z", end_date = "2025-06-30T23:59:59Z"),
+    PhaseItem(id = "q3", academic_program_id = "", title = "কোয়ার্টার ৩", status = "COMPLETED", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 5.0, start_date = "2025-07-01T00:00:00Z", end_date = "2025-09-30T23:59:59Z"),
+    PhaseItem(id = "q4", academic_program_id = "", title = "কোয়ার্টার ৪", status = "ACTIVE", is_current = true, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 8.0, start_date = "2025-10-01T00:00:00Z", end_date = "2025-12-31T23:59:59Z"),
+    PhaseItem(id = "q5", academic_program_id = "", title = "কোয়ার্টার ৫", status = "UPCOMING", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 0.0, start_date = "2026-01-01T00:00:00Z", end_date = "2026-03-31T23:59:59Z")
 )

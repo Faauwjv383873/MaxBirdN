@@ -1,11 +1,13 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -29,8 +31,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,13 +73,11 @@ fun FullRoutineScreen(
     val dhakaZone = remember { TimeZone.getTimeZone("Asia/Dhaka") }
     val coroutineScope = rememberCoroutineScope()
 
-    // Start at weekOffset = 0 (Page 1000)
+    // ===== LOGIC: pager হুবহু সেম =====
     val initialPage = 1000
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 2000 })
-
     val currentWeekOffset = pagerState.currentPage - initialPage
 
-    // Get 7 days (Sat-Fri) for the current pager week offset
     val weekDays = remember(currentWeekOffset) {
         val cal = Calendar.getInstance(dhakaZone)
         cal.set(Calendar.HOUR_OF_DAY, 0)
@@ -84,7 +85,6 @@ fun FullRoutineScreen(
         cal.set(Calendar.SECOND, 0)
         cal.set(Calendar.MILLISECOND, 0)
 
-        // Find Saturday of base week
         while (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
             cal.add(Calendar.DAY_OF_YEAR, -1)
         }
@@ -101,10 +101,8 @@ fun FullRoutineScreen(
 
     val todayCal = remember {
         Calendar.getInstance(dhakaZone).apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }
     }
 
@@ -118,22 +116,20 @@ fun FullRoutineScreen(
 
     val selectedDate = weekDays.getOrNull(selectedDayIndex) ?: weekDays[0]
 
-    // Load routine for the selected month automatically when year or month changes
     val displayedYear = selectedDate.get(Calendar.YEAR)
     val displayedMonth = selectedDate.get(Calendar.MONTH)
 
+    // ===== LOGIC: auto monthly fetch সেম =====
     LaunchedEffect(displayedYear, displayedMonth, uiState.activeProgram?.id) {
         viewModel.fetchMonthlyRoutine(displayedYear, displayedMonth)
     }
 
-    // Month and Year for Header (e.g. "সেপ্টেম্বর ২০২৬")
     val monthYearText = remember(selectedDate) {
         val monthStr = bengaliMonthNames[selectedDate.get(Calendar.MONTH)]
         val yearStr = selectedDate.get(Calendar.YEAR).toString().toBengaliDigits()
         "$monthStr $yearStr"
     }
 
-    // Full Date String (e.g. "রবিবার, ১৩/০৯/২০২৬")
     val fullDateText = remember(selectedDate) {
         val dayOfWeek = selectedDate.get(Calendar.DAY_OF_WEEK)
         val dayName = when (dayOfWeek) {
@@ -152,7 +148,7 @@ fun FullRoutineScreen(
         "$dayName, $dayNum/$monthNum/$yearNum"
     }
 
-    // Filter lessons for selected day using the user's selected subjects (filteredWeeklyRoutine) and sort with LIVE priority & time
+    // ===== LOGIC: day filter + sort সেম =====
     val selectedDayLessons = remember(uiState.filteredWeeklyRoutine, selectedDate) {
         val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = dhakaZone }
         val targetDateStr = sdfDate.format(selectedDate.time)
@@ -176,7 +172,7 @@ fun FullRoutineScreen(
 
     var showMonthYearPicker by remember { mutableStateOf(false) }
 
-    // Subject Filter / Customizer Dialog
+    // Subject Filter Dialog — LOGIC সেম
     if (uiState.showSubjectFilterDialog) {
         SubjectFilterDialog(
             courseTitle = uiState.activeProgram?.title_bn ?: "",
@@ -196,67 +192,53 @@ fun FullRoutineScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "রুটিন",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                    Text("রুটিন", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "ফিরে যান",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "ফিরে যান", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
-                    // Customize Subjects Button (সাবজেক্ট সাজাও)
                     IconButton(
                         onClick = { viewModel.openSubjectFilterDialog() },
                         modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "সাবজেক্ট সাজাও",
+                            Icons.Default.Tune, "সাবজেক্ট সাজাও",
                             tint = if (uiState.selectedSubjectCodes.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
                         )
                     }
 
-                    // Clickable Month & Year Pill
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    // NEW: gradient month pill
+                    Box(
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)
+                                    )
+                                )
+                            )
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                                RoundedCornerShape(14.dp)
+                            )
                             .clickable { showMonthYearPicker = true }
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                        ) {
-                            Text(
-                                text = monthYearText,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(monthYearText, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.DateRange,
-                                contentDescription = "মাস ও বছর পরিবর্তন করুন",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Default.DateRange, "মাস ও বছর পরিবর্তন করুন", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -267,18 +249,13 @@ fun FullRoutineScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Horizontal Week Pager (Swipe Left/Right to change weeks)
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxWidth()
-            ) { page ->
+            // ===== Week Pager — LOGIC সেম =====
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
                 val pageWeekOffset = page - initialPage
                 val pDays = remember(pageWeekOffset) {
                     val cal = Calendar.getInstance(dhakaZone)
-                    cal.set(Calendar.HOUR_OF_DAY, 0)
-                    cal.set(Calendar.MINUTE, 0)
-                    cal.set(Calendar.SECOND, 0)
-                    cal.set(Calendar.MILLISECOND, 0)
+                    cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+                    cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
 
                     while (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
                         cal.add(Calendar.DAY_OF_YEAR, -1)
@@ -294,7 +271,7 @@ fun FullRoutineScreen(
                     list
                 }
 
-                // 7-Day Horizontal Capsule Strip Header (Matching Shikho Design)
+                // 7-Day Strip — NEW: animated pills
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -328,14 +305,25 @@ fun FullRoutineScreen(
                         val dClassCount = dLessons.count { it.live_class?.type != "EXAM" && it.content_type != "LiveExam" }
                         val dExamCount = dLessons.count { it.live_class?.type == "EXAM" || it.content_type == "LiveExam" }
 
+                        // NEW: animated color + scale
+                        val pillBg by animateColorAsState(
+                            targetValue = if (isSelected) Color(0xFF3B82F6) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            animationSpec = tween(250), label = "pillBg$page$index"
+                        )
+                        val pillScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.06f else 1f,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                            label = "pillScale$page$index"
+                        )
+
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .weight(1f)
+                                .padding(horizontal = 2.dp)
+                                .graphicsLayer { scaleX = pillScale; scaleY = pillScale }
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(
-                                    if (isSelected) Color(0xFF3B82F6) else Color(0xFFF1F5F9)
-                                )
+                                .background(pillBg)
                                 .clickable {
                                     if (pageWeekOffset == currentWeekOffset) {
                                         selectedDayIndex = index
@@ -352,18 +340,18 @@ fun FullRoutineScreen(
                                 text = dayNameStr,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isSelected) Color.White.copy(alpha = 0.9f) else Color(0xFF64748B)
+                                color = if (isSelected) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = dayNum,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.White else Color(0xFF0F172A)
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Indicator Dots
+                            // Indicator dots — LOGIC সেম
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -389,7 +377,8 @@ fun FullRoutineScreen(
                                             .width(8.dp)
                                             .height(2.dp)
                                             .background(
-                                                if (isSelected) Color.White.copy(alpha = 0.6f) else Color(0xFFCBD5E1)
+                                                if (isSelected) Color.White.copy(alpha = 0.6f)
+                                                else MaterialTheme.colorScheme.outlineVariant
                                             )
                                     )
                                 }
@@ -401,7 +390,7 @@ fun FullRoutineScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Selected Day Summary Row (e.g., "রবিবার, ১৩/০৯/২০২৬"  |  🔵 ক্লাস ৩  🟡 এক্সাম ০)
+            // Summary Row — LOGIC সেম
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -409,62 +398,32 @@ fun FullRoutineScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = fullDateText,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Text(fullDateText, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF06B6D4))
-                    )
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF06B6D4)))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "ক্লাস ${classCount.toString().toBengaliDigits()}",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF475569)
-                    )
+                    Text("ক্লাস ${classCount.toString().toBengaliDigits()}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFF59E0B))
-                    )
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFF59E0B)))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "এক্সাম ${examCount.toString().toBengaliDigits()}",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF475569)
-                    )
+                    Text("এক্সাম ${examCount.toString().toBengaliDigits()}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Vertical Timeline Routine List
+            // ===== List States =====
             when {
                 uiState.isRoutineLoading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
+                    // NEW: shimmer skeleton list
+                    ShimmerRoutineList()
                 }
 
                 selectedDayLessons.isEmpty() -> {
+                    // NEW: সুন্দর empty state
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -472,17 +431,27 @@ fun FullRoutineScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.EventBusy,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.EventBusy, null,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
                             Text(
-                                text = "এই দিনের জন্য কোনো ক্লাস বা পরীক্ষার রুটিন পাওয়া যায়নি",
+                                text = "এই দিনের জন্য কোনো ক্লাস বা পরীক্ষার রুটিন পাওয়া যায়নি",
                                 fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 19.sp,
+                                modifier = Modifier.padding(horizontal = 32.dp)
                             )
                         }
                     }
@@ -509,7 +478,7 @@ fun FullRoutineScreen(
         }
     }
 
-    // Month and Year Selection Dialog
+    // ===== Month/Year Picker — LOGIC হুবহু সেম =====
     if (showMonthYearPicker) {
         MonthYearSelectionDialog(
             initialYear = selectedDate.get(Calendar.YEAR),
@@ -518,7 +487,6 @@ fun FullRoutineScreen(
             onSelect = { year, month ->
                 showMonthYearPicker = false
 
-                // Calculate target date (1st of that month, or today if that month is current)
                 val targetCal = Calendar.getInstance(dhakaZone).apply {
                     set(Calendar.YEAR, year)
                     set(Calendar.MONTH, month)
@@ -529,7 +497,6 @@ fun FullRoutineScreen(
                     set(Calendar.MILLISECOND, 0)
                 }
 
-                // Calculate base Saturday of initial page
                 val baseSat = Calendar.getInstance(dhakaZone).apply {
                     set(Calendar.HOUR_OF_DAY, 0)
                     set(Calendar.MINUTE, 0)
@@ -540,7 +507,6 @@ fun FullRoutineScreen(
                     }
                 }
 
-                // Target Saturday
                 val targetSat = targetCal.clone() as Calendar
                 while (targetSat.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
                     targetSat.add(Calendar.DAY_OF_YEAR, -1)
@@ -561,6 +527,61 @@ fun FullRoutineScreen(
     }
 }
 
+// ==================== NEW: Shimmer Loading ====================
+@Composable
+private fun ShimmerRoutineList() {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val shimmerAlpha by transition.animateFloat(
+        initialValue = 0.3f, targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse),
+        label = "shimmerAlpha"
+    )
+    val skeletonColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        repeat(4) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .padding(top = 12.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Box(
+                        Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(skeletonColor.copy(alpha = shimmerAlpha))
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(Modifier.size(64.dp, 18.dp).clip(RoundedCornerShape(8.dp)).background(skeletonColor.copy(alpha = shimmerAlpha)))
+                        Box(Modifier.size(52.dp, 18.dp).clip(RoundedCornerShape(8.dp)).background(skeletonColor.copy(alpha = shimmerAlpha)))
+                    }
+                    Box(Modifier.fillMaxWidth(0.85f).height(15.dp).clip(RoundedCornerShape(5.dp)).background(skeletonColor.copy(alpha = shimmerAlpha)))
+                    Box(Modifier.fillMaxWidth(0.45f).height(12.dp).clip(RoundedCornerShape(5.dp)).background(skeletonColor.copy(alpha = shimmerAlpha)))
+                }
+            }
+        }
+    }
+}
+
+// ==================== Month/Year Dialog — LOGIC সেম ====================
 @Composable
 private fun MonthYearSelectionDialog(
     initialYear: Int,
@@ -570,6 +591,7 @@ private fun MonthYearSelectionDialog(
 ) {
     var selectedYear by remember { mutableIntStateOf(initialYear) }
     var selectedMonth by remember { mutableIntStateOf(initialMonth) }
+    val primary = MaterialTheme.colorScheme.primary
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -586,16 +608,11 @@ private fun MonthYearSelectionDialog(
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "মাস ও বছর বাছাই করুন",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Text("মাস ও বছর বাছাই করুন", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Year Selector Header with Previous/Next Arrows
+                // Year Selector — LOGIC bounds সেম (2020-2035)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -605,39 +622,25 @@ private fun MonthYearSelectionDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = { selectedYear-- },
-                        enabled = selectedYear > 2020
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = "পূর্ববর্তী বছর",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                    IconButton(onClick = { selectedYear-- }, enabled = selectedYear > 2020) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "পূর্ববর্তী বছর", tint = primary)
                     }
 
                     Text(
                         text = selectedYear.toString().toBengaliDigits() + " সাল",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = primary
                     )
 
-                    IconButton(
-                        onClick = { selectedYear++ },
-                        enabled = selectedYear < 2035
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = "পরবর্তী বছর",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                    IconButton(onClick = { selectedYear++ }, enabled = selectedYear < 2035) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "পরবর্তী বছর", tint = primary)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 12 Months 3x4 Grid
+                // 12 Months Grid — LOGIC সেম
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxWidth(),
@@ -646,9 +649,14 @@ private fun MonthYearSelectionDialog(
                 ) {
                     itemsIndexed(bengaliMonthNames) { index, monthName ->
                         val isSelected = selectedMonth == index
+                        val cellBg by animateColorAsState(
+                            targetValue = if (isSelected) primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            animationSpec = tween(200), label = "monthBg$index"
+                        )
+
                         Surface(
                             shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            color = cellBg,
                             border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(14.dp))
@@ -674,11 +682,8 @@ private fun MonthYearSelectionDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                // Actions — NEW: gradient confirm
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
@@ -687,11 +692,16 @@ private fun MonthYearSelectionDialog(
                         Text("বাতিল", fontWeight = FontWeight.SemiBold)
                     }
 
-                    Button(
-                        onClick = { onSelect(selectedYear, selectedMonth) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                Brush.horizontalGradient(listOf(primary, MaterialTheme.colorScheme.secondary))
+                            )
+                            .clickable { onSelect(selectedYear, selectedMonth) },
+                        contentAlignment = Alignment.Center
                     ) {
                         Text("বাছাই করুন", fontWeight = FontWeight.Bold, color = Color.White)
                     }
@@ -701,37 +711,32 @@ private fun MonthYearSelectionDialog(
     }
 }
 
+// ==================== Timeline Card — LOGIC সেম ====================
 @Composable
 private fun RoutineTimelineCard(
     lesson: StudentLessonItem,
     onClick: () -> Unit
 ) {
+    // ===== LOGIC (হুবহু সেম) =====
     val st = lesson.start_time ?: lesson.live_class?.start_time
     val et = lesson.end_time ?: lesson.live_class?.end_time
 
     val startCal = remember(st) { parseIsoToDhakaCalendar(st) }
     val endCal = remember(et) { parseIsoToDhakaCalendar(et) }
 
-    // Format Start Time & End Time properly with correct time range and duration
     val formattedTime = remember(startCal, endCal) {
         val timeRange = formatTimeRange(startCal, endCal)
         val duration = calculateDurationText(startCal, endCal)
-
-        if (duration.isNotBlank()) {
-            "$timeRange • $duration"
-        } else {
-            timeRange
-        }
+        if (duration.isNotBlank()) "$timeRange • $duration" else timeRange
     }
 
     val isExam = lesson.isExam
     val isLive = lesson.isLive
-    val isRecorded = lesson.isRecorded
 
     val nowMs = System.currentTimeMillis()
     val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
     val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE)
-    
+
     val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
 
     val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
@@ -741,7 +746,7 @@ private fun RoutineTimelineCard(
         else -> classTypeBadge.label
     }
 
-    val subjectName = lesson.subject_name ?: "বিষয়"
+    val subjectName = lesson.subject_name ?: "বিষয়"
     val titleText = ClassTypeUtils.formatLessonTitle(lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস")
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
 
@@ -756,11 +761,24 @@ private fun RoutineTimelineCard(
         else -> 18.5.sp
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        // Timeline Left Bar
+    // NEW: press scale + live pulse
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.975f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "tlCardScale"
+    )
+
+    val liveTransition = rememberInfiniteTransition(label = "tlLivePulse")
+    val liveDotScale by liveTransition.animateFloat(
+        initialValue = 0.7f, targetValue = 1.3f,
+        animationSpec = infiniteRepeatable(tween(650, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "tlLiveDotScale"
+    )
+
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        // Timeline dot — NEW: pulsing when live
         Box(
             modifier = Modifier
                 .width(28.dp)
@@ -777,8 +795,17 @@ private fun RoutineTimelineCard(
                 Box(
                     modifier = Modifier
                         .size(if (isLiveNow) 10.dp else 8.dp)
+                        .graphicsLayer {
+                            if (isLiveNow) { scaleX = liveDotScale; scaleY = liveDotScale }
+                        }
                         .clip(CircleShape)
-                        .background(if (isLiveNow) Color(0xFFEF4444) else if (isExam) Color(0xFFD97706) else Color(0xFF0284C7))
+                        .background(
+                            when {
+                                isLiveNow -> Color(0xFFEF4444)
+                                isExam -> Color(0xFFD97706)
+                                else -> Color(0xFF0284C7)
+                            }
+                        )
                 )
             }
         }
@@ -789,30 +816,24 @@ private fun RoutineTimelineCard(
         Card(
             modifier = Modifier
                 .weight(1f)
-                .clickable { onClick() },
+                .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
+                .clickable(interactionSource = interaction, indication = null) { onClick() },
             shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isLiveNow) Color(0xFFFFF1F2) else Color.White
+                containerColor = if (isLiveNow) Color(0xFFFFF1F2) else MaterialTheme.colorScheme.surface
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 3.5.dp else 1.5.dp),
-            border = if (isLiveNow) BorderStroke(1.5.dp, Color(0xFFEF4444)) else BorderStroke(1.dp, Color(0xFFE5E7EB))
+            border = if (isLiveNow) BorderStroke(1.5.dp, Color(0xFFEF4444)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp)
-            ) {
-                // Top Tag Row: Subject Tag + Class Type Tag
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                // Top Tag Row — LOGIC সেম
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (isLiveNow) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFEF4444)
-                        ) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFEF4444)) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -821,24 +842,16 @@ private fun RoutineTimelineCard(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
+                                        .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
                                         .clip(CircleShape)
                                         .background(Color.White)
                                 )
-                                Text(
-                                    text = "লাইভ চলছে",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
+                                Text("লাইভ চলছে", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
 
-                    // Subject Tag
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = subjectColors.backgroundColor
-                    ) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = subjectColors.backgroundColor) {
                         Text(
                             text = subjectName,
                             fontSize = 10.5.sp,
@@ -851,16 +864,12 @@ private fun RoutineTimelineCard(
                     }
 
                     if (!isLiveNow) {
-                        // Type Tag
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFF1F5F9)
-                        ) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)) {
                             Text(
                                 text = typeText,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF334155),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
@@ -869,20 +878,18 @@ private fun RoutineTimelineCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Lesson Title
                 Text(
                     text = titleText,
                     fontSize = titleFontSize,
                     lineHeight = titleLineHeight,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0F172A),
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Time & Duration
                 if (formattedTime.isNotBlank()) {
                     Text(
                         text = formattedTime,

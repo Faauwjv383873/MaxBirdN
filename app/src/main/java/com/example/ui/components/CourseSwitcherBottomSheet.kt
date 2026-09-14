@@ -1,11 +1,16 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,15 +21,15 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,11 +38,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class ProgramBadgeInfo(
-    val text: String,
-    val containerColor: Color,
-    val textColor: Color
-)
+// LOGIC: badge states হুবহু সেম
+data class ProgramBadgeInfo(val text: String, val containerColor: Color, val textColor: Color)
 
 fun getProgramBadge(program: EnrolledProgram): ProgramBadgeInfo {
     val details = program.enrollment_details
@@ -58,34 +60,10 @@ fun getProgramBadge(program: EnrolledProgram): ProgramBadgeInfo {
     }
 
     return when {
-        isTrial && (isTrialExpired || !isActive) -> {
-            ProgramBadgeInfo(
-                text = "ফ্রিতে শেখা শেষ",
-                containerColor = Color(0xFFFFF3E0),
-                textColor = Color(0xFFE65100) // Orange / Amber
-            )
-        }
-        isActive && !isTrial -> {
-            ProgramBadgeInfo(
-                text = "ভর্তি হয়েছো",
-                containerColor = Color(0xFFE8F5E9),
-                textColor = Color(0xFF2E7D32) // Soft Green
-            )
-        }
-        isActive && isTrial -> {
-            ProgramBadgeInfo(
-                text = "ফ্রি ট্রায়াল",
-                containerColor = Color(0xFFE3F2FD),
-                textColor = Color(0xFF1565C0) // Soft Blue
-            )
-        }
-        else -> {
-            ProgramBadgeInfo(
-                text = "প্রোগ্রাম",
-                containerColor = Color(0xFFF5F5F5),
-                textColor = Color(0xFF616161)
-            )
-        }
+        isTrial && (isTrialExpired || !isActive) -> ProgramBadgeInfo("ফ্রিতে শেখা শেষ", Color(0xFFFFF3E0), Color(0xFFE65100))
+        isActive && !isTrial -> ProgramBadgeInfo("ভর্তি হয়েছো", Color(0xFFE8F5E9), Color(0xFF2E7D32))
+        isActive && isTrial -> ProgramBadgeInfo("ফ্রি ট্রায়াল", Color(0xFFE3F2FD), Color(0xFF1565C0))
+        else -> ProgramBadgeInfo("প্রোগ্রাম", Color(0xFFF5F5F5), Color(0xFF616161))
     }
 }
 
@@ -102,16 +80,25 @@ fun CourseSwitcherBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(44.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 12.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(44.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                )
+                            )
+                        )
+                )
+            }
         }
     ) {
         Column(
@@ -121,7 +108,7 @@ fun CourseSwitcherBottomSheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp)
         ) {
-            // Header
+            // Header — সেম
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -130,14 +117,9 @@ fun CourseSwitcherBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    Text("কোর্স সুইচ করো", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        text = "কোর্স সুইচ করো",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "তোমার শ্রেণির উপলব্ধ সকল কোর্সসমূহ:",
+                        "তোমার শ্রেণির উপলব্ধ সকল কোর্সসমূহ:",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp)
@@ -151,18 +133,14 @@ fun CourseSwitcherBottomSheet(
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Close",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
+                    Icon(Icons.Default.Close, "Close", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
             if (enrolledPrograms.isEmpty()) {
+                // Empty state — সেম structure, gradient CTA
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -174,29 +152,26 @@ fun CourseSwitcherBottomSheet(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
+                                    )
+                                )
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.School,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Icon(Icons.Default.School, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
                     }
 
-                    Text(
-                        text = "কোনো সক্রিয় কোর্স পাওয়া যায়নি",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Text("কোনো সক্রিয় কোর্স পাওয়া যায়নি", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
 
                     Text(
                         text = "তোমার বর্তমান শ্রেণি বা গ্রুপের জন্য কোর্সগুলো দেখতে সিলেবাস চেক করো অথবা সিলেবাস পরিবর্তন করো।",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                         lineHeight = 17.sp,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
@@ -209,9 +184,7 @@ fun CourseSwitcherBottomSheet(
                                 onChangeSyllabusClick()
                             },
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             Text("সিলেবাস বা শ্রেণি পরিবর্তন করো")
                         }
@@ -226,84 +199,83 @@ fun CourseSwitcherBottomSheet(
                         val isSelected = activeProgram?.id == program.id
                         val badge = getProgramBadge(program)
 
+                        // LOGIC: animated colors সেম
                         val animatedCardBg by animateColorAsState(
-                            targetValue = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                            animationSpec = tween(durationMillis = 200),
-                            label = "cardBg"
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f) else MaterialTheme.colorScheme.surface,
+                            animationSpec = tween(200), label = "cardBg"
+                        )
+                        val animatedBorderColor by animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            animationSpec = tween(200), label = "borderColor"
                         )
 
-                        val animatedBorderColor by animateColorAsState(
-                            targetValue = if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            },
-                            animationSpec = tween(durationMillis = 200),
-                            label = "borderColor"
+                        // NEW: press scale + spring check
+                        val interaction = remember { MutableInteractionSource() }
+                        val isPressed by interaction.collectIsPressedAsState()
+                        val cardScale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.975f else 1f,
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                            label = "cardScale"
+                        )
+                        val checkScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1f else 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "checkScale"
                         )
 
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .shadow(
-                                    elevation = if (isSelected) 4.dp else 1.dp,
-                                    shape = RoundedCornerShape(16.dp),
-                                    ambientColor = Color.Black.copy(alpha = 0.05f),
-                                    spotColor = Color.Black.copy(alpha = 0.08f)
-                                )
+                                .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable {
+                                .clickable(interactionSource = interaction, indication = null) {
                                     onSelectProgram(program)
                                 },
                             shape = RoundedCornerShape(16.dp),
                             color = animatedCardBg,
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = animatedBorderColor
-                            )
+                            border = BorderStroke(width = if (isSelected) 1.5.dp else 1.dp, color = animatedBorderColor)
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // Program Icon Box
+                                // Icon Box — NEW: gradient when selected
                                 Box(
                                     modifier = Modifier
                                         .size(46.dp)
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(
                                             if (isSelected) {
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        MaterialTheme.colorScheme.primary,
+                                                        MaterialTheme.colorScheme.secondary
+                                                    )
+                                                )
                                             } else {
-                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                                    )
+                                                )
                                             }
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.School,
-                                        contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        Icons.Default.School, null,
+                                        tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
 
-                                // Details Column
-                                Column(
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    // Status Badge
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = badge.containerColor
-                                    ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Surface(shape = RoundedCornerShape(6.dp), color = badge.containerColor) {
                                         Text(
                                             text = badge.text,
                                             color = badge.textColor,
@@ -315,7 +287,6 @@ fun CourseSwitcherBottomSheet(
 
                                     Spacer(modifier = Modifier.height(6.dp))
 
-                                    // Course Title (Bangla)
                                     Text(
                                         text = program.title_bn ?: "একাডেমিক প্রোগ্রাম",
                                         fontSize = 15.sp,
@@ -326,14 +297,13 @@ fun CourseSwitcherBottomSheet(
                                     )
                                 }
 
-                                // Selection Indicator / Checkmark
+                                // Selection Indicator — NEW: spring animated
                                 Box(
                                     modifier = Modifier
                                         .size(24.dp)
+                                        .graphicsLayer { scaleX = if (checkScale > 0.05f) 1f else 1f }
                                         .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-                                        )
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
                                         .border(
                                             width = 2.dp,
                                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
@@ -343,10 +313,14 @@ fun CourseSwitcherBottomSheet(
                                 ) {
                                     if (isSelected) {
                                         Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Selected",
+                                            Icons.Default.Check, "Selected",
                                             tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .graphicsLayer {
+                                                    scaleX = checkScale
+                                                    scaleY = checkScale
+                                                }
                                         )
                                     }
                                 }
