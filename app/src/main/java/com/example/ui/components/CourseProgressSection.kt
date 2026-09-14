@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.PhaseItem
@@ -243,21 +244,28 @@ private fun QuarterCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
                     // Title and Badge Row
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = phase.title ?: "কোয়ার্টার",
-                            fontSize = 17.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isUpcoming) Color(0xFF1E293B) else Color.White
+                            color = if (isUpcoming) Color(0xFF1E293B) else Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
 
                         // Pill Badge
@@ -276,27 +284,36 @@ private fun QuarterCard(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = badgeTextColor,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Progress % or Date Subtitle
-                    if (isUpcoming) {
-                        val dateRangeText = formatQuarterDateRange(phase.start_date, phase.end_date)
+                    // Date Range Subtitle (visible on all cards)
+                    val dateRangeText = formatQuarterDateRange(phase.start_date, phase.end_date)
+                    if (dateRangeText.isNotBlank()) {
                         Text(
                             text = dateRangeText,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF64748B)
+                            color = if (isUpcoming) Color(0xFF64748B) else Color.White.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    } else {
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Progress %
+                    if (!isUpcoming) {
                         val pct = (phase.course_progress_percentage ?: 0.0).roundToInt()
                         Text(
                             text = "${pct.toString().toBengaliDigits()}%",
-                            fontSize = 20.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -308,14 +325,14 @@ private fun QuarterCard(
                     shape = CircleShape,
                     color = Color.White,
                     shadowElevation = 1.dp,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = "Open",
                             tint = Color(0xFF334155),
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -324,29 +341,72 @@ private fun QuarterCard(
     }
 }
 
-private fun formatQuarterDateRange(startDateStr: String?, endDateStr: String?): String {
-    if (startDateStr.isNullOrBlank()) return "অক্টোবর'২৬ - ডিসেম্বর'২৬"
-    return try {
-        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-        parser.timeZone = TimeZone.getTimeZone("UTC")
-        val start = parser.parse(startDateStr)
-        val end = if (!endDateStr.isNullOrBlank()) parser.parse(endDateStr) else null
+private val bengaliMonths = arrayOf(
+    "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+    "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
+)
 
-        val monthFormatter = SimpleDateFormat("MMMM''yy", Locale("bn", "BD"))
-        monthFormatter.timeZone = TimeZone.getTimeZone("Asia/Dhaka")
-        val startBn = start?.let { monthFormatter.format(it) } ?: ""
-        val endBn = end?.let { monthFormatter.format(it) } ?: ""
-
-        if (startBn.isNotBlank() && endBn.isNotBlank()) {
-            "$startBn - $endBn"
-        } else if (startBn.isNotBlank()) {
-            startBn
-        } else {
-            "অক্টোবর'২৬ - ডিসেম্বর'২৬"
-        }
-    } catch (_: Exception) {
-        "অক্টোবর'২৬ - ডিসেম্বর'২৬"
+private fun parseDateSafe(dateStr: String?): java.util.Date? {
+    if (dateStr.isNullOrBlank()) return null
+    val formats = listOf(
+        "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+        "yyyy-MM-dd'T'HH:mm:ssX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd"
+    )
+    for (fmt in formats) {
+        try {
+            val parser = SimpleDateFormat(fmt, Locale.US)
+            parser.timeZone = TimeZone.getTimeZone("UTC")
+            val date = parser.parse(dateStr)
+            if (date != null) return date
+        } catch (_: Exception) {}
     }
+    try {
+        val ts = dateStr.toLongOrNull()
+        if (ts != null) {
+            val millis = if (ts < 10000000000L) ts * 1000 else ts
+            return java.util.Date(millis)
+        }
+    } catch (_: Exception) {}
+    return null
+}
+
+private fun formatQuarterDateRange(startDateStr: String?, endDateStr: String?): String {
+    if (startDateStr.isNullOrBlank() && endDateStr.isNullOrBlank()) {
+        return "অক্টোবর'২৫ - ডিসেম্বর'২৫"
+    }
+    val start = parseDateSafe(startDateStr)
+    val end = parseDateSafe(endDateStr)
+
+    if (start != null || end != null) {
+        val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
+        val cal = java.util.Calendar.getInstance(dhakaZone)
+
+        fun formatSingle(date: java.util.Date): String {
+            cal.time = date
+            val monthIdx = cal.get(java.util.Calendar.MONTH)
+            val monthName = bengaliMonths.getOrElse(monthIdx) { "" }
+            val year = cal.get(java.util.Calendar.YEAR) % 100
+            val yearBn = String.format(Locale.US, "%02d", year).toBengaliDigits()
+            return "$monthName'$yearBn"
+        }
+
+        val startBn = start?.let { formatSingle(it) } ?: ""
+        val endBn = end?.let { formatSingle(it) } ?: ""
+
+        return when {
+            startBn.isNotBlank() && endBn.isNotBlank() -> "$startBn - $endBn"
+            startBn.isNotBlank() -> "শুরু: $startBn"
+            endBn.isNotBlank() -> "পর্যন্ত: $endBn"
+            else -> "অক্টোবর'২৫ - ডিসেম্বর'২৫"
+        }
+    }
+
+    return "অক্টোবর'২৫ - ডিসেম্বর'২৫"
 }
 
 val defaultCoursePhases = listOf(
@@ -358,8 +418,8 @@ val defaultCoursePhases = listOf(
         is_current = false,
         has_enrolment = true,
         course_progress_percentage = 1.0,
-        start_date = null,
-        end_date = null
+        start_date = "2025-01-01T00:00:00Z",
+        end_date = "2025-03-31T23:59:59Z"
     ),
     PhaseItem(
         id = "q2",
@@ -369,8 +429,8 @@ val defaultCoursePhases = listOf(
         is_current = false,
         has_enrolment = true,
         course_progress_percentage = 6.0,
-        start_date = null,
-        end_date = null
+        start_date = "2025-04-01T00:00:00Z",
+        end_date = "2025-06-30T23:59:59Z"
     ),
     PhaseItem(
         id = "q3",
@@ -380,8 +440,8 @@ val defaultCoursePhases = listOf(
         is_current = false,
         has_enrolment = true,
         course_progress_percentage = 5.0,
-        start_date = null,
-        end_date = null
+        start_date = "2025-07-01T00:00:00Z",
+        end_date = "2025-09-30T23:59:59Z"
     ),
     PhaseItem(
         id = "q4",
@@ -391,8 +451,8 @@ val defaultCoursePhases = listOf(
         is_current = true,
         has_enrolment = true,
         course_progress_percentage = 8.0,
-        start_date = null,
-        end_date = null
+        start_date = "2025-10-01T00:00:00Z",
+        end_date = "2025-12-31T23:59:59Z"
     ),
     PhaseItem(
         id = "q5",
@@ -402,7 +462,7 @@ val defaultCoursePhases = listOf(
         is_current = false,
         has_enrolment = true,
         course_progress_percentage = 0.0,
-        start_date = "2026-10-01T00:00:00Z",
-        end_date = "2026-12-31T23:59:59Z"
+        start_date = "2026-01-01T00:00:00Z",
+        end_date = "2026-03-31T23:59:59Z"
     )
 )

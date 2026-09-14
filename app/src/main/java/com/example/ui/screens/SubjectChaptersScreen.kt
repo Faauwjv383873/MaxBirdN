@@ -272,7 +272,6 @@ fun SubjectChaptersScreen(
                             CourseFeatureShortcuts(
                                 subjectColor = subjectColor,
                                 selectedMode = 0,
-                                hasAnimatedVideo = uiState.hasAnimatedVideo,
                                 onSelectMode = { mode ->
                                     if (mode == 1) {
                                         onNavigateToAnimatedChapters?.invoke(subjectCode, subjectTitle)
@@ -377,7 +376,6 @@ fun SubjectChaptersScreen(
 fun CourseFeatureShortcuts(
     subjectColor: Color,
     selectedMode: Int = 0,
-    hasAnimatedVideo: Boolean = false,
     onSelectMode: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -385,16 +383,14 @@ fun CourseFeatureShortcuts(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (hasAnimatedVideo) {
-            ShortcutButton(
-                title = AcademicLocalizationUtils.translateContentType("Video"),
-                icon = Icons.Default.SlowMotionVideo,
-                color = Color(0xFF8B5CF6),
-                isSelected = selectedMode == 1,
-                modifier = Modifier.weight(1f),
-                onClick = { onSelectMode(1) }
-            )
-        }
+        ShortcutButton(
+            title = AcademicLocalizationUtils.translateContentType("Video"),
+            icon = Icons.Default.SlowMotionVideo,
+            color = Color(0xFF8B5CF6),
+            isSelected = selectedMode == 1,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelectMode(1) }
+        )
         ShortcutButton(
             title = AcademicLocalizationUtils.translateContentType("Exam"),
             icon = Icons.Default.FactCheck,
@@ -600,60 +596,6 @@ fun ChapterCard(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
-                            }
-                        }
-                    }
-
-                    if (chapter.all_topics_free != null) {
-                        if (chapter.all_topics_free == true) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFF10B981).copy(alpha = 0.12f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LockOpen,
-                                        contentDescription = "Free",
-                                        tint = Color(0xFF059669),
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    Text(
-                                        text = "ফ্রি",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF059669)
-                                    )
-                                }
-                            }
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFFF59E0B).copy(alpha = 0.12f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Lock,
-                                        contentDescription = "Premium",
-                                        tint = Color(0xFFD97706),
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    Text(
-                                        text = "প্রিমিয়াম",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFD97706)
-                                    )
-                                }
                             }
                         }
                     }

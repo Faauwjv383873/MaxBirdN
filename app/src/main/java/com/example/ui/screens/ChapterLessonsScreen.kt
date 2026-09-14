@@ -261,7 +261,6 @@ fun ChapterLessonsScreen(
                         item {
                             ChapterFeatureShortcuts(
                                 selectedTab = 0,
-                                hasAnimatedVideo = uiState.hasAnimatedVideo,
                                 onTabSelected = { tab ->
                                     if (tab == 1) {
                                         onNavigateToAnimatedTopics?.invoke(
@@ -554,7 +553,6 @@ fun LessonCard(
 @Composable
 fun ChapterFeatureShortcuts(
     selectedTab: Int,
-    hasAnimatedVideo: Boolean = false,
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -562,16 +560,14 @@ fun ChapterFeatureShortcuts(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (hasAnimatedVideo) {
-            ChapterShortcutButton(
-                title = AcademicLocalizationUtils.translateContentType("Video"),
-                icon = Icons.Default.SlowMotionVideo,
-                color = Color(0xFF8B5CF6),
-                isSelected = selectedTab == 1,
-                modifier = Modifier.weight(1f),
-                onClick = { onTabSelected(1) }
-            )
-        }
+        ChapterShortcutButton(
+            title = AcademicLocalizationUtils.translateContentType("Video"),
+            icon = Icons.Default.SlowMotionVideo,
+            color = Color(0xFF8B5CF6),
+            isSelected = selectedTab == 1,
+            modifier = Modifier.weight(1f),
+            onClick = { onTabSelected(1) }
+        )
         ChapterShortcutButton(
             title = AcademicLocalizationUtils.translateContentType("Exam"),
             icon = Icons.Default.FactCheck,

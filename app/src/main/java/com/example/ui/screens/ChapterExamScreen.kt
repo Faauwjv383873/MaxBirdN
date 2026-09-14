@@ -166,12 +166,15 @@ fun ExamIntroBottomSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f)),
+            .background(Color.Black.copy(alpha = 0.5f))
+            .clickable(onClick = onClose),
         contentAlignment = Alignment.BottomCenter
     ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
+                .clickable(enabled = false) { }
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
@@ -179,7 +182,8 @@ fun ExamIntroBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 20.dp)
             ) {
                 // Header Row
                 Row(
@@ -230,7 +234,7 @@ fun ExamIntroBottomSheet(
                     ExamCountdownBox("০০", "সেকেন্ড")
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Info Cards
                 Card(
@@ -260,7 +264,7 @@ fun ExamIntroBottomSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Full-width Button
                 Button(
@@ -278,6 +282,8 @@ fun ExamIntroBottomSheet(
                         color = Color.White
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
