@@ -27,6 +27,7 @@ data class CourseUiState(
     // Active Program Info
     val programId: String = "",
     val programTitle: String = "",
+    val hasAnimatedVideo: Boolean = false,
     val activePhaseId: String = "",
     val activePhaseTitle: String = "",
     val phases: List<PhaseItem> = emptyList(),

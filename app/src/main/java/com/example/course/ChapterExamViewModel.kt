@@ -1,5 +1,6 @@
 package com.example.course
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -54,47 +55,76 @@ class ChapterExamViewModel(
     fun loadExamInfo(sessionId: String, lessonId: String) {
         _uiState.update { it.copy(sessionId = sessionId, lessonId = lessonId, isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            try {
-                val query = GraphQlQuery(
-                    operationName = "GetLiveExamInfo",
-                    query = """
-                        query GetLiveExamInfo(${'$'}session_id: String!) {
-                          liveExamSession(id: ${'$'}session_id) {
-                            start_time
-                            end_time
-                            title
-                            markdown_version
-                            chapters { id name no }
-                            subject { display }
-                            total_number_of_question
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf("session_id" to sessionId)
-                )
-                val response = apiService.getLiveExamInfo(query)
-                val info = response.data?.liveExamSession
+            var info: LiveExamSessionDetails? = null
+
+            // 1. Try with sessionId
+            if (sessionId.isNotBlank()) {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetLiveExamInfo",
+                        query = """
+                            query GetLiveExamInfo(${'$'}session_id: String!) {
+                              liveExamSession(id: ${'$'}session_id) {
+                                start_time
+                                end_time
+                                title
+                                markdown_version
+                                chapters { id name no }
+                                subject { display }
+                                total_number_of_question
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("session_id" to sessionId)
+                    )
+                    val response = apiService.getLiveExamInfo(query)
+                    info = response.data?.liveExamSession
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading exam info with sessionId: $sessionId", e)
+                }
+            }
+
+            // 2. Try with lessonId if info is still null
+            if (info == null && lessonId.isNotBlank() && lessonId != sessionId) {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetLiveExamInfo",
+                        query = """
+                            query GetLiveExamInfo(${'$'}session_id: String!) {
+                              liveExamSession(id: ${'$'}session_id) {
+                                start_time
+                                end_time
+                                title
+                                markdown_version
+                                chapters { id name no }
+                                subject { display }
+                                total_number_of_question
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("session_id" to lessonId)
+                    )
+                    val response = apiService.getLiveExamInfo(query)
+                    info = response.data?.liveExamSession
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading exam info with lessonId: $lessonId", e)
+                }
+            }
+
+            if (info != null) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         examInfo = info,
-                        stage = ExamStage.INTRO
+                        stage = ExamStage.INTRO,
+                        errorMessage = null
                     )
                 }
-            } catch (e: Exception) {
-                // Fallback demo info if network/id differs
-                val fallbackInfo = LiveExamSessionDetails(
-                    id = sessionId,
-                    title = "Chapter MCQ Exam 01",
-                    total_number_of_question = 25,
-                    subject = ExamSubjectInfo(display = "বাংলা ১ম পত্র"),
-                    chapters = listOf(ExamChapterInfo(id = "c1", name = "সততার পুরস্কার + জন্মভূমি", no = "1"))
-                )
+            } else {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        examInfo = fallbackInfo,
-                        stage = ExamStage.INTRO
+                        errorMessage = "পরীক্ষার তথ্য লোড করা সম্ভব হয়নি।"
                     )
                 }
             }
@@ -107,64 +137,88 @@ class ChapterExamViewModel(
 
     fun startExamQuestions() {
         val sId = _uiState.value.sessionId
+        val lId = _uiState.value.lessonId
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            try {
-                val query = GraphQlQuery(
-                    operationName = "GetLiveQuestions",
-                    query = """
-                        query GetLiveQuestions(${'$'}live_exam_session_id: String) {
-                          academicProgramLiveExamQuestions(live_exam_session_id: ${'$'}live_exam_session_id) {
-                            data {
-                              id
-                              title
-                              solution
-                              markdown_version
-                              mcq_options { description no }
+            var fetchedQuestions: List<LiveExamQuestionItem> = emptyList()
+
+            // 1. Try with sId
+            if (sId.isNotBlank()) {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetLiveQuestions",
+                        query = """
+                            query GetLiveQuestions(${'$'}live_exam_session_id: String) {
+                              academicProgramLiveExamQuestions(live_exam_session_id: ${'$'}live_exam_session_id) {
+                                data {
+                                  id
+                                  title
+                                  solution
+                                  markdown_version
+                                  mcq_options { description no }
+                                }
+                              }
                             }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf("live_exam_session_id" to sId)
-                )
-                val response = apiService.getLiveQuestions(query)
-                val fetchedQuestions = response.data?.academicProgramLiveExamQuestions?.data ?: emptyList()
-
-                val finalQuestions = if (fetchedQuestions.isNotEmpty()) {
-                    fetchedQuestions
-                } else {
-                    // Fallback questions to prevent empty crash
-                    createSampleQuestions()
+                        """.trimIndent(),
+                        variables = mapOf("live_exam_session_id" to sId)
+                    )
+                    val response = apiService.getLiveQuestions(query)
+                    fetchedQuestions = response.data?.academicProgramLiveExamQuestions?.data ?: emptyList()
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading questions with sId: $sId", e)
                 }
+            }
 
-                val totalCount = finalQuestions.size
-                val defaultDurationSeconds = (totalCount * 60).toLong()
+            // 2. If empty, try with lId
+            if (fetchedQuestions.isEmpty() && lId.isNotBlank() && lId != sId) {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetLiveQuestions",
+                        query = """
+                            query GetLiveQuestions(${'$'}live_exam_session_id: String) {
+                              academicProgramLiveExamQuestions(live_exam_session_id: ${'$'}live_exam_session_id) {
+                                data {
+                                  id
+                                  title
+                                  solution
+                                  markdown_version
+                                  mcq_options { description no }
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("live_exam_session_id" to lId)
+                    )
+                    val response = apiService.getLiveQuestions(query)
+                    fetchedQuestions = response.data?.academicProgramLiveExamQuestions?.data ?: emptyList()
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading questions with lId: $lId", e)
+                }
+            }
+
+            if (fetchedQuestions.isNotEmpty()) {
+                val totalCount = fetchedQuestions.size
+                val defaultDurationSeconds = (totalCount * 60).toLong().coerceAtLeast(300L)
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        questions = finalQuestions,
+                        questions = fetchedQuestions,
                         currentQuestionIndex = 0,
                         remainingSeconds = defaultDurationSeconds,
-                        stage = ExamStage.QUESTIONS
+                        stage = ExamStage.QUESTIONS,
+                        errorMessage = null
                     )
                 }
                 questionStartTimeMs = System.currentTimeMillis()
                 startTimer()
-
-            } catch (e: Exception) {
-                val sample = createSampleQuestions()
+            } else {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        questions = sample,
-                        currentQuestionIndex = 0,
-                        remainingSeconds = 1500L,
-                        stage = ExamStage.QUESTIONS
+                        errorMessage = "প্রশ্ন লোড করা সম্ভব হয়নি। অনুগ্রহ করে পরবর্তীতে আবার চেষ্টা করুন।"
                     )
                 }
-                questionStartTimeMs = System.currentTimeMillis()
-                startTimer()
             }
         }
     }
@@ -241,7 +295,7 @@ class ChapterExamViewModel(
             )
         }
 
-        _uiState.update { it.copy(stage = ExamStage.SUBMITTING, isLoading = true) }
+        _uiState.update { it.copy(stage = ExamStage.SUBMITTING, isLoading = true, errorMessage = null) }
 
         viewModelScope.launch {
             try {
@@ -263,8 +317,8 @@ class ChapterExamViewModel(
                     )
                 )
                 apiService.submitLiveExam(mutation)
-            } catch (_: Exception) {
-                // Ignore submission errors
+            } catch (e: Exception) {
+                Log.e("ChapterExamVM", "Error submitting live exam: ${state.sessionId}", e)
             }
 
             // Fetch performance analysis
@@ -277,50 +331,87 @@ class ChapterExamViewModel(
             var summary: ExamResultSummary? = null
             var pdfUrl: String? = null
 
-            try {
-                val queryPerf = GraphQlQuery(
-                    operationName = "GetLiveExamPerformanceAnalysis",
-                    query = """
-                        query GetLiveExamPerformanceAnalysis(${'$'}exam_session_id: String!) {
-                          acpLiveExamResultHistory(exam_session_id: ${'$'}exam_session_id) {
-                            result_summary {
-                              correct_ans
-                              incorrect_ans
-                              total_length_of_exam
-                              total_question
-                              total_time_spent
-                              unanswered
+            if (sessionId.isNotBlank()) {
+                try {
+                    val queryPerf = GraphQlQuery(
+                        operationName = "GetLiveExamPerformanceAnalysis",
+                        query = """
+                            query GetLiveExamPerformanceAnalysis(${'$'}exam_session_id: String!) {
+                              acpLiveExamResultHistory(exam_session_id: ${'$'}exam_session_id) {
+                                result_summary {
+                                  correct_ans
+                                  incorrect_ans
+                                  total_length_of_exam
+                                  total_question
+                                  total_time_spent
+                                  unanswered
+                                }
+                                live_exam_session_id
+                              }
                             }
-                            live_exam_session_id
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf("exam_session_id" to sessionId)
-                )
-                val perfRes = apiService.getLiveExamPerformance(queryPerf)
-                summary = perfRes.data?.acpLiveExamResultHistory?.result_summary
-            } catch (_: Exception) {}
-
-            try {
-                val queryAtt = GraphQlQuery(
-                    operationName = "ResourceAttachmentsLiveExam",
-                    query = """
-                        query ResourceAttachmentsLiveExam(${'$'}module_id: String!, ${'$'}module_name: AttachmentModuleEnum!) {
-                          attachmentList(module_id: ${'$'}module_id, module_name: ${'$'}module_name) {
-                            data { id description title url }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf(
-                        "module_id" to (lessonId.ifBlank { sessionId }),
-                        "module_name" to "LiveExam"
+                        """.trimIndent(),
+                        variables = mapOf("exam_session_id" to sessionId)
                     )
-                )
-                val attRes = apiService.getResourceAttachments(queryAtt)
-                pdfUrl = attRes.data?.attachmentList?.data?.firstOrNull()?.url
-            } catch (_: Exception) {}
+                    val perfRes = apiService.getLiveExamPerformance(queryPerf)
+                    summary = perfRes.data?.acpLiveExamResultHistory?.result_summary
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading performance with sessionId: $sessionId", e)
+                }
+            }
 
-            // Calculate locally if summary null
+            if (summary == null && lessonId.isNotBlank() && lessonId != sessionId) {
+                try {
+                    val queryPerf = GraphQlQuery(
+                        operationName = "GetLiveExamPerformanceAnalysis",
+                        query = """
+                            query GetLiveExamPerformanceAnalysis(${'$'}exam_session_id: String!) {
+                              acpLiveExamResultHistory(exam_session_id: ${'$'}exam_session_id) {
+                                result_summary {
+                                  correct_ans
+                                  incorrect_ans
+                                  total_length_of_exam
+                                  total_question
+                                  total_time_spent
+                                  unanswered
+                                }
+                                live_exam_session_id
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("exam_session_id" to lessonId)
+                    )
+                    val perfRes = apiService.getLiveExamPerformance(queryPerf)
+                    summary = perfRes.data?.acpLiveExamResultHistory?.result_summary
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading performance with lessonId: $lessonId", e)
+                }
+            }
+
+            val targetModuleId = lessonId.ifBlank { sessionId }
+            if (targetModuleId.isNotBlank()) {
+                try {
+                    val queryAtt = GraphQlQuery(
+                        operationName = "ResourceAttachmentsLiveExam",
+                        query = """
+                            query ResourceAttachmentsLiveExam(${'$'}module_id: String!, ${'$'}module_name: AttachmentModuleEnum!) {
+                              attachmentList(module_id: ${'$'}module_id, module_name: ${'$'}module_name) {
+                                data { id description title url }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf(
+                            "module_id" to targetModuleId,
+                            "module_name" to "LiveExam"
+                        )
+                    )
+                    val attRes = apiService.getResourceAttachments(queryAtt)
+                    pdfUrl = attRes.data?.attachmentList?.data?.firstOrNull()?.url
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading resource attachments for $targetModuleId", e)
+                }
+            }
+
+            // Calculate locally if summary is null (using real user test data)
             if (summary == null) {
                 val questions = _uiState.value.questions
                 val userAns = _uiState.value.userAnswers
@@ -341,13 +432,19 @@ class ChapterExamViewModel(
                     }
                 }
 
+                val totalQuestionsCount = questions.size
+                val totalExamLengthSec = _uiState.value.examInfo?.total_number_of_question?.let { (it * 60).toString() }
+                    ?: (totalQuestionsCount * 60).toString()
+                val totalTimeSpentSec = _uiState.value.timeSpentPerQuestion.values.sum()
+                val formattedTimeSpent = String.format(java.util.Locale.US, "%.1f", totalTimeSpentSec)
+
                 summary = ExamResultSummary(
                     correct_ans = correct.toString(),
                     incorrect_ans = incorrect.toString(),
                     unanswered = unanswered.toString(),
-                    total_question = questions.size.toString(),
-                    total_length_of_exam = "1500",
-                    total_time_spent = "65.5"
+                    total_question = totalQuestionsCount.toString(),
+                    total_length_of_exam = totalExamLengthSec,
+                    total_time_spent = formattedTimeSpent
                 )
             }
 
@@ -356,7 +453,8 @@ class ChapterExamViewModel(
                     isLoading = false,
                     performanceSummary = summary,
                     pdfAttachmentUrl = pdfUrl,
-                    stage = ExamStage.PERFORMANCE
+                    stage = ExamStage.PERFORMANCE,
+                    errorMessage = null
                 )
             }
         }
@@ -364,48 +462,78 @@ class ChapterExamViewModel(
 
     fun loadSolutions() {
         val sId = _uiState.value.sessionId
-        _uiState.update { it.copy(isLoading = true) }
+        val lId = _uiState.value.lessonId
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            try {
-                val query = GraphQlQuery(
-                    operationName = "GetLiveExamSolutions",
-                    query = """
-                        query GetLiveExamSolutions(${'$'}exam_session_id: String!) {
-                          acpLiveExamResultHistory(exam_session_id: ${'$'}exam_session_id) {
-                            answers {
-                              question { id title solution markdown_version correct_option }
-                              given_ans
+            var items: List<ExamAnswerSolutionItem> = emptyList()
+
+            if (sId.isNotBlank()) {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetLiveExamSolutions",
+                        query = """
+                            query GetLiveExamSolutions(${'$'}exam_session_id: String!) {
+                              acpLiveExamResultHistory(exam_session_id: ${'$'}exam_session_id) {
+                                answers {
+                                  question { id title solution markdown_version correct_option }
+                                  given_ans
+                                }
+                              }
                             }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf("exam_session_id" to sId)
-                )
-                val res = apiService.getLiveExamSolutions(query)
-                val items = res.data?.acpLiveExamResultHistory?.answers ?: emptyList()
-
-                val finalSolutions = if (items.isNotEmpty()) {
-                    items
-                } else {
-                    buildLocalSolutions()
+                        """.trimIndent(),
+                        variables = mapOf("exam_session_id" to sId)
+                    )
+                    val res = apiService.getLiveExamSolutions(query)
+                    items = res.data?.acpLiveExamResultHistory?.answers ?: emptyList()
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading solutions with sId: $sId", e)
                 }
+            }
 
+            if (items.isEmpty() && lId.isNotBlank() && lId != sId) {
+                try {
+                    val query = GraphQlQuery(
+                        operationName = "GetLiveExamSolutions",
+                        query = """
+                            query GetLiveExamSolutions(${'$'}exam_session_id: String!) {
+                              acpLiveExamResultHistory(exam_session_id: ${'$'}exam_session_id) {
+                                answers {
+                                  question { id title solution markdown_version correct_option }
+                                  given_ans
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("exam_session_id" to lId)
+                    )
+                    val res = apiService.getLiveExamSolutions(query)
+                    items = res.data?.acpLiveExamResultHistory?.answers ?: emptyList()
+                } catch (e: Exception) {
+                    Log.e("ChapterExamVM", "Error loading solutions with lId: $lId", e)
+                }
+            }
+
+            val finalSolutions = if (items.isNotEmpty()) {
+                items
+            } else {
+                buildLocalSolutions()
+            }
+
+            if (finalSolutions.isNotEmpty()) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         solutions = finalSolutions,
                         solutionIndex = 0,
-                        stage = ExamStage.SOLUTIONS
+                        stage = ExamStage.SOLUTIONS,
+                        errorMessage = null
                     )
                 }
-            } catch (e: Exception) {
-                val local = buildLocalSolutions()
+            } else {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        solutions = local,
-                        solutionIndex = 0,
-                        stage = ExamStage.SOLUTIONS
+                        errorMessage = "সমাধান লোড করা সম্ভব হয়নি।"
                     )
                 }
             }
@@ -449,47 +577,6 @@ class ChapterExamViewModel(
             }
         }
         return "B"
-    }
-
-    private fun createSampleQuestions(): List<LiveExamQuestionItem> {
-        return listOf(
-            LiveExamQuestionItem(
-                id = "q1",
-                title = "'জন্মভূমি' কবিতাটি পাঠ্যভুক্ত করার উদ্দেশ্য কী?",
-                solution = "মাতৃভূমির প্রতি মমত্ব ও দেশপ্রেমে উদ্বুদ্ধকরণ\n\nব্যাখ্যা: 'জন্মভূমি' কবিতাটি পাঠ্যভুক্ত করার উদ্দেশ্য মাতৃভূমির প্রতি মমত্ব ও দেশপ্রেমে উদ্বুদ্ধকরণ।",
-                correct_option = "B",
-                mcq_options = listOf(
-                    McqOptionItem("A", "A. দেশের সৌন্দর্যের শ্রেষ্ঠত্ব ঘোষণা"),
-                    McqOptionItem("B", "B. মাতৃভূমির প্রতি মমত্ব ও দেশপ্রেমে উদ্বুদ্ধকরণ"),
-                    McqOptionItem("C", "C. গভীর বর্ণনা"),
-                    McqOptionItem("D", "D. জন্মভূমির প্রকৃতি বর্ণনা")
-                )
-            ),
-            LiveExamQuestionItem(
-                id = "q2",
-                title = "'মুদব' শব্দটির অর্থ হলো-",
-                solution = "বুজব\n\nব্যাখ্যা: 'মুদব' শব্দটির অর্থ হলো- বুজব।",
-                correct_option = "D",
-                mcq_options = listOf(
-                    McqOptionItem("A", "A. খোলা"),
-                    McqOptionItem("B", "B. তাকানো"),
-                    McqOptionItem("C", "C. চোখ মেলানো"),
-                    McqOptionItem("D", "D. বুজব")
-                )
-            ),
-            LiveExamQuestionItem(
-                id = "q3",
-                title = "'সততার পুরস্কার' গল্পে দ্বিতীয় ব্যক্তিটির শারীরিক সমস্যা কী ছিল?",
-                solution = "টাক\n\nব্যাখ্যা: 'সততার পুরস্কার' গল্পে দ্বিতীয় ব্যক্তিটি ছিলেন মাথায় টাকওয়ালা।",
-                correct_option = "A",
-                mcq_options = listOf(
-                    McqOptionItem("A", "A. মাথায় টাক"),
-                    McqOptionItem("B", "B. ধবল রুগী"),
-                    McqOptionItem("C", "C. অন্ধ"),
-                    McqOptionItem("D", "D. বধির")
-                )
-            )
-        )
     }
 
     override fun onCleared() {

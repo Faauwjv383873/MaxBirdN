@@ -344,6 +344,7 @@ data class OtherProgram(
             color = null,
             is_free = this.is_free,
             trial_enabled = this.trial_enabled,
+            has_animated_video = this.has_animated_video,
             enrollment_details = EnrollmentDetails(
                 batch_id = null,
                 is_active = true,
@@ -365,6 +366,7 @@ data class EnrolledProgram(
     val color: String?,
     val is_free: Boolean? = false,
     val trial_enabled: Boolean? = false,
+    val has_animated_video: Boolean? = false,
     val enrollment_details: EnrollmentDetails? = null,
     val subjects: List<ProgramSubject>? = emptyList()
 )
@@ -854,6 +856,16 @@ data class ListAcademicProgramChaptersPayload(
 )
 
 @JsonClass(generateAdapter = true)
+data class TopicsMetaWrapper(
+    val meta: TopicsMetaCount? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicsMetaCount(
+    val count: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class AcademicChapterItem(
     val id: String = "",
     val chapter_id: String? = null,
@@ -864,13 +876,18 @@ data class AcademicChapterItem(
     val status: String? = null, // e.g. "IN_PROGRESS", "COMPLETED", "ON_GOING", "UPCOMING"
     val class_counter: Int? = null,
     val exam_counter: Int? = null,
-    val chapters_progress_percentage: Double? = null
+    val chapters_progress_percentage: Double? = null,
+    val all_topics_free: Boolean? = null,
+    val topics: TopicsMetaWrapper? = null
 ) {
     val effectiveName: String
         get() = chapter_name ?: name ?: "অধ্যায়"
 
     val effectiveNo: Any?
         get() = chapter_no ?: no
+
+    val topicCount: Int?
+        get() = topics?.meta?.count
 
     val displayProgress: Int
         get() = chapters_progress_percentage?.toInt() ?: 0

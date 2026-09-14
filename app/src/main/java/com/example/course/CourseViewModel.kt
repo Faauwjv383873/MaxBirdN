@@ -1,5 +1,6 @@
 package com.example.course
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -31,7 +32,12 @@ class CourseViewModel(
 
     fun openCourse(program: EnrolledProgram) {
         val title = program.title_bn ?: "প্রোগ্রাম"
-        _uiState.update { it.copy(selectedCourseProgram = program) }
+        _uiState.update { 
+            it.copy(
+                selectedCourseProgram = program,
+                hasAnimatedVideo = program.has_animated_video == true
+            ) 
+        }
         switchProgram(
             newProgramId = program.id,
             newProgramTitle = title,
@@ -359,10 +365,16 @@ class CourseViewModel(
             val isProgramChanged = oldProgramId.isNotBlank() && oldProgramId != programId
             val activeTargetPhaseId = if (!targetPhaseId.isNullOrBlank()) targetPhaseId else if (isProgramChanged) "" else _uiState.value.activePhaseId
             
+            val prog = _uiState.value.enrolledPrograms.find { it.id == programId }
+                ?: _uiState.value.freePrograms.find { it.id == programId }?.toEnrolledProgram()
+                ?: _uiState.value.otherPrograms.find { it.id == programId }?.toEnrolledProgram()
+            val hasAnimated = prog?.has_animated_video == true || _uiState.value.selectedCourseProgram?.has_animated_video == true
+
             _uiState.update { 
                 it.copy(
                     programId = programId,
                     programTitle = programTitle,
+                    hasAnimatedVideo = hasAnimated,
                     isSubjectsLoading = true,
                     subjectsErrorMessage = null,
                     phases = if (isProgramChanged) emptyList() else it.phases,
@@ -415,7 +427,9 @@ class CourseViewModel(
                                 activePhaseTitle = activePhase?.title ?: ""
                             )
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e("CourseViewModel", "Error fetching phases for programId=$programId: ${e.message}", e)
+                    }
                 }
 
                 // 2. Fetch Academic Subjects
@@ -427,7 +441,9 @@ class CourseViewModel(
                         val academicProgram = repository.getAcademicSubjects(programId, currentPhaseId)
                         rawSubjects = academicProgram?.subjects ?: emptyList()
                         progressBars = academicProgram?.subjects_progress_bar ?: emptyList()
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e("CourseViewModel", "Error fetching subjects with phaseId=$currentPhaseId: ${e.message}", e)
+                    }
                 }
 
                 if (rawSubjects.isEmpty()) {
@@ -435,7 +451,9 @@ class CourseViewModel(
                         val academicProgram = repository.getAcademicSubjects(programId, null)
                         rawSubjects = academicProgram?.subjects ?: emptyList()
                         progressBars = academicProgram?.subjects_progress_bar ?: emptyList()
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e("CourseViewModel", "Error fetching subjects fallback: ${e.message}", e)
+                    }
                 }
 
                 val subjectWithProgressList = rawSubjects.map { subject ->
@@ -451,6 +469,7 @@ class CourseViewModel(
                     )
                 }
             } catch (e: Exception) {
+                Log.e("CourseViewModel", "Fatal error in loadSubjects: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isSubjectsLoading = false,
@@ -532,16 +551,22 @@ class CourseViewModel(
                                 )
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e("CourseViewModel", "Error fetching phases in loadChaptersForSubject: ${e.message}", e)
+                    }
                 }
 
                 var chaptersList = emptyList<AcademicChapterItem>()
+                var queryError: Exception? = null
 
                 // 1. If phaseId / effectivePhaseId is set, fetch phase/quarter-wise chapters first
                 if (effectivePhaseId.isNotBlank()) {
                     try {
                         chaptersList = repository.getPhaseWiseChapters(progId, effectivePhaseId, subjectCode)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        queryError = e
+                        Log.e("CourseViewModel", "Error fetching phase-wise chapters for phase=$effectivePhaseId: ${e.message}", e)
+                    }
                 }
 
                 // 2. If no phase is selected or phase query returned empty, try GetChapters(subject_code)
@@ -551,7 +576,10 @@ class CourseViewModel(
                         if (fullList.isNotEmpty()) {
                             chaptersList = fullList
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        queryError = e
+                        Log.e("CourseViewModel", "Error fetching GetChapters by subjectCode=$subjectCode: ${e.message}", e)
+                    }
                 }
 
                 // If no phase-specific chapters found on initial entry (phaseId == null) and multiple phases exist,
@@ -573,7 +601,10 @@ class CourseViewModel(
                                     }
                                     break
                                 }
-                            } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                queryError = e
+                                Log.e("CourseViewModel", "Error checking alternate phase ${p.id}: ${e.message}", e)
+                            }
                         }
                     }
                 }
@@ -585,13 +616,21 @@ class CourseViewModel(
                         if (fallbackList.isNotEmpty()) {
                             chaptersList = fallbackList
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        queryError = e
+                        Log.e("CourseViewModel", "Error fetching academic program chapters fallback: ${e.message}", e)
+                    }
                 }
 
                 if (chaptersList.isEmpty()) {
-                    val hierarchyChapters = repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
-                    if (hierarchyChapters.isNotEmpty()) {
-                        chaptersList = hierarchyChapters
+                    try {
+                        val hierarchyChapters = repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
+                        if (hierarchyChapters.isNotEmpty()) {
+                            chaptersList = hierarchyChapters
+                        }
+                    } catch (e: Exception) {
+                        queryError = e
+                        Log.e("CourseViewModel", "Error fetching hierarchy chapters: ${e.message}", e)
                     }
                 }
 
@@ -609,20 +648,28 @@ class CourseViewModel(
                                     if (l2.isNotEmpty()) {
                                         lessonsCache[cid] = l2
                                     }
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    Log.e("CourseViewModel", "Error pre-caching lessons for chapter $cid: ${e.message}", e)
+                                }
                             }
                         }
                     }
                 }
 
+                val finalError = if (chaptersList.isEmpty()) {
+                    if (queryError != null) "অধ্যায় লোড করতে সমস্যা হয়েছে: ${queryError.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}"
+                    else "এই বিষয়ে কোনো অধ্যায় পাওয়া যায়নি"
+                } else null
+
                 _uiState.update {
                     it.copy(
                         chapters = chaptersList,
                         isChaptersLoading = false,
-                        chaptersErrorMessage = if (chaptersList.isEmpty()) "এই বিষয়ে কোনো অধ্যায় পাওয়া যায়নি" else null
+                        chaptersErrorMessage = finalError
                     )
                 }
             } catch (e: Exception) {
+                Log.e("CourseViewModel", "Fatal error in loadChaptersForSubject: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isChaptersLoading = false,
