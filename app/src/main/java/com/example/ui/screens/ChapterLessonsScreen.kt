@@ -80,6 +80,7 @@ fun ChapterLessonsScreen(
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
+    onNavigateToAnimatedTopics: ((chapterId: String, chapterName: String, subjectCode: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -99,8 +100,6 @@ fun ChapterLessonsScreen(
         }
     }
 
-    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
-
     LaunchedEffect(chapterId) {
         val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
         val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
@@ -110,7 +109,6 @@ fun ChapterLessonsScreen(
             chapterName = chapterName,
             chapterStatus = chapterStatus
         )
-        viewModel.loadAnimatedLessonsForChapter(chapterId, altId, chapterName)
     }
 
     Scaffold(
@@ -241,7 +239,6 @@ fun ChapterLessonsScreen(
                                     chapterName = chapterName,
                                     chapterStatus = chapterStatus
                                 )
-                                viewModel.loadAnimatedLessonsForChapter(chapterId, altId, chapterName)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = subjectColor),
                             shape = RoundedCornerShape(12.dp)
@@ -259,320 +256,82 @@ fun ChapterLessonsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book (Matching SubjectChaptersScreen)
+                        // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book
                         item {
                             ChapterFeatureShortcuts(
-                                selectedTab = selectedTab,
-                                onTabSelected = { newTab ->
-                                    selectedTab = if (selectedTab == newTab) 0 else newTab
-                                    if (selectedTab == 1 && uiState.chapterAnimatedLessons.isEmpty()) {
-                                        val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
-                                        val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
-                                        viewModel.loadAnimatedLessonsForChapter(chapterId, altId, chapterName)
+                                selectedTab = 0,
+                                onTabSelected = { tab ->
+                                    if (tab == 1) {
+                                        onNavigateToAnimatedTopics?.invoke(
+                                            chapterId,
+                                            chapterName,
+                                            uiState.selectedSubjectCode
+                                        )
                                     }
                                 }
                             )
                         }
 
-                        // Active Filter Banner if a shortcut is selected
-                        if (selectedTab > 0) {
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = when (selectedTab) {
-                                        1 -> Color(0xFF8B5CF6).copy(alpha = 0.12f)
-                                        2 -> Color(0xFF10B981).copy(alpha = 0.12f)
-                                        else -> Color(0xFFF59E0B).copy(alpha = 0.12f)
-                                    },
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        when (selectedTab) {
-                                            1 -> Color(0xFF8B5CF6).copy(alpha = 0.3f)
-                                            2 -> Color(0xFF10B981).copy(alpha = 0.3f)
-                                            else -> Color(0xFFF59E0B).copy(alpha = 0.3f)
-                                        }
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                imageVector = when (selectedTab) {
-                                                    1 -> Icons.Default.SlowMotionVideo
-                                                    2 -> Icons.Default.FactCheck
-                                                    else -> Icons.Default.MenuBook
-                                                },
-                                                contentDescription = null,
-                                                tint = when (selectedTab) {
-                                                    1 -> Color(0xFF8B5CF6)
-                                                    2 -> Color(0xFF10B981)
-                                                    else -> Color(0xFFF59E0B)
-                                                },
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = when (selectedTab) {
-                                                    1 -> "${AcademicLocalizationUtils.translateContentType("Video")}সমূহ (${toBengaliDigits(uiState.chapterAnimatedLessons.size)}টি)"
-                                                    2 -> AcademicLocalizationUtils.translateContentType("Exam")
-                                                    else -> "${AcademicLocalizationUtils.translateContentType("SmartNotes")} ও লেকচার নোটস"
-                                                },
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = when (selectedTab) {
-                                                    1 -> Color(0xFF8B5CF6)
-                                                    2 -> Color(0xFF10B981)
-                                                    else -> Color(0xFFD97706)
-                                                }
-                                            )
-                                        }
-                                        TextButton(
-                                            onClick = { selectedTab = 0 },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                        ) {
-                                            Text("সব ক্লাস ✕", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
+                        // Section Header
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp, bottom = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "ক্লাস ও পরীক্ষা তালিকা (${toBengaliDigits(uiState.lessons.size)}টি)",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
 
-                        if (selectedTab == 0) {
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 4.dp, bottom = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "ক্লাস ও পরীক্ষা তালিকা (${toBengaliDigits(uiState.lessons.size)}টি)",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
+                        items(
+                            items = uiState.lessons,
+                            key = { it.id }
+                        ) { lesson ->
+                            val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
+                                    lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
+                                    lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
+                            // Reference counter so recomposition occurs when marked completed
+                            val currentCompletionCounter = lessonCompletionCounter
 
-                            if (uiState.lessons.isEmpty()) {
-                                item {
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surface
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(32.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PlayLesson,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(44.dp)
-                                            )
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Text(
-                                                text = "এই অধ্যায়ে কোনো ক্লাস পাওয়া যায়নি",
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                items(
-                                    items = uiState.lessons,
-                                    key = { it.id }
-                                ) { lesson ->
-                                    val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
-                                            lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
-                                            lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
-                                    // Reference counter so recomposition occurs when marked completed
-                                    val currentCompletionCounter = lessonCompletionCounter
-
-                                    LessonCard(
-                                        lesson = lesson,
-                                        isCompleted = isCompleted,
-                                        subjectName = uiState.selectedSubjectTitle,
-                                        subjectColorHex = uiState.selectedSubjectColor,
-                                        subjectColor = subjectColor,
-                                        onClick = {
-                                            sessionManager.markLessonCompleted(lesson.id)
-                                            lessonCompletionCounter++
-                                            viewModel.selectLesson(lesson)
-                                            if (onOpenLessonDetail != null) {
-                                                onOpenLessonDetail(lesson)
-                                            } else {
-                                                val videoUrl = lesson.resolvedVideoUrl
-                                                    ?: lesson.live_class?.resolvedVideoUrl
-                                                    ?: lesson.live_class?.recording_url
-                                                    ?: ""
-                                                val title = ClassTypeUtils.formatLessonTitle(lesson.title)
-                                                val isLive = lesson.isLiveNow ||
-                                                        lesson.live_class?.is_on_going == true ||
-                                                        lesson.isLive ||
-                                                        lesson.content_type?.contains("LIVE", ignoreCase = true) == true
-                                                onPlayVideo(
-                                                    videoUrl,
-                                                    title,
-                                                    uiState.selectedSubjectTitle,
-                                                    uiState.selectedSubjectColor,
-                                                    isLive
-                                                )
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        } else if (selectedTab == 1) {
-                            if (uiState.isChapterAnimationsLoading) {
-                                item {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        CircularProgressIndicator(color = Color(0xFF8B5CF6), modifier = Modifier.size(28.dp))
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            "অ্যানিমেটেড ভিডিও লোড হচ্ছে...",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            LessonCard(
+                                lesson = lesson,
+                                isCompleted = isCompleted,
+                                subjectName = uiState.selectedSubjectTitle,
+                                subjectColorHex = uiState.selectedSubjectColor,
+                                subjectColor = subjectColor,
+                                onClick = {
+                                    sessionManager.markLessonCompleted(lesson.id)
+                                    lessonCompletionCounter++
+                                    viewModel.selectLesson(lesson)
+                                    if (onOpenLessonDetail != null) {
+                                        onOpenLessonDetail(lesson)
+                                    } else {
+                                        val videoUrl = lesson.resolvedVideoUrl
+                                            ?: lesson.live_class?.resolvedVideoUrl
+                                            ?: lesson.live_class?.recording_url
+                                            ?: ""
+                                        val title = ClassTypeUtils.formatLessonTitle(lesson.title)
+                                        val isLive = lesson.isLiveNow ||
+                                                lesson.live_class?.is_on_going == true ||
+                                                lesson.isLive ||
+                                                lesson.content_type?.contains("LIVE", ignoreCase = true) == true
+                                        onPlayVideo(
+                                            videoUrl,
+                                            title,
+                                            uiState.selectedSubjectTitle,
+                                            uiState.selectedSubjectColor,
+                                            isLive
                                         )
                                     }
                                 }
-                            } else if (uiState.chapterAnimatedLessons.isEmpty()) {
-                                item {
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surface
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(32.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.SlowMotionVideo,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(44.dp)
-                                            )
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Text(
-                                                text = "এই অধ্যায়ে কোনো অ্যানিমেটেড লেসন পাওয়া যায়নি",
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                items(
-                                    items = uiState.chapterAnimatedLessons,
-                                    key = { it.id ?: "" }
-                                ) { topic ->
-                                    val video = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }
-                                    AnimatedLessonCard(
-                                        topic = topic,
-                                        subjectColor = Color(0xFF8B5CF6),
-                                        onClick = {
-                                            val videoUrl = video?.playback_url ?: ""
-                                            val title = "${topic.no ?: ""} ${topic.name ?: "অ্যানিমেটেড লেসন"}".trim()
-                                            onPlayVideo(
-                                                videoUrl,
-                                                title,
-                                                uiState.selectedSubjectTitle,
-                                                uiState.selectedSubjectColor,
-                                                false
-                                            )
-                                        }
-                                    )
-                                }
-                            }
-                        } else if (selectedTab == 2) {
-                            val examLessons = uiState.lessons.filter { it.isExam }
-                            if (examLessons.isEmpty()) {
-                                item {
-                                    EmptyQuestionsCard(
-                                        ordinal = 1,
-                                        onOkClick = { selectedTab = 0 },
-                                        onAllChaptersClick = onBack
-                                    )
-                                }
-                            } else {
-                                items(items = examLessons, key = { it.id }) { examLesson ->
-                                    LessonCard(
-                                        lesson = examLesson,
-                                        subjectName = uiState.selectedSubjectTitle,
-                                        subjectColorHex = uiState.selectedSubjectColor,
-                                        subjectColor = Color(0xFF10B981),
-                                        onClick = {
-                                            viewModel.selectLesson(examLesson)
-                                            if (onOpenLessonDetail != null) {
-                                                onOpenLessonDetail(examLesson)
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        } else {
-                            item {
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MenuBook,
-                                            contentDescription = null,
-                                            tint = Color(0xFFF59E0B).copy(alpha = 0.6f),
-                                            modifier = Modifier.size(44.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "এই অধ্যায়ের লেকচার শিট ও ই-বুক শীঘ্রই যুক্ত করা হবে",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-                            }
+                            )
                         }
                     }
                 }
@@ -773,112 +532,6 @@ fun LessonCard(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun AnimatedLessonCard(
-    topic: com.example.api.TopicFullItem,
-    subjectColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(16.dp)
-            )
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Play Circle Icon with Subject Color
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = subjectColor.copy(alpha = 0.12f),
-                modifier = Modifier.size(50.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.SlowMotionVideo,
-                        contentDescription = "Animated Lesson",
-                        tint = subjectColor,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            // Center: Topic info
-            Column(modifier = Modifier.weight(1f)) {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF8B5CF6).copy(alpha = 0.12f)
-                ) {
-                    Text(
-                        text = AcademicLocalizationUtils.translateContentType("Video"),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF8B5CF6),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "${topic.no ?: ""} ${topic.name ?: "${AcademicLocalizationUtils.CHAPTER_PREFIX}কন্টেন্ট"}",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (!topic.description.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = topic.description,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Right: Play button with subject color
-            IconButton(
-                onClick = onClick,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = subjectColor.copy(alpha = 0.1f)
-                ),
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play Animation",
-                    tint = subjectColor,
-                    modifier = Modifier.size(18.dp)
-                )
             }
         }
     }

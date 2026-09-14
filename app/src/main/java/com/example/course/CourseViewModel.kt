@@ -747,6 +747,73 @@ class CourseViewModel(
                     }
                 }
 
+                // If studentSpecificLessons returned empty, fetch chapter topics (GetTopics)
+                if (lessonList.isEmpty()) {
+                    val allCidCandidates = (candidateChapterIds + listOfNotNull(matchingChapter?.chapter_id, matchingChapter?.id, altChapterId, chapterId)).distinct().filter { it.isNotBlank() }
+                    for (candId in allCidCandidates) {
+                        try {
+                            val fetchedTopics = repository.getTopics(candId)
+                            if (fetchedTopics.isNotEmpty()) {
+                                lessonList = fetchedTopics.mapIndexed { index, topic ->
+                                    val videoUrl = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
+                                        ?: topic.videos?.data?.firstOrNull()?.playback_url
+                                        ?: ""
+                                    StudentLessonItem(
+                                        id = topic.id?.ifBlank { "topic_${index}_${topic.no ?: ""}" } ?: "topic_${index}_${topic.no ?: ""}",
+                                        title = "${topic.no ?: ""} ${topic.name ?: "ক্লাস"}".trim(),
+                                        content_type = "RecordedClass",
+                                        access_level = topic.subscription_type ?: "FREE",
+                                        user_activity_state = "UPCOMING",
+                                        video_url = videoUrl,
+                                        stream_url = videoUrl,
+                                        recording_url = videoUrl,
+                                        is_free = true
+                                    )
+                                }
+                                break
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // If still empty, resolve chapter UUID from GetChapters(subject_code) and query GetTopics
+                if (lessonList.isEmpty() && _uiState.value.selectedSubjectCode.isNotBlank()) {
+                    try {
+                        val subjectChapters = repository.getChaptersBySubjectCode(_uiState.value.selectedSubjectCode)
+                        val targetChapterName = chapterName ?: matchingChapter?.effectiveName ?: ""
+                        val matchedChapter = subjectChapters.find { ch ->
+                            targetChapterName.isNotBlank() && (
+                                ch.effectiveName.contains(targetChapterName, ignoreCase = true) ||
+                                targetChapterName.contains(ch.effectiveName, ignoreCase = true)
+                            )
+                        } ?: subjectChapters.find { ch ->
+                            matchingChapter?.effectiveNo != null && ch.effectiveNo == matchingChapter.effectiveNo
+                        }
+
+                        if (matchedChapter != null && matchedChapter.id.isNotBlank()) {
+                            val fetchedTopics = repository.getTopics(matchedChapter.id)
+                            if (fetchedTopics.isNotEmpty()) {
+                                lessonList = fetchedTopics.mapIndexed { index, topic ->
+                                    val videoUrl = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
+                                        ?: topic.videos?.data?.firstOrNull()?.playback_url
+                                        ?: ""
+                                    StudentLessonItem(
+                                        id = topic.id?.ifBlank { "topic_${index}_${topic.no ?: ""}" } ?: "topic_${index}_${topic.no ?: ""}",
+                                        title = "${topic.no ?: ""} ${topic.name ?: "ক্লাস"}".trim(),
+                                        content_type = "RecordedClass",
+                                        access_level = topic.subscription_type ?: "FREE",
+                                        user_activity_state = "UPCOMING",
+                                        video_url = videoUrl,
+                                        stream_url = videoUrl,
+                                        recording_url = videoUrl,
+                                        is_free = true
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 val diagInfo = if (lessonList.isEmpty()) {
                     "কোর্স আইডি: ${candidateProgramIds.joinToString(", ")}\nঅধ্যায় আইডি: ${candidateChapterIds.joinToString(", ")}\nকোয়ার্টার আইডি: ${candidatePhaseIds.joinToString(", ")}\nঅনুসন্ধান সংখ্যা: ${queryAttempts.size}টি কোয়েরি"
                 } else null

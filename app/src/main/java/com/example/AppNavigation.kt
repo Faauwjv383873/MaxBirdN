@@ -18,6 +18,8 @@ import com.example.auth.AuthViewModelFactory
 import com.example.auth.SessionManager
 import com.example.course.CourseViewModel
 import com.example.course.CourseViewModelFactory
+import com.example.course.AnimatedLessonsViewModel
+import com.example.course.AnimatedLessonsViewModelFactory
 import com.example.home.HomeViewModel
 import com.example.home.HomeViewModelFactory
 import com.example.profile.EditProfileViewModel
@@ -44,6 +46,8 @@ object Routes {
     const val VIDEO_PLAYER = "video_player?url={url}&title={title}&subject={subject}&color={color}&isLive={isLive}"
     const val ROUTINE_FULL = "routine_full"
     const val COURSE_ENROLLMENT_DETAILS = "course_enrollment_details"
+    const val ANIMATED_CHAPTERS = "animated_chapters/{subjectCode}?title={title}"
+    const val ANIMATED_TOPICS = "animated_topics/{chapterId}?name={name}&subjectCode={subjectCode}"
 }
 
 @Composable
@@ -64,6 +68,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
     val courseViewModel: CourseViewModel = viewModel(
         factory = CourseViewModelFactory(apiService, sessionManager)
+    )
+
+    val animatedLessonsViewModel: AnimatedLessonsViewModel = viewModel(
+        factory = AnimatedLessonsViewModelFactory(apiService, sessionManager)
     )
     
     val authState by authViewModel.authState.collectAsState()
@@ -274,6 +282,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onBack = {
                     navController.popBackStack()
                 },
+                onNavigateToAnimatedChapters = { sCode, sTitle ->
+                    val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
+                    navController.navigate("animated_chapters/$sCode?title=$encodedTitle")
+                },
                 onChapterClick = { chapterId, chapterName, chapterStatus, initialTab ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
@@ -312,6 +324,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onBack = {
                     navController.popBackStack()
                 },
+                onNavigateToAnimatedTopics = { cId, cName, sCode ->
+                    val encodedName = URLEncoder.encode(cName, "UTF-8")
+                    val encodedCode = URLEncoder.encode(sCode, "UTF-8")
+                    navController.navigate("animated_topics/$cId?name=$encodedName&subjectCode=$encodedCode")
+                },
                 onOpenLessonDetail = { _ ->
                     navController.navigate(Routes.LESSON_DETAIL_PLAYER)
                 },
@@ -321,6 +338,56 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
                     val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
                     navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
+                }
+            )
+        }
+
+        composable(
+            route = Routes.ANIMATED_CHAPTERS,
+            arguments = listOf(
+                navArgument("subjectCode") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
+            val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+
+            AnimatedChaptersScreen(
+                subjectCode = subjectCode,
+                subjectTitle = title,
+                viewModel = animatedLessonsViewModel,
+                onBack = { navController.popBackStack() },
+                onChapterClick = { chapterId, chapterName, sCode ->
+                    val encodedName = URLEncoder.encode(chapterName, "UTF-8")
+                    val encodedCode = URLEncoder.encode(sCode, "UTF-8")
+                    navController.navigate("animated_topics/$chapterId?name=$encodedName&subjectCode=$encodedCode")
+                }
+            )
+        }
+
+        composable(
+            route = Routes.ANIMATED_TOPICS,
+            arguments = listOf(
+                navArgument("chapterId") { type = NavType.StringType },
+                navArgument("name") { type = NavType.StringType; defaultValue = "" },
+                navArgument("subjectCode") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
+            val name = backStackEntry.arguments?.getString("name")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+
+            AnimatedTopicsScreen(
+                chapterId = chapterId,
+                chapterName = name,
+                subjectCode = subjectCode,
+                viewModel = animatedLessonsViewModel,
+                onBack = { navController.popBackStack() },
+                onPlayVideo = { videoUrl, title, subjectName ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
+                    navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject")
                 }
             )
         }

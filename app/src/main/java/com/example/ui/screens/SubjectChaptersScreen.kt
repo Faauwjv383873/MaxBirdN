@@ -47,6 +47,7 @@ fun SubjectChaptersScreen(
     onBack: () -> Unit,
     onChapterClick: (chapterId: String, chapterName: String, chapterStatus: String, initialTab: Int) -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
+    onNavigateToAnimatedChapters: ((subjectCode: String, subjectTitle: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -270,88 +271,13 @@ fun SubjectChaptersScreen(
                         item {
                             CourseFeatureShortcuts(
                                 subjectColor = subjectColor,
-                                selectedMode = selectedMode,
+                                selectedMode = 0,
                                 onSelectMode = { mode ->
-                                    selectedMode = if (selectedMode == mode) 0 else mode
-                                }
-                            )
-                        }
-
-                        // Active Mode Banner
-                        if (selectedMode > 0) {
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = when (selectedMode) {
-                                        1 -> Color(0xFF8B5CF6).copy(alpha = 0.12f)
-                                        2 -> Color(0xFF10B981).copy(alpha = 0.12f)
-                                        else -> Color(0xFFF59E0B).copy(alpha = 0.12f)
-                                    },
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        when (selectedMode) {
-                                            1 -> Color(0xFF8B5CF6).copy(alpha = 0.3f)
-                                            2 -> Color(0xFF10B981).copy(alpha = 0.3f)
-                                            else -> Color(0xFFF59E0B).copy(alpha = 0.3f)
-                                        }
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                imageVector = when (selectedMode) {
-                                                    1 -> Icons.Default.SlowMotionVideo
-                                                    2 -> Icons.Default.FactCheck
-                                                    else -> Icons.Default.MenuBook
-                                                },
-                                                contentDescription = null,
-                                                tint = when (selectedMode) {
-                                                    1 -> Color(0xFF8B5CF6)
-                                                    2 -> Color(0xFF10B981)
-                                                    else -> Color(0xFFF59E0B)
-                                                },
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = when (selectedMode) {
-                                                    1 -> "${AcademicLocalizationUtils.translateContentType("Video")} মোড — অধ্যায় সিলেক্ট করে ক্লাস দেখুন"
-                                                    2 -> "${AcademicLocalizationUtils.translateContentType("Exam")} মোড — অধ্যায় সিলেক্ট করে পরীক্ষা দিন"
-                                                    else -> "${AcademicLocalizationUtils.translateContentType("SmartNotes")} মোড — অধ্যায় সিলেক্ট করে নোটস পড়ুন"
-                                                },
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = when (selectedMode) {
-                                                    1 -> Color(0xFF8B5CF6)
-                                                    2 -> Color(0xFF10B981)
-                                                    else -> Color(0xFFD97706)
-                                                }
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { selectedMode = 0 },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "Clear",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
+                                    if (mode == 1) {
+                                        onNavigateToAnimatedChapters?.invoke(subjectCode, subjectTitle)
                                     }
                                 }
-                            }
+                            )
                         }
 
                         // Section Header
@@ -364,12 +290,7 @@ fun SubjectChaptersScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = when (selectedMode) {
-                                        1 -> "${AcademicLocalizationUtils.translateContentType("Video")} অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
-                                        2 -> "${AcademicLocalizationUtils.translateContentType("Exam")} অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
-                                        3 -> "${AcademicLocalizationUtils.translateContentType("SmartNotes")} অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
-                                        else -> "অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)"
-                                    },
+                                    text = "অধ্যায় তালিকা (${toBengaliDigits(uiState.chapters.size)}টি)",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -386,16 +307,7 @@ fun SubjectChaptersScreen(
                             }
                         }
 
-                        val isQuizModeWithNoExams = selectedMode == 2 && (uiState.chapters.isEmpty() || uiState.chapters.none { (it.exam_counter ?: 0) > 0 })
-                        if (isQuizModeWithNoExams) {
-                            item {
-                                EmptyQuestionsCard(
-                                    ordinal = 0,
-                                    onOkClick = { selectedMode = 0 },
-                                    onAllChaptersClick = { selectedMode = 0 }
-                                )
-                            }
-                        } else if (uiState.chapters.isEmpty()) {
+                        if (uiState.chapters.isEmpty()) {
                             item {
                                 Card(
                                     shape = RoundedCornerShape(16.dp),
@@ -435,7 +347,7 @@ fun SubjectChaptersScreen(
                                 ChapterCard(
                                     chapter = chapter,
                                     subjectColor = subjectColor,
-                                    activeMode = selectedMode,
+                                    activeMode = 0,
                                     onClick = {
                                         val primaryId = chapter.id.ifBlank { chapter.chapter_id ?: "" }
                                         val altId = chapter.chapter_id?.takeIf { it != primaryId }
@@ -448,8 +360,7 @@ fun SubjectChaptersScreen(
                                             chapterName = targetName,
                                             chapterStatus = targetStatus
                                         )
-                                        viewModel.loadAnimatedLessonsForChapter(primaryId, altId, targetName)
-                                        onChapterClick(primaryId, targetName, targetStatus, selectedMode)
+                                        onChapterClick(primaryId, targetName, targetStatus, 0)
                                     }
                                 )
                             }
@@ -639,8 +550,8 @@ fun ChapterCard(
                                         tint = Color(0xFF10B981),
                                         modifier = Modifier.size(11.dp)
                                     )
-                                    Text(
-                                        text = "শেষ",
+                                     Text(
+                                        text = "পড়ানো শেষ",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF059669)
@@ -665,7 +576,7 @@ fun ChapterCard(
                                             .background(subjectColor)
                                     )
                                     Text(
-                                        text = "হচ্ছে",
+                                        text = "পড়ানো হচ্ছে",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = subjectColor
@@ -679,7 +590,7 @@ fun ChapterCard(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                             ) {
                                 Text(
-                                    text = "হবে",
+                                    text = "পড়ানো হবে",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,

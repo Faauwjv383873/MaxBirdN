@@ -876,12 +876,25 @@ data class AcademicChapterItem(
         get() = chapters_progress_percentage?.toInt() ?: 0
 
     val isCompleted: Boolean
-        get() = status?.equals("COMPLETED", ignoreCase = true) == true || displayProgress >= 100
+        get() {
+            val st = status?.uppercase() ?: ""
+            if (st in listOf("COMPLETED", "FINISHED", "DONE", "ENDED", "ATTENDED", "PASSED", "ARCHIVED", "PAST", "PUBLISHED", "COMPLETED_TEACHING")) {
+                return true
+            }
+            if (displayProgress >= 100) return true
+            if (st.isBlank() && ((class_counter ?: 0) > 0 || (exam_counter ?: 0) > 0)) return true
+            return false
+        }
 
     val isInProgress: Boolean
-        get() = status?.equals("IN_PROGRESS", ignoreCase = true) == true ||
-                status?.equals("ON_GOING", ignoreCase = true) == true ||
-                (displayProgress in 1..99)
+        get() {
+            val st = status?.uppercase() ?: ""
+            if (st in listOf("IN_PROGRESS", "ON_GOING", "ONGOING", "ACTIVE", "RUNNING", "CURRENT", "LIVE")) {
+                return true
+            }
+            if (displayProgress in 1..99) return true
+            return false
+        }
 }
 
 // ==========================================
