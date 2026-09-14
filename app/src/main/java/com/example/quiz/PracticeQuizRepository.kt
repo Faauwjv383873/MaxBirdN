@@ -234,6 +234,8 @@ class PracticeQuizRepository(
         isTimeout: Boolean,
         questionAnswers: List<Map<String, Any?>>?
     ): PracticeQuizSessionPayload? {
+        Log.d(TAG, "submitPracticeQuizSession: sessionId=$sessionId, isFinal=$isFinal, isTimeout=$isTimeout, answersCount=${questionAnswers?.size ?: 0}")
+
         val queryStr = """
             mutation SubmitPracticeQuizMcqSession(
               ${'$'}id: String!, ${'$'}is_final_submitted: Boolean, ${'$'}is_timeout: Boolean,
@@ -269,7 +271,12 @@ class PracticeQuizRepository(
         )
 
         val response = apiService.submitPracticeQuizMcqSession(query)
-        return response.data?.submitPracticeQuizMcqSession
+        if (!response.errors.isNullOrEmpty()) {
+            Log.e(TAG, "SubmitPracticeQuizMcqSession GraphQL errors: ${response.errors}")
+        }
+        val result = response.data?.submitPracticeQuizMcqSession
+        Log.d(TAG, "submitPracticeQuizSession completed, message=${result?.message}, sessionIsFinal=${result?.session?.is_final_submitted}")
+        return result
     }
 
     /**

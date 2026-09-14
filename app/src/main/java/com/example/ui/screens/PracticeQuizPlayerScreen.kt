@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -539,18 +540,55 @@ fun PracticeQuizPlayerScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+
+                    if (!uiState.submitError.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = uiState.submitError ?: "",
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                TextButton(
+                                    onClick = {
+                                        showSubmitDialog = false
+                                        val targetSid = sessionId.ifBlank { uiState.sessionId }
+                                        onNavigateToResult(targetSid)
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = subjectColor)
+                                ) {
+                                    Text("সরাসরি ফলাফল দেখুন", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.submitFinalQuiz { sid ->
+                        val targetSid = sessionId.ifBlank { uiState.sessionId }
+                        Log.d("PracticeQuizPlayerScreen", "Submit confirm button clicked! paramSessionId=$sessionId, uiStateSessionId=${uiState.sessionId}, targetSid=$targetSid")
+                        viewModel.submitFinalQuiz(explicitSessionId = targetSid) { sid ->
+                            Log.d("PracticeQuizPlayerScreen", "submitFinalQuiz onSuccess triggered: sid=$sid. Navigating to result...")
                             showSubmitDialog = false
                             onNavigateToResult(sid)
                         }
                     },
                     enabled = !uiState.isSubmitting,
-                    colors = ButtonDefaults.buttonColors(containerColor = subjectColor)
+                    colors = ButtonDefaults.buttonColors(containerColor = subjectColor),
+                    modifier = Modifier.testTag("submit_confirm_button")
                 ) {
                     if (uiState.isSubmitting) {
                         CircularProgressIndicator(
@@ -558,9 +596,11 @@ fun PracticeQuizPlayerScreen(
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("সাবমিট হচ্ছে...")
+                    } else {
+                        Text(if (!uiState.submitError.isNullOrBlank()) "পুনরায় চেষ্টা করুন" else "হ্যাঁ, সাবমিট করুন")
                     }
-                    Text("হ্যাঁ, সাবমিট করুন")
                 }
             },
             dismissButton = {

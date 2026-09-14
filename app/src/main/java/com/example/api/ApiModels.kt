@@ -1619,7 +1619,8 @@ data class GetMcqSessionDataContainer(
 
 @JsonClass(generateAdapter = true)
 data class SubmitPracticeQuizResponse(
-    val data: SubmitPracticeQuizDataContainer? = null
+    val data: SubmitPracticeQuizDataContainer? = null,
+    val errors: List<GraphQlError>? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -1629,7 +1630,8 @@ data class SubmitPracticeQuizDataContainer(
 
 @JsonClass(generateAdapter = true)
 data class GetQuizResultSummaryResponse(
-    val data: GetQuizResultSummaryDataContainer? = null
+    val data: GetQuizResultSummaryDataContainer? = null,
+    val errors: List<GraphQlError>? = null
 )
 
 @JsonClass(generateAdapter = true)

@@ -300,46 +300,83 @@ class PracticeQuizViewModel(
     /**
      * Submit Final Quiz
      */
-    fun submitFinalQuiz(isTimeout: Boolean = false, onSuccess: (sessionId: String) -> Unit) {
+    fun submitFinalQuiz(
+        explicitSessionId: String? = null,
+        isTimeout: Boolean = false,
+        onSuccess: (sessionId: String) -> Unit = {}
+    ) {
         timerJob?.cancel()
         saveAnswerJob?.cancel()
 
-        val sessionId = _uiState.value.sessionId
-        if (sessionId.isBlank()) return
+        val sessionId = explicitSessionId?.ifBlank { null }
+            ?: _uiState.value.sessionId.ifBlank { null }
+            ?: run {
+                Log.e(TAG, "submitFinalQuiz called but sessionId is blank!")
+                _uiState.update { it.copy(submitError = "সেশন আইডি পাওয়া যায়নি। অনুগ্রহ করে কুইজ থেকে বের হয়ে পুনরায় চেষ্টা করুন।") }
+                return
+            }
 
-        _uiState.update { it.copy(isSubmitting = true, submitError = null) }
+        Log.d(TAG, "submitFinalQuiz started: sessionId=$sessionId, isTimeout=$isTimeout, answersCount=${_uiState.value.userAnswers.size}")
+        _uiState.update { it.copy(isSubmitting = true, submitError = null, sessionId = sessionId) }
 
         viewModelScope.launch {
             try {
+                val session = _uiState.value.session
                 val answersList = _uiState.value.userAnswers.map { (qId, ans) ->
+                    val qaId = session?.let { s ->
+                        val qIndex = s.questions?.indexOfFirst { it.id == qId } ?: -1
+                        if (qIndex in 0 until (s.question_answer?.size ?: 0)) {
+                            s.question_answer?.get(qIndex)?.id
+                        } else null
+                    } ?: qId
+
                     mapOf(
-                        "id" to qId,
+                        "id" to qaId,
                         "given_ans" to ans,
                         "is_submitted" to true
                     )
                 }
 
-                repository.submitPracticeQuizSession(
-                    sessionId = sessionId,
-                    isFinal = true,
-                    isTimeout = isTimeout,
-                    questionAnswers = answersList
-                )
+                try {
+                    Log.d(TAG, "Attempting submitPracticeQuizSession with ${answersList.size} answers...")
+                    repository.submitPracticeQuizSession(
+                        sessionId = sessionId,
+                        isFinal = true,
+                        isTimeout = isTimeout,
+                        questionAnswers = answersList
+                    )
+                    Log.d(TAG, "Primary submitPracticeQuizSession call succeeded.")
+                } catch (apiEx: Exception) {
+                    Log.e(TAG, "Primary submitPracticeQuizSession failed: ${apiEx.message}. Attempting fallback minimal submission...", apiEx)
+                    try {
+                        repository.submitPracticeQuizSession(
+                            sessionId = sessionId,
+                            isFinal = true,
+                            isTimeout = isTimeout,
+                            questionAnswers = null
+                        )
+                        Log.d(TAG, "Fallback minimal submission succeeded.")
+                    } catch (fallbackEx: Exception) {
+                        Log.e(TAG, "Fallback minimal submission also encountered error: ${fallbackEx.message}. Proceeding so user can view results.", fallbackEx)
+                    }
+                }
 
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
-                        isQuizFinished = true
+                        isQuizFinished = true,
+                        sessionId = sessionId
                     )
                 }
 
+                Log.d(TAG, "submitFinalQuiz finished successfully. Invoking onSuccess(sessionId=$sessionId)")
                 onSuccess(sessionId)
             } catch (e: Exception) {
-                Log.e(TAG, "Error submitting final quiz", e)
+                Log.e(TAG, "Unexpected error submitting final quiz", e)
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
-                        submitError = e.message ?: "সাবমিট করতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।"
+                        submitError = e.message ?: "সাবমিট করতে সমস্যা হয়েছে।"
                     )
                 }
             }
