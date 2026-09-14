@@ -242,6 +242,13 @@ class PracticeQuizViewModel(
         }
     }
 
+    private fun getIsoUtcString(millis: Long): String {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        return sdf.format(java.util.Date(millis))
+    }
+
     /**
      * Helper to build properly structured question_answer payload with session qa IDs
      */
@@ -249,28 +256,24 @@ class PracticeQuizViewModel(
         session: PracticeQuizSessionItem?,
         userAnswers: Map<String, String>
     ): List<Map<String, Any?>> {
+        val nowIso = getIsoUtcString(System.currentTimeMillis())
+        val startIso = getIsoUtcString(System.currentTimeMillis() - 15000L)
+
         val questions = session?.questions ?: emptyList()
-        val questionAnswers = session?.question_answer ?: emptyList()
+        val qaList = session?.question_answer ?: emptyList()
 
-        if (questions.isNotEmpty()) {
-            return questions.mapIndexed { index, question ->
-                val qaId = questionAnswers.getOrNull(index)?.id ?: question.id
-                val givenAns = userAnswers[question.id]
-                val isSubmitted = givenAns != null
+        // শুধুমাত্র যে প্রশ্নগুলোর উত্তর দেওয়া হয়েছে সেগুলো পাঠাতে হবে
+        return userAnswers.mapNotNull { (qId, ans) ->
+            if (ans.isNotBlank()) {
+                val qIndex = questions.indexOfFirst { it.id == qId }
+                val targetId = if (qIndex >= 0) qaList.getOrNull(qIndex)?.id ?: qId else qId
                 mapOf(
-                    "id" to qaId,
-                    "given_ans" to (givenAns ?: ""),
-                    "is_submitted" to isSubmitted
+                    "id" to targetId,
+                    "given_ans" to ans,
+                    "start_time" to startIso,
+                    "submit_time" to nowIso
                 )
-            }
-        }
-
-        return userAnswers.map { (qId, ans) ->
-            mapOf(
-                "id" to qId,
-                "given_ans" to ans,
-                "is_submitted" to true
-            )
+            } else null
         }
     }
 
@@ -296,7 +299,7 @@ class PracticeQuizViewModel(
                         sessionId = sessionId,
                         isFinal = false,
                         isTimeout = false,
-                        questionAnswers = answersList
+                        questionAnswers = answersList.ifEmpty { null }
                     )
                 }
             } catch (e: Exception) {
@@ -335,50 +338,26 @@ class PracticeQuizViewModel(
     ) {
         timerJob?.cancel()
         saveAnswerJob?.cancel()
-
         val sessionId = explicitSessionId?.ifBlank { null }
             ?: _uiState.value.sessionId.ifBlank { null }
-            ?: run {
-                Log.e(TAG, "submitFinalQuiz called but sessionId is blank!")
-                _uiState.update { it.copy(submitError = "সেশন আইডি পাওয়া যায়নি। অনুগ্রহ করে কুইজ থেকে বের হয়ে পুনরায় চেষ্টা করুন।") }
-                return
-            }
+            ?: return
 
-        Log.d(TAG, "submitFinalQuiz started: sessionId=$sessionId, isTimeout=$isTimeout, answersCount=${_uiState.value.userAnswers.size}")
         _uiState.update { it.copy(isSubmitting = true, submitError = null, sessionId = sessionId) }
-
         viewModelScope.launch {
             try {
                 val session = _uiState.value.session
                 val answersList = buildQuestionAnswersPayload(session, _uiState.value.userAnswers)
 
-                try {
-                    Log.d(TAG, "Attempting submitPracticeQuizSession with ${answersList.size} answers...")
-                    val result = repository.submitPracticeQuizSession(
-                        sessionId = sessionId,
-                        isFinal = true,
-                        isTimeout = isTimeout,
-                        questionAnswers = answersList
-                    )
-                    Log.d(TAG, "Primary submitPracticeQuizSession call succeeded: isFinal=${result?.session?.is_final_submitted}")
-                } catch (apiEx: Exception) {
-                    Log.e(TAG, "Primary submitPracticeQuizSession failed: ${apiEx.message}. Attempting fallback minimal submission...", apiEx)
-                    try {
-                        repository.submitPracticeQuizSession(
-                            sessionId = sessionId,
-                            isFinal = true,
-                            isTimeout = isTimeout,
-                            questionAnswers = null
-                        )
-                        Log.d(TAG, "Fallback minimal submission succeeded.")
-                    } catch (fallbackEx: Exception) {
-                        Log.e(TAG, "Fallback minimal submission also encountered error: ${fallbackEx.message}. Proceeding so user can view results.", fallbackEx)
-                    }
-                }
+                // ১. উত্তরগুলো সহ ফাইনাল সাবমিশন
+                repository.submitPracticeQuizSession(
+                    sessionId = sessionId,
+                    isFinal = true,
+                    isTimeout = isTimeout,
+                    questionAnswers = answersList.ifEmpty { null }
+                )
 
-                // Buffer delay to allow server background workers to aggregate scores
-                delay(600L)
-
+                // সার্ভার যাতে এগ্রিগেশন সম্পন্ন করতে পারে তার জন্য সামান্য বাফার ডিলে
+                delay(800L)
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
@@ -386,15 +365,13 @@ class PracticeQuizViewModel(
                         sessionId = sessionId
                     )
                 }
-
-                Log.d(TAG, "submitFinalQuiz finished successfully. Invoking onSuccess(sessionId=$sessionId)")
                 onSuccess(sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error submitting final quiz", e)
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
-                        submitError = e.message ?: "সাবমিট করতে সমস্যা হয়েছে।"
+                        submitError = e.message ?: "সাবমিট করতে সমস্যা হয়েছে"
                     )
                 }
             }

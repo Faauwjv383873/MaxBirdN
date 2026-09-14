@@ -142,13 +142,13 @@ interface ShikhoApiService {
     @POST("/graphql")
     suspend fun getMcqSession(@Body query: GraphQlQuery): GetMcqSessionResponse
 
-    @POST("/graphql")
+    @POST("https://analytics.shikho.com/graphql")
     suspend fun submitPracticeQuizMcqSession(@Body query: GraphQlQuery): SubmitPracticeQuizResponse
 
-    @POST("/graphql")
+    @POST("https://analytics.shikho.com/graphql")
     suspend fun getQuizResultSummary(@Body query: GraphQlQuery): GetQuizResultSummaryResponse
 
-    @POST("/graphql")
+    @POST("https://analytics.shikho.com/graphql")
     suspend fun getMcqSessionFeedback(@Body query: GraphQlQuery): GetMcqSessionFeedbackResponse
 
     @POST("/graphql")

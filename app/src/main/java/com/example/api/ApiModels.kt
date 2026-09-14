@@ -1690,8 +1690,9 @@ data class QuizResultSummaryPayload(
 ) {
     val fullBadgeImageUrl: String?
         get() = if (!badge_image_base_url.isNullOrBlank() && !badge_image_name.isNullOrBlank()) {
-            val base = if (badge_image_base_url.endsWith("/")) badge_image_base_url else "$badge_image_base_url/"
-            base + badge_image_name
+            val base = badge_image_base_url.trim().trimEnd('/')
+            val name = badge_image_name.trim().trimStart('/')
+            "$base/male/$name"
         } else null
 
     val correctCount: Int get() = total_correct ?: 0
