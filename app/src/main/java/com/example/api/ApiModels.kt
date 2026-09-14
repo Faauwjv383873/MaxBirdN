@@ -1527,3 +1527,183 @@ data class AttachmentDataItem(
     val url: String? = null
 )
 
+// ==========================================
+// 8. Practice Quiz / MCQ Session Models
+// ==========================================
+
+@JsonClass(generateAdapter = true)
+data class StartPracticeQuizMcqSessionResponse(
+    val data: StartPracticeQuizDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class StartPracticeQuizDataContainer(
+    val startPracticeQuizMcqSession: PracticeQuizSessionPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PracticeQuizSessionPayload(
+    val message: String? = null,
+    val session: PracticeQuizSessionItem? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PracticeQuizSessionItem(
+    val id: String = "",
+    val start_time: String? = null,
+    val expiry_time: String? = null,
+    val init_time: String? = null,
+    val is_final_submitted: Boolean? = null,
+    val is_started: Boolean? = null,
+    val is_timeout: Boolean? = null,
+    val last_submission_time: String? = null,
+    val last_submitted_index: Int? = null,
+    val quiz_type: String? = null,
+    val set_id: String? = null,
+    val user_id: String? = null,
+    val exam_id: String? = null,
+    val title: String? = null,
+    val question_answer: List<PracticeQuizQuestionAnswerItem>? = emptyList(),
+    val questions: List<PracticeQuizQuestionItem>? = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class PracticeQuizQuestionAnswerItem(
+    val id: String? = null,
+    val given_ans: String? = null,
+    val is_submitted: Boolean? = null,
+    val start_time: String? = null,
+    val submit_time: String? = null,
+    val correct_ans: String? = null,
+    val is_correct: Boolean? = null,
+    val is_saved: Boolean? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PracticeQuizQuestionItem(
+    val id: String = "",
+    val question_no: Int? = null,
+    val title: String? = null,
+    val description: String? = null,
+    val difficulty_level: String? = null,
+    val allocated_marks: Double? = null,
+    val allocated_time: Int? = null,
+    val has_math_equation: Boolean? = null,
+    val markdown_version: Int? = null,
+    val question_type: String? = null,
+    val source: String? = null,
+    val u_code: String? = null,
+    val correct_option: String? = null,
+    val given_ans: String? = null,
+    val is_active: Boolean? = null,
+    val mcq_options: List<McqOptionItem>? = emptyList(),
+    val chapter: HierarchyChapterRef? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class HierarchyChapterRef(
+    val id: String? = null,
+    val name: String? = null,
+    val no: Any? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetMcqSessionResponse(
+    val data: GetMcqSessionDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetMcqSessionDataContainer(
+    val getMcqSession: PracticeQuizSessionPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubmitPracticeQuizResponse(
+    val data: SubmitPracticeQuizDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SubmitPracticeQuizDataContainer(
+    val submitPracticeQuizMcqSession: PracticeQuizSessionPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetQuizResultSummaryResponse(
+    val data: GetQuizResultSummaryDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetQuizResultSummaryDataContainer(
+    val getQuizResultSummery: QuizResultSummaryPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class QuizResultSummaryPayload(
+    val id: String? = null,
+    val badge: String? = null,
+    val badge_image_base_url: String? = null,
+    val badge_image_name: String? = null,
+    val quiz_type: String? = null,
+    val total_correct: Int? = null,
+    val total_incorrect: Int? = null,
+    val total_questions: Int? = null,
+    val parent_id: String? = null,
+    val total_spent_time: Double? = null,
+    val subjects: List<QuizResultSubjectItem>? = emptyList(),
+    val subject_results: List<QuizSubjectResultDetailItem>? = emptyList()
+) {
+    val fullBadgeImageUrl: String?
+        get() = if (!badge_image_base_url.isNullOrBlank() && !badge_image_name.isNullOrBlank()) {
+            val base = if (badge_image_base_url.endsWith("/")) badge_image_base_url else "$badge_image_base_url/"
+            base + badge_image_name
+        } else null
+}
+
+@JsonClass(generateAdapter = true)
+data class QuizResultSubjectItem(
+    val code: String? = null,
+    val icon: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class QuizSubjectResultDetailItem(
+    val code: String? = null,
+    val proficiency: String? = null,
+    val title: String? = null,
+    val title_bn: String? = null,
+    val total_correct: Int? = null,
+    val total_in_correct: Int? = null,
+    val total_questions: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetMcqSessionFeedbackResponse(
+    val data: GetMcqSessionFeedbackDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GetMcqSessionFeedbackDataContainer(
+    val getMcqSessionFeedback: PracticeQuizSessionPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateSavedQuestionResponse(
+    val data: CreateSavedQuestionDataContainer? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateSavedQuestionDataContainer(
+    val createSavedQuestion: SavedQuestionPayload? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SavedQuestionPayload(
+    val id: String? = null,
+    val question_id: String? = null,
+    val session_id: String? = null,
+    val title: String? = null,
+    val solution: String? = null,
+    val is_correct: Boolean? = null,
+    val is_submitted: Boolean? = null
+)
+

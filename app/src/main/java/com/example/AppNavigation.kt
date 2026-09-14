@@ -45,6 +45,8 @@ import com.example.profile.EditProfileViewModel
 import com.example.profile.EditProfileViewModelFactory
 import com.example.syllabus.ChangeSyllabusViewModel
 import com.example.syllabus.ChangeSyllabusViewModelFactory
+import com.example.quiz.PracticeQuizViewModel
+import com.example.quiz.PracticeQuizViewModelFactory
 import com.example.ui.screens.*
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -68,6 +70,11 @@ object Routes {
     const val ANIMATED_CHAPTERS = "animated_chapters/{subjectCode}?title={title}"
     const val ANIMATED_TOPICS = "animated_topics/{chapterId}?name={name}&subjectCode={subjectCode}"
     const val CHAPTER_EXAM = "chapter_exam/{sessionId}?lessonId={lessonId}&title={title}&chapter={chapter}"
+    const val PRACTICE_QUIZ_CHAPTERS = "practice_quiz_chapters/{subjectCode}?title={title}&color={color}"
+    const val PRACTICE_QUIZ_COUNT = "practice_quiz_count"
+    const val PRACTICE_QUIZ_PLAYER = "practice_quiz_player/{sessionId}"
+    const val PRACTICE_QUIZ_RESULT = "practice_quiz_result/{sessionId}"
+    const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
 }
 
 // ============================================================
@@ -193,6 +200,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
     val chapterExamViewModel: ChapterExamViewModel = viewModel(
         factory = ChapterExamViewModelFactory(apiService, sessionManager)
+    )
+
+    val practiceQuizViewModel: PracticeQuizViewModel = viewModel(
+        factory = PracticeQuizViewModelFactory(apiService, sessionManager)
     )
 
     val authState by authViewModel.authState.collectAsState()
@@ -408,6 +419,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
                     navController.navigate("animated_chapters/$sCode?title=$encodedTitle")
                 },
+                onNavigateToPracticeQuiz = { sCode, sTitle, sColor ->
+                    val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
+                    val encodedColor = URLEncoder.encode(sColor ?: "", "UTF-8")
+                    navController.navigate("practice_quiz_chapters/$sCode?title=$encodedTitle&color=$encodedColor")
+                },
                 onChapterClick = { chapterId, chapterName, chapterStatus, initialTab ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
@@ -606,6 +622,118 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        // ==========================================
+        // Practice Quiz Navigation Flow
+        // ==========================================
+
+        animatedComposable(
+            route = Routes.PRACTICE_QUIZ_CHAPTERS,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("subjectCode") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("color") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
+            val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val color = backStackEntry.arguments?.getString("color")?.let { URLDecoder.decode(it, "UTF-8") }
+
+            PracticeQuizChapterSelectionScreen(
+                subjectCode = subjectCode,
+                subjectTitle = title,
+                subjectColorHex = color,
+                viewModel = practiceQuizViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onProceedToCountSelection = {
+                    navController.navigate(Routes.PRACTICE_QUIZ_COUNT)
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.PRACTICE_QUIZ_COUNT,
+            anim = NavAnim.forward
+        ) {
+            PracticeQuizCountSelectionScreen(
+                viewModel = practiceQuizViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToPlayer = { sessionId ->
+                    navController.navigate("practice_quiz_player/$sessionId")
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.PRACTICE_QUIZ_PLAYER,
+            anim = NavAnim.immersive,
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+
+            PracticeQuizPlayerScreen(
+                sessionId = sessionId,
+                viewModel = practiceQuizViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToResult = { sid ->
+                    navController.navigate("practice_quiz_result/$sid") {
+                        popUpTo(Routes.PRACTICE_QUIZ_COUNT) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.PRACTICE_QUIZ_RESULT,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+
+            PracticeQuizResultScreen(
+                sessionId = sessionId,
+                sessionManager = sessionManager,
+                viewModel = practiceQuizViewModel,
+                onBackToChapters = {
+                    navController.popBackStack(Routes.PRACTICE_QUIZ_CHAPTERS, inclusive = true)
+                },
+                onNavigateToFeedback = { sid ->
+                    navController.navigate("practice_quiz_feedback/$sid")
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.PRACTICE_QUIZ_FEEDBACK,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+
+            PracticeQuizFeedbackScreen(
+                sessionId = sessionId,
+                viewModel = practiceQuizViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onDone = {
+                    navController.popBackStack(Routes.PRACTICE_QUIZ_CHAPTERS, inclusive = true)
                 }
             )
         }

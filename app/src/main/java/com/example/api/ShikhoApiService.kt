@@ -132,6 +132,24 @@ interface ShikhoApiService {
     @POST("/graphql")
     suspend fun getResourceAttachments(@Body query: GraphQlQuery): ResourceAttachmentsResponse
 
+    @POST("/graphql")
+    suspend fun startPracticeQuizMcqSession(@Body query: GraphQlQuery): StartPracticeQuizMcqSessionResponse
+
+    @POST("/graphql")
+    suspend fun getMcqSession(@Body query: GraphQlQuery): GetMcqSessionResponse
+
+    @POST("/graphql")
+    suspend fun submitPracticeQuizMcqSession(@Body query: GraphQlQuery): SubmitPracticeQuizResponse
+
+    @POST("/graphql")
+    suspend fun getQuizResultSummary(@Body query: GraphQlQuery): GetQuizResultSummaryResponse
+
+    @POST("/graphql")
+    suspend fun getMcqSessionFeedback(@Body query: GraphQlQuery): GetMcqSessionFeedbackResponse
+
+    @POST("/graphql")
+    suspend fun createSavedQuestion(@Body query: GraphQlQuery): CreateSavedQuestionResponse
+
     @GET("https://analytics.shikho.com/api/v1/results/quarterly/quarter/{programId}/{phaseId}")
     suspend fun getQuarterlyResults(
         @Path("programId") programId: String,

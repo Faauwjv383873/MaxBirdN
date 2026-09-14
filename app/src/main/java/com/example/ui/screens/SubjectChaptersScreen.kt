@@ -48,6 +48,7 @@ fun SubjectChaptersScreen(
     onChapterClick: (chapterId: String, chapterName: String, chapterStatus: String, initialTab: Int) -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onNavigateToAnimatedChapters: ((subjectCode: String, subjectTitle: String) -> Unit)? = null,
+    onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -275,6 +276,8 @@ fun SubjectChaptersScreen(
                                 onSelectMode = { mode ->
                                     if (mode == 1) {
                                         onNavigateToAnimatedChapters?.invoke(subjectCode, subjectTitle)
+                                    } else if (mode == 2) {
+                                        onNavigateToPracticeQuiz?.invoke(subjectCode, subjectTitle, subjectColorHex)
                                     }
                                 }
                             )
