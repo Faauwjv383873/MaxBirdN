@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -47,9 +48,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.database.DownloadedItemEntity
+import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
 import com.example.player.VideoTrackQuality
 import kotlinx.coroutines.delay
+import java.io.File
 import java.util.Locale
 
 @OptIn(UnstableApi::class)
@@ -87,14 +91,30 @@ fun VideoPlayerScreen(
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
 
+    // Download Manager & Offline Check
+    val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
+    val downloadId = remember(videoUrl, title) {
+        "vid_" + (videoUrl.hashCode().toString() + "_" + title.hashCode().toString()).replace("-", "n")
+    }
+    val downloadedItem by downloadManager.getDownloadedItemById(downloadId).collectAsState(initial = null)
+    var showDeleteDownloadDialog by remember { mutableStateOf(false) }
+
     // Fallback URL if passed URL is empty
-    val resolvedUrl = remember(videoUrl) {
-        if (videoUrl.isNotBlank() && videoUrl != "null") {
-            videoUrl
-        } else {
-            // Standard HLS test stream
-            "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
+    val effectivePlaybackUrl = remember(videoUrl, downloadedItem) {
+        val completedLocal = if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) {
+            val file = File(downloadedItem!!.localFilePath)
+            if (file.exists() && file.length() > 0) file.absolutePath else null
+        } else null
+
+        when {
+            completedLocal != null -> completedLocal
+            videoUrl.isNotBlank() && videoUrl != "null" -> videoUrl
+            else -> "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
         }
+    }
+
+    val isPlayingOffline = remember(effectivePlaybackUrl) {
+        effectivePlaybackUrl.startsWith("/") || effectivePlaybackUrl.startsWith("file://")
     }
 
     // Subject color
@@ -110,10 +130,14 @@ fun VideoPlayerScreen(
         }
     }
 
-    // ExoPlayer instance configured with Shikho CDN headers
-    val exoPlayer = remember(context) {
+    // ExoPlayer instance configured with Shikho CDN headers or Local Offline source
+    val exoPlayer = remember(context, effectivePlaybackUrl) {
         ShikhoPlayerManager.buildExoPlayer(context).apply {
-            val mediaSource = ShikhoPlayerManager.createMediaSource(resolvedUrl, isLive = isLive)
+            val mediaSource = ShikhoPlayerManager.createMediaSource(
+                url = effectivePlaybackUrl,
+                isLive = isLive && !isPlayingOffline,
+                context = context
+            )
             setMediaSource(mediaSource)
             prepare()
             playWhenReady = true
@@ -418,6 +442,78 @@ fun VideoPlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        // Offline In-App Download Action
+                        when (downloadedItem?.status) {
+                            DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                val item = downloadedItem!!
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                        .clickable {
+                                            downloadManager.cancelDownload(downloadId)
+                                            Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        progress = { item.progressFraction },
+                                        color = Color(0xFF38BDF8),
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Text(
+                                        text = "${item.progressPercent}%",
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                            DownloadedItemEntity.STATUS_COMPLETED -> {
+                                IconButton(
+                                    onClick = { showDeleteDownloadDialog = true },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                                ) {
+                                    Icon(
+                                        Icons.Default.DownloadDone,
+                                        contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                            else -> {
+                                IconButton(
+                                    onClick = {
+                                        downloadManager.downloadFile(
+                                            id = downloadId,
+                                            title = title,
+                                            subtitle = subjectName,
+                                            fileType = DownloadedItemEntity.FILE_TYPE_VIDEO,
+                                            remoteUrl = effectivePlaybackUrl
+                                        )
+                                        Toast.makeText(context, "ভিডিও অফলাইন ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                ) {
+                                    Icon(
+                                        Icons.Default.Download,
+                                        contentDescription = "অফলাইন ডাউনলোড করুন",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         // Aspect ratio resize toggle
                         IconButton(
                             onClick = {
@@ -781,6 +877,59 @@ fun VideoPlayerScreen(
                 confirmButton = {
                     TextButton(onClick = { showQualityDialog = false }) {
                         Text("বন্ধ করো")
+                    }
+                }
+            )
+        }
+
+        // Downloaded Video Info & Deletion Dialog
+        if (showDeleteDownloadDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteDownloadDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.DownloadDone,
+                            contentDescription = null,
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("অফলাইন ডাউনলোড", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "এই ভিডিওটি আপনার ডিভাইসের সুরক্ষিত অ্যাপ স্টোরেজে অফলাইনে সংরক্ষিত রয়েছে।",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (downloadedItem != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "সাইজ: ${downloadManager.formatFileSize(downloadedItem!!.totalBytes)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showDeleteDownloadDialog = false }) {
+                        Text("ঠিক আছে")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            downloadManager.deleteDownloadedFile(downloadId)
+                            showDeleteDownloadDialog = false
+                            Toast.makeText(context, "ডাউনলোড করা ফাইল ডিলিট করা হয়েছে", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Text("ডিলিট করুন", color = MaterialTheme.colorScheme.error)
                     }
                 }
             )

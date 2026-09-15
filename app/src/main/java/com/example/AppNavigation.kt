@@ -68,6 +68,7 @@ object Routes {
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SAVED_ITEMS = "saved_items"
+    const val DOWNLOADS = "downloads"
     const val SMART_NOTES = "smart_notes/{subjectCode}?title={title}&color={color}&phaseId={phaseId}"
     const val CHAPTER_RESOURCES = "chapter_resources/{chapterId}?name={name}&subjectCode={subjectCode}&phaseId={phaseId}"
     const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
@@ -356,6 +357,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 },
                 onNavigateToSavedItems = {
                     navController.navigate(Routes.SAVED_ITEMS)
+                },
+                onNavigateToDownloads = {
+                    navController.navigate(Routes.DOWNLOADS)
                 },
                 onOpenLessonDetail = { lesson ->
                     courseViewModel.selectLesson(lesson)
@@ -670,6 +674,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToSavedItems = {
                     navController.navigate(Routes.SAVED_ITEMS)
                 },
+                onNavigateToDownloads = {
+                    navController.navigate(Routes.DOWNLOADS)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
@@ -802,6 +809,21 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 viewModel = savedViewModel,
                 onBack = {
                     navController.popBackStack()
+                }
+            )
+        }
+
+        animatedComposable(Routes.DOWNLOADS, anim = NavAnim.forward) {
+            DownloadsScreen(
+                onBack = {
+                    navController.popBackStack()
+                },
+                onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
+                    val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
+                    navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
                 }
             )
         }

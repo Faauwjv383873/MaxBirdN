@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
@@ -35,6 +36,7 @@ fun ProfileScreen(
     authState: AuthState,
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToSavedItems: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     LaunchedEffect(Unit) {
@@ -46,6 +48,13 @@ fun ProfileScreen(
             TopAppBar(
                 title = { Text("প্রোফাইল বিবরণ") },
                 actions = {
+                    IconButton(onClick = onNavigateToDownloads) {
+                        Icon(
+                            Icons.Default.DownloadDone,
+                            contentDescription = "Downloads",
+                            tint = Color(0xFF10B981)
+                        )
+                    }
                     IconButton(onClick = onNavigateToSavedItems) {
                         Icon(
                             Icons.Default.Bookmark,
@@ -99,7 +108,8 @@ fun ProfileScreen(
                     val profile = (authState as AuthState.ProfileLoaded).profile
                     ProfileContent(
                         profile = profile,
-                        onNavigateToSavedItems = onNavigateToSavedItems
+                        onNavigateToSavedItems = onNavigateToSavedItems,
+                        onNavigateToDownloads = onNavigateToDownloads
                     )
                 }
                 else -> {
@@ -113,7 +123,8 @@ fun ProfileScreen(
 @Composable
 fun ProfileContent(
     profile: UserProfile,
-    onNavigateToSavedItems: () -> Unit = {}
+    onNavigateToSavedItems: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val imageRequest = remember(profile.avatar, profile.first_name, context) {
@@ -187,6 +198,64 @@ fun ProfileContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Offline Downloads Navigation Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onNavigateToDownloads),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFD1FAE5)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DownloadDone,
+                        contentDescription = null,
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "অফলাইন ডাউনলোড",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "ইন্টারনেট ছাড়া সংরক্ষিত ভিডিও ও পিডিএফ লেকচার",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Saved Items Navigation Card
         Card(

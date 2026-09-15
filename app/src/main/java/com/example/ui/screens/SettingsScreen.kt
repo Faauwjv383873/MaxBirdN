@@ -59,6 +59,7 @@ fun SettingsScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToCourseEnrollment: () -> Unit = {},
     onNavigateToSavedItems: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -263,9 +264,22 @@ fun SettingsScreen(
                     iconTint = Color(0xFFF59E0B),
                     iconBg = Color(0xFFFEF3C7),
                     title = "সংরক্ষিত আইটেম",
-                    subtitle = "বুকমার্ক করা প্রশ্ন ও অফলাইন স্টাডি ম্যাটেরিয়াল",
+                    subtitle = "বুকমার্ক করা প্রশ্ন ও গুরুত্বপূর্ণ স্টাডি ম্যাটেরিয়াল",
                     badge = "সংরক্ষিত",
                     onClick = onNavigateToSavedItems
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // 6. অফলাইন ডাউনলোড (Offline Downloads)
+                SettingsRowItem(
+                    icon = Icons.Default.DownloadDone,
+                    iconTint = Color(0xFF10B981),
+                    iconBg = Color(0xFFD1FAE5),
+                    title = "অফলাইন ডাউনলোড",
+                    subtitle = "ইন্টারনেট ছাড়া সংরক্ষিত ভিডিও ও পিডিএফ লেকচার",
+                    badge = "অফলাইন",
+                    onClick = onNavigateToDownloads
                 )
             }
 

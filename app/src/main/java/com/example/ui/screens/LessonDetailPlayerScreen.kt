@@ -180,7 +180,7 @@ fun LessonDetailPlayerScreen(
         return
     }
 
-    var livePlayerMode by remember { mutableStateOf("STREAM") }
+    var livePlayerMode by remember(isLive) { mutableStateOf(if (isLive) "MEETING" else "STREAM") }
 
     val effectiveSocketManager = socketManager ?: remember { HmsLiveSocketManager() }
     val viewerCount by effectiveSocketManager.viewerCount.collectAsState()
@@ -735,6 +735,7 @@ fun LessonDetailPlayerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
             ) {
                 // 1. Top Video Player (16:9 Aspect Ratio)
                 Box(
@@ -886,141 +887,61 @@ fun LessonDetailPlayerScreen(
                     }
                 }
 
-                // 2. Below Player Content: Interactive Live Class (Chat, Hand Raise, Polls) vs Recorded/Animated Content
+                // Live Class Active Room Banner & Control Card (if live)
                 if (isLive) {
-                    var selectedLiveTab by remember { mutableIntStateOf(0) }
-                    TabRow(
-                        selectedTabIndex = selectedLiveTab,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary
-                    ) {
-                        Tab(
-                            selected = selectedLiveTab == 0,
-                            onClick = { selectedLiveTab = 0 },
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("💬 লাইভ চ্যাট", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    if (isHandRaised) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("✋", fontSize = 11.sp)
-                                    }
-                                }
+                    LiveClassRoomBanner(
+                        isLiveOngoing = isLiveOngoing,
+                        liveProvider = liveProvider,
+                        hmsRoomId = hmsRoomId,
+                        livePlayerMode = livePlayerMode,
+                        effectiveMeetingUrl = effectiveMeetingUrl,
+                        onTogglePlayerMode = {
+                            if (livePlayerMode == "MEETING") {
+                                livePlayerMode = "STREAM"
+                                exoPlayer.play()
+                            } else {
+                                exoPlayer.pause()
+                                livePlayerMode = "MEETING"
                             }
-                        )
-                        Tab(
-                            selected = selectedLiveTab == 1,
-                            onClick = { selectedLiveTab = 1 },
-                            text = {
-                                Text("📑 লেকচার ও স্লাইডস", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                        )
-                    }
-
-                    if (selectedLiveTab == 0) {
-                        LiveClassPlayerOverlay(
-                            socketManager = effectiveSocketManager,
-                            title = lesson?.title ?: "লাইভ ক্লাস",
-                            modifier = Modifier.weight(1f)
-                        )
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            LiveClassRoomBanner(
-                                isLiveOngoing = isLiveOngoing,
-                                liveProvider = liveProvider,
-                                hmsRoomId = hmsRoomId,
-                                livePlayerMode = livePlayerMode,
-                                effectiveMeetingUrl = effectiveMeetingUrl,
-                                onTogglePlayerMode = {
-                                    if (livePlayerMode == "MEETING") {
-                                        livePlayerMode = "STREAM"
-                                        exoPlayer.play()
-                                    } else {
-                                        exoPlayer.pause()
-                                        livePlayerMode = "MEETING"
-                                    }
-                                },
-                                onRefreshLesson = onRefreshLesson
-                            )
-
-                            LessonDetailHeader(lesson = lesson)
-
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                thickness = 1.dp,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            LessonTopicsAccordion(
-                                lesson = lesson,
-                                subjectThemeColor = subjectThemeColor,
-                                isExpanded = isTopicsExpanded,
-                                onToggleExpand = { isTopicsExpanded = !isTopicsExpanded },
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-
-                            Spacer(modifier = Modifier.height(24.dp))
-
-                            LessonDocumentsSection(
-                                lesson = lesson,
-                                context = context,
-                                coroutineScope = coroutineScope,
-                                onRefreshLesson = onRefreshLesson,
-                                onViewAttachment = { attachment ->
-                                    viewingSlideItem = attachment
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.height(40.dp))
-                        }
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        // Class Header & Info Section
-                        LessonDetailHeader(lesson = lesson)
-
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        // "ক্লাসের বিষয়বস্তু" (Expandable Accordion)
-                        LessonTopicsAccordion(
-                            lesson = lesson,
-                            subjectThemeColor = subjectThemeColor,
-                            isExpanded = isTopicsExpanded,
-                            onToggleExpand = { isTopicsExpanded = !isTopicsExpanded },
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // "লেকচার স্লাইডস ও ডকুমেন্টস"
-                        LessonDocumentsSection(
-                            lesson = lesson,
-                            context = context,
-                            coroutineScope = coroutineScope,
-                            onRefreshLesson = onRefreshLesson,
-                            onViewAttachment = { attachment ->
-                                viewingSlideItem = attachment
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(40.dp))
-                    }
+                        },
+                        onRefreshLesson = onRefreshLesson
+                    )
                 }
+
+                // 2. Class Header & Info Section
+                LessonDetailHeader(lesson = lesson)
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // 3. "ক্লাসের বিষয়বস্তু" (Expandable Accordion)
+                LessonTopicsAccordion(
+                    lesson = lesson,
+                    subjectThemeColor = subjectThemeColor,
+                    isExpanded = isTopicsExpanded,
+                    onToggleExpand = { isTopicsExpanded = !isTopicsExpanded },
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 4. "লেকচার স্লাইডস ও ডকুমেন্টস"
+                LessonDocumentsSection(
+                    lesson = lesson,
+                    context = context,
+                    coroutineScope = coroutineScope,
+                    onRefreshLesson = onRefreshLesson,
+                    onViewAttachment = { attachment ->
+                        viewingSlideItem = attachment
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(40.dp))
             }
         }
     }

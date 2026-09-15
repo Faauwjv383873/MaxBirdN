@@ -7,11 +7,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.common.TrackSelectionOverride
 import java.util.Locale
@@ -98,15 +100,33 @@ object ShikhoPlayerManager {
     }
 
     /**
-     * Creates a MediaSource properly configured for HLS (.m3u8), standard MP4 streams, and Live streaming.
+     * Creates a MediaSource properly configured for HLS (.m3u8), standard MP4 streams, offline local files, and Live streaming.
      */
     fun createMediaSource(
         url: String,
         isLive: Boolean = false,
         classType: PlayerClassType = if (isLive) PlayerClassType.LIVE else PlayerClassType.RECORDED_LECTURE,
-        dataSourceFactory: DefaultHttpDataSource.Factory = createHttpDataSourceFactory()
+        dataSourceFactory: DefaultHttpDataSource.Factory = createHttpDataSourceFactory(),
+        context: Context? = null
     ): MediaSource {
-        val uri = Uri.parse(url)
+        val isLocalFile = url.startsWith("/") || url.startsWith("file://")
+        val uri = if (url.startsWith("/") && !url.startsWith("file://")) {
+            Uri.fromFile(java.io.File(url))
+        } else {
+            Uri.parse(url)
+        }
+
+        if (isLocalFile) {
+            val mediaItem = MediaItem.fromUri(uri)
+            return if (context != null) {
+                DefaultMediaSourceFactory(DefaultDataSource.Factory(context))
+                    .createMediaSource(mediaItem)
+            } else {
+                DefaultMediaSourceFactory(dataSourceFactory)
+                    .createMediaSource(mediaItem)
+            }
+        }
+
         val isHls = url.contains(".m3u8", ignoreCase = true) || url.contains("hls", ignoreCase = true) || isLive || classType == PlayerClassType.LIVE
 
         val mediaItem = MediaItem.Builder()

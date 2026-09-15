@@ -43,6 +43,7 @@ fun MainContainerScreen(
     onNavigateToCourseEnrollment: () -> Unit = {},
     onNavigateToFullRoutine: () -> Unit = {},
     onNavigateToSavedItems: () -> Unit = {},
+    onNavigateToDownloads: () -> Unit = {},
     onOpenLessonDetail: (com.example.api.StudentLessonItem) -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
@@ -150,6 +151,7 @@ fun MainContainerScreen(
                         onNavigateToProfile = onNavigateToProfile,
                         onNavigateToCourseEnrollment = onNavigateToCourseEnrollment,
                         onNavigateToSavedItems = onNavigateToSavedItems,
+                        onNavigateToDownloads = onNavigateToDownloads,
                         onLogout = onLogout
                     )
                 }

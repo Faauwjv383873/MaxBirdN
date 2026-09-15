@@ -1,12 +1,10 @@
 package com.example.ui.components
 
-import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Environment
 import android.view.ViewGroup
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -14,17 +12,15 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.database.DownloadedItemEntity
+import com.example.download.AppFileDownloadManager
+import java.io.File
 import java.net.URLEncoder
 
 @Composable
@@ -44,19 +43,40 @@ fun SlideViewerDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
+    val downloadId = remember(slideUrl, title) {
+        "pdf_" + (slideUrl.hashCode().toString() + "_" + title.hashCode().toString()).replace("-", "n")
+    }
+    val downloadedItem by downloadManager.getDownloadedItemById(downloadId).collectAsState(initial = null)
+
     var isLoading by remember { mutableStateOf(true) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var hasError by remember { mutableStateOf(false) }
 
-    val encodedUrl = remember(slideUrl) {
-        try {
-            URLEncoder.encode(slideUrl, "UTF-8")
-        } catch (_: Exception) {
+    val effectiveUrl = remember(slideUrl, downloadedItem) {
+        if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) {
+            val file = File(downloadedItem!!.localFilePath)
+            if (file.exists() && file.length() > 0) file.absolutePath else slideUrl
+        } else {
             slideUrl
         }
     }
-    val viewerUrl = remember(encodedUrl) {
-        "https://docs.google.com/gview?embedded=true&url=$encodedUrl"
+
+    val isLocalFile = remember(effectiveUrl) {
+        effectiveUrl.startsWith("/") || effectiveUrl.startsWith("file://")
+    }
+
+    val viewerUrl = remember(effectiveUrl, isLocalFile) {
+        if (isLocalFile) {
+            if (effectiveUrl.startsWith("file://")) effectiveUrl else "file://$effectiveUrl"
+        } else {
+            try {
+                val encoded = URLEncoder.encode(effectiveUrl, "UTF-8")
+                "https://docs.google.com/gview?embedded=true&url=$encoded"
+            } catch (_: Exception) {
+                effectiveUrl
+            }
+        }
     }
 
     Dialog(
@@ -105,25 +125,69 @@ fun SlideViewerDialog(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "পিডিএফ লেকচার স্লাইড ভিউয়ার",
+                                text = if (isLocalFile) "অফলাইন সংরক্ষিত লেকচার স্লাইড" else "পিডিএফ লেকচার স্লাইড ভিউয়ার",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isLocalFile) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (isLocalFile) FontWeight.SemiBold else FontWeight.Normal
                             )
                         }
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = {
-                                downloadSlideFile(context, slideUrl, title)
+                        // In-App Offline Download Action
+                        when (downloadedItem?.status) {
+                            DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                val item = downloadedItem!!
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        progress = { item.progressFraction },
+                                        color = MaterialTheme.colorScheme.primary,
+                                        strokeWidth = 2.5.dp,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "ডাউনলোড করুন",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            DownloadedItemEntity.STATUS_COMPLETED -> {
+                                IconButton(
+                                    onClick = {
+                                        Toast.makeText(context, "এই ফাইলটি অফলাইনে সংরক্ষিত রয়েছে", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DownloadDone,
+                                        contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
+                                        tint = Color(0xFF10B981)
+                                    )
+                                }
+                            }
+                            else -> {
+                                IconButton(
+                                    onClick = {
+                                        downloadManager.downloadFile(
+                                            id = downloadId,
+                                            title = title,
+                                            subtitle = "পিডিএফ লেকচার নোট",
+                                            fileType = DownloadedItemEntity.FILE_TYPE_PDF,
+                                            remoteUrl = slideUrl
+                                        )
+                                        Toast.makeText(context, "ইন-অ্যাপ অফলাইন ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "ইন-অ্যাপ ডাউনলোড করুন",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
+
                         IconButton(
                             onClick = {
                                 openSlideInExternalApp(context, slideUrl)
@@ -171,6 +235,8 @@ fun SlideViewerDialog(
                                 builtInZoomControls = true
                                 displayZoomControls = false
                                 setSupportZoom(true)
+                                allowFileAccess = true
+                                allowContentAccess = true
                                 cacheMode = WebSettings.LOAD_DEFAULT
                             }
                             webViewClient = object : WebViewClient() {
@@ -253,7 +319,7 @@ fun SlideViewerDialog(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "সরাসরি ব্রাউজারে দেখতে বা ডাউনলোড করতে নিচের বাটনে চাপুন।",
+                                text = "সরাসরি ব্রাউজারে দেখতে বা ইন-অ্যাপ ডাউনলোড করতে নিচের বাটনে চাপুন।",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
@@ -271,7 +337,14 @@ fun SlideViewerDialog(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        downloadSlideFile(context, slideUrl, title)
+                                        downloadManager.downloadFile(
+                                            id = downloadId,
+                                            title = title,
+                                            subtitle = "পিডিএফ লেকচার নোট",
+                                            fileType = DownloadedItemEntity.FILE_TYPE_PDF,
+                                            remoteUrl = slideUrl
+                                        )
+                                        Toast.makeText(context, "ইন-অ্যাপ অফলাইন ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
                                     }
                                 ) {
                                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -283,36 +356,6 @@ fun SlideViewerDialog(
                     }
                 }
             }
-        }
-    }
-}
-
-private fun downloadSlideFile(context: Context, url: String, title: String) {
-    try {
-        val uri = Uri.parse(url)
-        val sanitizedTitle = title.replace("[^a-zA-Z0-9_\\-\\u0980-\\u09FF]".toRegex(), "_")
-        val fileName = if (sanitizedTitle.endsWith(".pdf", ignoreCase = true)) sanitizedTitle else "$sanitizedTitle.pdf"
-
-        val request = DownloadManager.Request(uri).apply {
-            setTitle(title)
-            setDescription("লেকচার স্লাইড ডাউনলোড হচ্ছে...")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            setMimeType("application/pdf")
-            addRequestHeader("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)")
-            addRequestHeader("referer", "https://shikho.com/")
-        }
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        dm.enqueue(request)
-        Toast.makeText(context, "ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
-    } catch (e: Exception) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "ডাউনলোড করা যায়নি: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 }
@@ -345,3 +388,4 @@ private fun copySlideToClipboard(context: Context, url: String) {
         Toast.makeText(context, "স্লাইড লিংক কপি করা হয়েছে", Toast.LENGTH_SHORT).show()
     } catch (_: Exception) {}
 }
+
