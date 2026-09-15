@@ -56,6 +56,7 @@ import com.example.utils.SubjectColorUtils
 fun CourseSubjectsScreen(
     viewModel: CourseViewModel,
     onSubjectClick: (subjectCode: String, subjectTitle: String, subjectColor: String) -> Unit,
+    onCourseSelected: ((EnrolledProgram) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -148,9 +149,12 @@ fun CourseSubjectsScreen(
                         uiState = uiState,
                         onOpenEnrolledCourse = { program ->
                             viewModel.openCourse(program)
+                            onCourseSelected?.invoke(program)
                         },
                         onOpenOtherCourse = { otherProgram ->
-                            viewModel.openCourse(otherProgram.toEnrolledProgram())
+                            val converted = otherProgram.toEnrolledProgram()
+                            viewModel.openCourse(converted)
+                            onCourseSelected?.invoke(converted)
                         },
                         onRefresh = {
                             viewModel.fetchEnrolledPrograms()

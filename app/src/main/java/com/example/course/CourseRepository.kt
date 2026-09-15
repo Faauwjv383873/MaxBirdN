@@ -358,17 +358,47 @@ class CourseRepository(
                     query GetUpcomingLessons(${'$'}chapter_id: String!, ${'$'}program_id: String!) {
                       studentSpecificLessons(program_id: ${'$'}program_id, chapter_id: ${'$'}chapter_id) {
                         data {
-                          id
-                          title
-                          content_id
+                          access_level
+                          subject_name
+                          start_time
+                          end_time
                           content_type
+                          id
+                          content_id
+                          subject_id
+                          batch_id
+                          chapter_id
+                          icon
+                          color_code
                           user_activity_state
+                          hw_type
+                          title
                           live_class {
-                            id
+                            chapter_id
+                            chapter_name
+                            end_time
+                            is_on_going
                             recording_url
                             start_time
+                            subject_name
+                            topics {
+                              id
+                              name
+                            }
+                            subject_id
+                            id
                             type
                           }
+                          model_test {
+                            type
+                            exam_category
+                            result_publish_time
+                          }
+                          topics {
+                            id
+                            name
+                          }
+                          phase_id
                         }
                       }
                     }

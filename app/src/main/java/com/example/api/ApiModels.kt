@@ -900,7 +900,8 @@ data class ProgramPhasesResponse(
 
 @JsonClass(generateAdapter = true)
 data class ProgramPhasesData(
-    val programPhasesByStudent: ProgramPhasesInnerData?
+    val programPhasesByStudent: ProgramPhasesInnerData? = null,
+    val programPhases: ProgramPhasesInnerData? = null
 )
 
 @JsonClass(generateAdapter = true)

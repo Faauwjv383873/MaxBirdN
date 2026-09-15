@@ -743,6 +743,34 @@ class HomeViewModel(
                     }
                 } catch (_: Exception) {}
 
+                // Fallback: fetch programPhases if programPhasesByStudent returned empty
+                if (fetchedPhases.isEmpty()) {
+                    try {
+                        val fallbackPhaseQuery = GraphQlQuery(
+                            operationName = "GetProgramPhases",
+                            query = """
+                                query GetProgramPhases(${'$'}program_id: String!) {
+                                  programPhases(program_id: ${'$'}program_id) {
+                                    data {
+                                      id
+                                      academic_program_id
+                                      title
+                                      status
+                                      is_current
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf("program_id" to programId)
+                        )
+                        val fallbackRes = apiService.getProgramPhases(fallbackPhaseQuery)
+                        fetchedPhases = fallbackRes.data?.programPhases?.data ?: emptyList()
+                        if (fetchedPhases.isNotEmpty()) {
+                            _uiState.value = _uiState.value.copy(programPhases = fetchedPhases)
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 // Calculate exact month range in Asia/Dhaka (1st day 00:00:00 to last day 23:59:59)
                 val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka"))
                 cal.set(Calendar.YEAR, year)
@@ -894,6 +922,127 @@ class HomeViewModel(
                             )
                         )
                         val response = apiService.getStudentLessons(noPhaseQuery)
+                        val directLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                        collectedLessons.addAll(directLessons)
+                    } catch (_: Exception) {}
+                }
+
+                // 4. If still empty, query without date range restriction across all phases
+                if (collectedLessons.isEmpty() && validPhases.isNotEmpty()) {
+                    for (phaseId in validPhases) {
+                        try {
+                            val allPhaseLessonsQuery = GraphQlQuery(
+                                operationName = "GetStudentSpecificLessonsPhaseAll",
+                                query = """
+                                    query GetStudentSpecificLessonsPhaseAll(${'$'}program_id: String!, ${'$'}phase_id: String!) {
+                                      studentSpecificLessons(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id) {
+                                        data {
+                                          access_level
+                                          hw_type
+                                          start_time
+                                          subject_id
+                                          subject_name
+                                          title
+                                          end_time
+                                          icon
+                                          id
+                                          content_id
+                                          content_type
+                                          user_activity_state
+                                          batch_id
+                                          chapter_id
+                                          live_class {
+                                            chapter_id
+                                            chapter_name
+                                            end_time
+                                            is_on_going
+                                            recording_url
+                                            start_time
+                                            subject_name
+                                            subject_id
+                                            id
+                                            type
+                                          }
+                                          model_test {
+                                            result_publish_time
+                                            type
+                                            exam_category
+                                          }
+                                          topics {
+                                            id
+                                            name
+                                          }
+                                          color_code
+                                          phase_id
+                                        }
+                                      }
+                                    }
+                                """.trimIndent(),
+                                variables = mapOf(
+                                    "program_id" to programId,
+                                    "phase_id" to phaseId
+                                )
+                            )
+                            val response = apiService.getStudentLessons(allPhaseLessonsQuery)
+                            val phaseLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
+                            collectedLessons.addAll(phaseLessons)
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // 5. If still empty, query without phase_id AND without date range
+                if (collectedLessons.isEmpty()) {
+                    try {
+                        val noPhaseNoDateQuery = GraphQlQuery(
+                            operationName = "GetStudentSpecificLessonsNoPhaseAll",
+                            query = """
+                                query GetStudentSpecificLessonsNoPhaseAll(${'$'}program_id: String!) {
+                                  studentSpecificLessons(program_id: ${'$'}program_id) {
+                                    data {
+                                      access_level
+                                      hw_type
+                                      start_time
+                                      subject_id
+                                      subject_name
+                                      title
+                                      end_time
+                                      icon
+                                      id
+                                      content_id
+                                      content_type
+                                      user_activity_state
+                                      batch_id
+                                      chapter_id
+                                      live_class {
+                                        chapter_id
+                                        chapter_name
+                                        end_time
+                                        is_on_going
+                                        recording_url
+                                        start_time
+                                        subject_name
+                                        subject_id
+                                        id
+                                        type
+                                      }
+                                      model_test {
+                                        result_publish_time
+                                        type
+                                        exam_category
+                                      }
+                                      topics {
+                                        id
+                                        name
+                                      }
+                                      color_code
+                                      phase_id
+                                    }
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf("program_id" to programId)
+                        )
+                        val response = apiService.getStudentLessons(noPhaseNoDateQuery)
                         val directLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
                         collectedLessons.addAll(directLessons)
                     } catch (_: Exception) {}

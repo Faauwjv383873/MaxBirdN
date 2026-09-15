@@ -351,6 +351,12 @@ class CourseViewModel(
         targetPhaseId: String? = null
     ) {
         val title = if (!newProgramTitle.isNullOrBlank()) newProgramTitle else "এইচএসসি কোর্স"
+        sessionManager.saveActiveProgram(
+            programId = newProgramId,
+            titleBn = title,
+            batchId = batchId,
+            classCode = classCode
+        )
         _uiState.update {
             it.copy(
                 programId = newProgramId,
@@ -592,22 +598,9 @@ class CourseViewModel(
                     }
                 }
 
-                // 2. If no phase is selected or phase query returned empty, try GetChapters(subject_code)
-                if (chaptersList.isEmpty() && (effectivePhaseId.isBlank() || phaseId == null)) {
-                    try {
-                        val fullList = repository.getChaptersBySubjectCode(subjectCode)
-                        if (fullList.isNotEmpty()) {
-                            chaptersList = fullList
-                        }
-                    } catch (e: Exception) {
-                        queryError = e
-                        Log.e("CourseViewModel", "Error fetching GetChapters by subjectCode=$subjectCode: ${e.message}", e)
-                    }
-                }
-
-                // If no phase-specific chapters found on initial entry (phaseId == null) and multiple phases exist,
+                // 2. If no phase-specific chapters found on initial entry (phaseId == null) and multiple phases exist,
                 // check if chapters exist in another phase (e.g. Quarter 1)
-                if (chaptersList.isEmpty() && phaseId == null && currentPhases.size > 1) {
+                if (chaptersList.isEmpty() && currentPhases.size > 1) {
                     for (p in currentPhases) {
                         if (p.id != effectivePhaseId && p.id.isNotBlank()) {
                             try {
@@ -632,8 +625,8 @@ class CourseViewModel(
                     }
                 }
 
-                // If still empty or no phase was set, try query without phase_id
-                if (chaptersList.isEmpty() && (effectivePhaseId.isBlank() || phaseId == null)) {
+                // 3. If still empty or no phase was set, try query without phase_id
+                if (chaptersList.isEmpty()) {
                     try {
                         val fallbackList = repository.getAcademicProgramChaptersFallback(progId, subjectCode)
                         if (fallbackList.isNotEmpty()) {
@@ -642,18 +635,6 @@ class CourseViewModel(
                     } catch (e: Exception) {
                         queryError = e
                         Log.e("CourseViewModel", "Error fetching academic program chapters fallback: ${e.message}", e)
-                    }
-                }
-
-                if (chaptersList.isEmpty()) {
-                    try {
-                        val hierarchyChapters = repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
-                        if (hierarchyChapters.isNotEmpty()) {
-                            chaptersList = hierarchyChapters
-                        }
-                    } catch (e: Exception) {
-                        queryError = e
-                        Log.e("CourseViewModel", "Error fetching hierarchy chapters: ${e.message}", e)
                     }
                 }
 
@@ -733,7 +714,6 @@ class CourseViewModel(
         chapterName: String? = null,
         chapterStatus: String? = null
     ) {
-        val activeIctProgramId = "6862551806800acba2e22b27"
         val sessionProgId = sessionManager.getActiveProgramId()
         val stateProgId = _uiState.value.programId
         val phaseProgId = _uiState.value.selectedPhase?.academic_program_id
@@ -743,12 +723,11 @@ class CourseViewModel(
             stateProgId,
             phaseProgId,
             enrolledPhaseProgId,
-            activeIctProgramId,
             sessionProgId
         ).filter { it.isNotBlank() }.distinct()
 
         val matchingChapter = _uiState.value.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
-        val primaryChapterId = chapterId.ifBlank { matchingChapter?.id ?: matchingChapter?.chapter_id ?: "" }
+        val primaryChapterId = chapterId.ifBlank { matchingChapter?.chapter_id ?: matchingChapter?.id ?: "" }
         val secondaryChapterId = altChapterId ?: matchingChapter?.chapter_id?.takeIf { it != primaryChapterId } ?: matchingChapter?.id?.takeIf { it != primaryChapterId }
 
         val candidateChapterIds = listOfNotNull(primaryChapterId, secondaryChapterId).filter { it.isNotBlank() }.distinct()
@@ -815,73 +794,6 @@ class CourseViewModel(
                             }
                         }
                     }
-                }
-
-                // If studentSpecificLessons returned empty, fetch chapter topics (GetTopics)
-                if (lessonList.isEmpty()) {
-                    val allCidCandidates = (candidateChapterIds + listOfNotNull(matchingChapter?.chapter_id, matchingChapter?.id, altChapterId, chapterId)).distinct().filter { it.isNotBlank() }
-                    for (candId in allCidCandidates) {
-                        try {
-                            val fetchedTopics = repository.getTopics(candId)
-                            if (fetchedTopics.isNotEmpty()) {
-                                lessonList = fetchedTopics.mapIndexed { index, topic ->
-                                    val videoUrl = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
-                                        ?: topic.videos?.data?.firstOrNull()?.playback_url
-                                        ?: ""
-                                    StudentLessonItem(
-                                        id = topic.id?.ifBlank { "topic_${index}_${topic.no ?: ""}" } ?: "topic_${index}_${topic.no ?: ""}",
-                                        title = "${topic.no ?: ""} ${topic.name ?: "ক্লাস"}".trim(),
-                                        content_type = "RecordedClass",
-                                        access_level = topic.subscription_type ?: "FREE",
-                                        user_activity_state = "UPCOMING",
-                                        video_url = videoUrl,
-                                        stream_url = videoUrl,
-                                        recording_url = videoUrl,
-                                        is_free = true
-                                    )
-                                }
-                                break
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-
-                // If still empty, resolve chapter UUID from GetChapters(subject_code) and query GetTopics
-                if (lessonList.isEmpty() && _uiState.value.selectedSubjectCode.isNotBlank()) {
-                    try {
-                        val subjectChapters = repository.getChaptersBySubjectCode(_uiState.value.selectedSubjectCode)
-                        val targetChapterName = chapterName ?: matchingChapter?.effectiveName ?: ""
-                        val matchedChapter = subjectChapters.find { ch ->
-                            targetChapterName.isNotBlank() && (
-                                ch.effectiveName.contains(targetChapterName, ignoreCase = true) ||
-                                targetChapterName.contains(ch.effectiveName, ignoreCase = true)
-                            )
-                        } ?: subjectChapters.find { ch ->
-                            matchingChapter?.effectiveNo != null && ch.effectiveNo == matchingChapter.effectiveNo
-                        }
-
-                        if (matchedChapter != null && matchedChapter.id.isNotBlank()) {
-                            val fetchedTopics = repository.getTopics(matchedChapter.id)
-                            if (fetchedTopics.isNotEmpty()) {
-                                lessonList = fetchedTopics.mapIndexed { index, topic ->
-                                    val videoUrl = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
-                                        ?: topic.videos?.data?.firstOrNull()?.playback_url
-                                        ?: ""
-                                    StudentLessonItem(
-                                        id = topic.id?.ifBlank { "topic_${index}_${topic.no ?: ""}" } ?: "topic_${index}_${topic.no ?: ""}",
-                                        title = "${topic.no ?: ""} ${topic.name ?: "ক্লাস"}".trim(),
-                                        content_type = "RecordedClass",
-                                        access_level = topic.subscription_type ?: "FREE",
-                                        user_activity_state = "UPCOMING",
-                                        video_url = videoUrl,
-                                        stream_url = videoUrl,
-                                        recording_url = videoUrl,
-                                        is_free = true
-                                    )
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {}
                 }
 
                 val diagInfo = if (lessonList.isEmpty()) {

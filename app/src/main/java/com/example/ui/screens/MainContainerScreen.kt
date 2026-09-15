@@ -142,7 +142,10 @@ fun MainContainerScreen(
                 1 -> {
                     CourseSubjectsScreen(
                         viewModel = courseViewModel,
-                        onSubjectClick = onNavigateToSubjectChapters
+                        onSubjectClick = onNavigateToSubjectChapters,
+                        onCourseSelected = { program ->
+                            homeViewModel.switchActiveCourse(program)
+                        }
                     )
                 }
                 3 -> {
