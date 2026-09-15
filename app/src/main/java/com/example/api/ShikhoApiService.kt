@@ -197,10 +197,18 @@ interface ShikhoApiService {
     @GET("https://gen-ai-api.shikho.com/subject/list")
     suspend fun getAiSubjectList(): ShikhoSubjectListResponse
 
+    @GET("https://gen-ai-api.shikho.com/subject/list")
+    suspend fun getAiSubjectListRaw(): Response<ResponseBody>
+
     @POST("https://gen-ai-api.shikho.com/prompt-image/signed-url")
     suspend fun getAiSignedUrl(
         @Body request: SignedUrlRequest = SignedUrlRequest()
     ): SignedUrlResponse
+
+    @POST("https://gen-ai-api.shikho.com/prompt-image/signed-url")
+    suspend fun getAiSignedUrlRaw(
+        @Body request: SignedUrlRequest = SignedUrlRequest()
+    ): Response<ResponseBody>
 
     @PUT
     suspend fun uploadImageBinary(
@@ -213,10 +221,20 @@ interface ShikhoApiService {
         @Body request: CreateSessionRequest
     ): CreateSessionResponse
 
+    @POST("https://gen-ai-api.shikho.com/session/create")
+    suspend fun createAiSessionRaw(
+        @Body request: CreateSessionRequest
+    ): Response<ResponseBody>
+
     @POST("https://gen-ai-api.shikho.com/conversation/continue")
     suspend fun continueAiConversation(
         @Body request: ConversationContinueRequest
     ): ConversationContinueResponse
+
+    @POST("https://gen-ai-api.shikho.com/conversation/continue")
+    suspend fun continueAiConversationRaw(
+        @Body request: ConversationContinueRequest
+    ): Response<ResponseBody>
 
     companion object {
         private const val BASE_URL = "https://api.shikho.com"
@@ -243,7 +261,11 @@ interface ShikhoApiService {
             }
 
             val enrolmentMockInterceptor = Interceptor { chain ->
-                val response = chain.proceed(chain.request())
+                val origRequest = chain.request()
+                if (origRequest.url.host.contains("gen-ai-api.shikho.com")) {
+                    return@Interceptor chain.proceed(origRequest)
+                }
+                val response = chain.proceed(origRequest)
                 try {
                     val body = response.body
                     if (response.isSuccessful && body != null) {

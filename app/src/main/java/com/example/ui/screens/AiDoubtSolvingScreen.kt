@@ -135,7 +135,7 @@ fun AiDoubtSolvingScreen(
                     .padding(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                val activeSubjects = if (uiState.subjectsList.isNotEmpty()) uiState.subjectsList else viewModel.availableSubjects
+                val activeSubjects = uiState.subjectsList
 
                 // Subject Filter Bar + Today's Usage Counter
                 AiSubjectAndUsageBar(
@@ -149,16 +149,19 @@ fun AiDoubtSolvingScreen(
 
                 // Main Chat Body or Empty State
                 if (uiState.currentMessages.isEmpty()) {
-                    AiEmptyState(
-                        selectedSubject = activeSubjects.find { it.code.equals(uiState.selectedSubjectCode, ignoreCase = true) }
-                            ?: activeSubjects.firstOrNull() ?: viewModel.availableSubjects.first(),
-                        onSelectSamplePrompt = { prompt ->
-                            viewModel.setSamplePrompt(prompt)
-                        },
-                        onQuickSendPrompt = { prompt ->
-                            viewModel.sendQuestion(prompt, context = context)
-                        }
-                    )
+                    val currentSelectedSubject = activeSubjects.find { it.code.equals(uiState.selectedSubjectCode, ignoreCase = true) }
+                        ?: activeSubjects.firstOrNull()
+                    if (currentSelectedSubject != null) {
+                        AiEmptyState(
+                            selectedSubject = currentSelectedSubject,
+                            onSelectSamplePrompt = { prompt ->
+                                viewModel.setSamplePrompt(prompt)
+                            },
+                            onQuickSendPrompt = { prompt ->
+                                viewModel.sendQuestion(prompt, context = context)
+                            }
+                        )
+                    }
                 } else {
                     AiChatMessagesList(
                         messages = uiState.currentMessages,

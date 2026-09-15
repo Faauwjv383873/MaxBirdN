@@ -6,9 +6,15 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.api.*
+import com.example.api.AiChatMessage
+import com.example.api.AiChatSession
+import com.example.api.AiSubjectOption
+import com.example.api.AiSubscriptionItem
+import com.example.api.ConversationContinueRequest
+import com.example.api.CreateSessionRequest
 import com.example.auth.SessionManager
-import kotlinx.coroutines.delay
+import com.example.api.ShikhoApiService
+import com.example.api.SignedUrlRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,25 +24,29 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 
 data class AiUiState(
-    val currentMessages: List<AiChatMessage> = emptyList(),
-    val chatSessions: List<AiChatSession> = emptyList(),
-    val currentSessionId: String? = null,
-    val selectedSubjectCode: String = "MATH",
+    val userName: String = "শিক্ষার্থী",
+    val userPhone: String = "",
+    val userAvatar: String? = null,
+    val userClassName: String = "HSC",
+    val userGroup: String = "",
+    val isSubscribed: Boolean = true,
+    val isUnlimited: Boolean = true,
+    val subscription: AiSubscriptionItem? = null,
+    val usedQuestionsCount: Int = 0,
+    val totalDailyLimit: Int = 9999,
+    
+    val selectedSubjectCode: String = "",
     val subjectsList: List<AiSubjectOption> = emptyList(),
     val isLoadingSubjects: Boolean = false,
+    
     val inputText: String = "",
     val attachedImageUri: Uri? = null,
     val isGenerating: Boolean = false,
-    val subscription: AiSubscriptionItem? = null,
-    val isSubscribed: Boolean = true,
-    val usedQuestionsCount: Int = 0,
-    val totalDailyLimit: Int = 999999,
-    val isUnlimited: Boolean = true,
-    val userName: String = "শিক্ষার্থী",
-    val userAvatar: String? = null,
-    val userPhone: String = "",
-    val userClassName: String = "Class 11",
-    val userGroup: String = "Science",
+    
+    val currentSessionId: String? = null,
+    val currentMessages: List<AiChatMessage> = emptyList(),
+    val chatSessions: List<AiChatSession> = emptyList(),
+    
     val toastMessage: String? = null,
     val isWebMode: Boolean = false
 )
@@ -49,91 +59,18 @@ class AiViewModel(
     private val _uiState = MutableStateFlow(AiUiState())
     val uiState: StateFlow<AiUiState> = _uiState.asStateFlow()
 
-    val availableSubjects: List<AiSubjectOption> = listOf(
-        AiSubjectOption(
-            code = "MATH",
-            titleBn = "গণিত",
-            titleEn = "General Math",
-            iconName = "Calculate",
-            samplePrompts = listOf(
-                "ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?",
-                "How do I solve a quadratic equation ax² + bx + c = 0?",
-                "Matrix addition ও multiplication এর নিয়ম কী?",
-                "ত্রিকোণমিতিক সূত্রাবলী মনে রাখার সহজ টেকনিক"
-            )
-        ),
-        AiSubjectOption(
-            code = "ICT",
-            titleBn = "তথ্য ও যোগাযোগ প্রযুক্তি",
-            titleEn = "HSC ICT",
-            iconName = "Computer",
-            samplePrompts = listOf(
-                "বাইনারি থেকে ডেসিমেল রূপান্তর করার নিয়ম",
-                "এইচটিএমএল (HTML) দিয়ে টেবিল তৈরির কোড",
-                "বুলিয়ান অ্যালজেবরার ডিমরগানের উপপাদ্য",
-                "লজিক গেইট (AND, OR, NOT) এর ট্রুথ টেবিল"
-            )
-        ),
-        AiSubjectOption(
-            code = "BANGLA",
-            titleBn = "বাংলা",
-            titleEn = "Bangla",
-            iconName = "MenuBook",
-            samplePrompts = listOf(
-                "সমাস চেনার সহজ উপায় ও প্রকারভেদ",
-                "ণ-ত্ব ও ষ-ত্ব বিধানের প্রধান নিয়মাবলী",
-                "কারক ও বিভক্তি নির্ণয়ের শর্টকাট টেকনিক",
-                "ধ্বনি পরিবর্তন এর উদাহরণসহ নিয়ম"
-            )
-        ),
-        AiSubjectOption(
-            code = "ECONOMICS",
-            titleBn = "অর্থনীতি",
-            titleEn = "Economics",
-            iconName = "TrendingUp",
-            samplePrompts = listOf(
-                "চাহিদা ও যোগানের ভারসাম্য বিন্দু কিভাবে নির্ণয় করা হয়?",
-                "জিডিপি (GDP) এবং জিএনপি (GNP) এর মূল পার্থক্য কী?",
-                "মুদ্রাস্ফীতির কারণ ও প্রতিকার"
-            )
-        ),
-        AiSubjectOption(
-            code = "PHYSICS",
-            titleBn = "পদার্থবিজ্ঞান",
-            titleEn = "Physics",
-            iconName = "ElectricBolt",
-            samplePrompts = listOf(
-                "ওহমের সূত্রের গাণিতিক রূপ ও ব্যাখ্যা দাও",
-                "নিউটনের গতির দ্বিতীয় সূত্র F = ma প্রতিপাদন করো",
-                "গতিশক্তি ও বিভব শক্তির মধ্যে সম্পর্ক কী?"
-            )
-        ),
-        AiSubjectOption(
-            code = "CHEMISTRY",
-            titleBn = "রসায়ন",
-            titleEn = "Chemistry",
-            iconName = "Science",
-            samplePrompts = listOf(
-                "HCl এবং NaOH এর প্রশমন বিক্রিয়া ব্যাখ্যা করো",
-                "পর্যায় সারণির পর্যায়বৃত্ত ধর্ম কী কী?",
-                "লুইস ডট গঠন ও সমযোজী বন্ধন আঁকার নিয়ম"
-            )
-        )
-    )
-
     init {
         loadUserData()
         fetchSubjectList()
-        loadDefaultHistory()
         fetchSubscriptionStatus()
     }
 
     fun loadUserData() {
         val name = sessionManager.getUserFullName() ?: sessionManager.getUserFirstName() ?: "শিক্ষার্থী"
-        val phone = sessionManager.getUserPhone() ?: "8801700000000"
+        val phone = sessionManager.getUserPhone() ?: ""
         val avatar = sessionManager.getUserAvatar()
-        val classDisplay = sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "Class 11"
-        val group = sessionManager.getUserGroup() ?: "বিজ্ঞান"
+        val classDisplay = sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "HSC"
+        val group = sessionManager.getUserGroup() ?: ""
 
         _uiState.update {
             it.copy(
@@ -150,109 +87,85 @@ class AiViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingSubjects = true) }
             try {
-                val response = apiService.getAiSubjectList()
-                val remoteSubjects = response.data
-                if (!remoteSubjects.isNullOrEmpty()) {
-                    val mappedList = remoteSubjects.map { item ->
-                        val code = item.subject_code ?: "MATH"
-                        val name = item.name ?: code
-                        mapRemoteSubjectToOption(code, name)
-                    }
+                val response = apiService.getAiSubjectListRaw()
+                val rawString = if (response.isSuccessful) response.body()?.string() ?: "" else response.errorBody()?.string() ?: ""
+                Log.d("AiViewModel", "Subject List API raw response: $rawString")
+                val subjects = parseSubjectsFromRawJson(rawString)
+                if (subjects.isNotEmpty()) {
                     val currentSelected = _uiState.value.selectedSubjectCode
-                    val selected = if (mappedList.any { it.code.equals(currentSelected, ignoreCase = true) }) {
+                    val selected = if (subjects.any { it.code.equals(currentSelected, ignoreCase = true) }) {
                         currentSelected
                     } else {
-                        mappedList.first().code
+                        subjects.first().code
                     }
                     _uiState.update {
                         it.copy(
-                            subjectsList = mappedList,
+                            subjectsList = subjects,
                             selectedSubjectCode = selected,
                             isLoadingSubjects = false
                         )
                     }
                 } else {
-                    useDefaultSubjects()
+                    _uiState.update {
+                        it.copy(
+                            subjectsList = emptyList(),
+                            isLoadingSubjects = false
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("AiViewModel", "Error fetching subject list", e)
-                useDefaultSubjects()
+                _uiState.update {
+                    it.copy(
+                        subjectsList = emptyList(),
+                        isLoadingSubjects = false
+                    )
+                }
             }
         }
     }
 
-    private fun useDefaultSubjects() {
-        _uiState.update {
-            it.copy(
-                subjectsList = availableSubjects,
-                selectedSubjectCode = if (it.selectedSubjectCode.isBlank()) "MATH" else it.selectedSubjectCode,
-                isLoadingSubjects = false
-            )
+    private fun parseSubjectsFromRawJson(rawJson: String): List<AiSubjectOption> {
+        val result = mutableListOf<AiSubjectOption>()
+        try {
+            val root = org.json.JSONObject(rawJson)
+            val dataArray = root.optJSONArray("data")
+            if (dataArray != null) {
+                for (i in 0 until dataArray.length()) {
+                    val item = dataArray.getJSONObject(i)
+                    val code = item.optString("subject_code", item.optString("code", ""))
+                    val name = item.optString("name", item.optString("title", code))
+                    if (code.isNotBlank()) {
+                        result.add(
+                            AiSubjectOption(
+                                code = code,
+                                titleBn = name,
+                                titleEn = name,
+                                iconName = getIconForCode(code),
+                                samplePrompts = emptyList()
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AiViewModel", "Error parsing subject list JSON", e)
         }
+        return result
     }
 
-    private fun mapRemoteSubjectToOption(code: String, name: String): AiSubjectOption {
+    private fun getIconForCode(code: String): String {
         val codeUpper = code.uppercase()
-        val (titleBn, icon, prompts) = when {
-            codeUpper.contains("MATH") -> Triple("গণিত", "Calculate", listOf("ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?", "How do I solve quadratic equation ax² + bx + c = 0?", "Matrix addition ও multiplication এর নিয়ম কী?"))
-            codeUpper.contains("ICT") -> Triple("আইসিটি", "Computer", listOf("বাইনারি থেকে ডেসিমেল রূপান্তর করার নিয়ম", "এইচটিএমএল (HTML) দিয়ে টেবিল তৈরির কোড", "লজিক গেইট এর ট্রুথ টেবিল"))
-            codeUpper.contains("BANGLA") -> Triple("বাংলা", "MenuBook", listOf("সমাস চেনার সহজ উপায় ও প্রকারভেদ", "ণ-ত্ব ও ষ-ত্ব বিধানের প্রধান নিয়মাবলী", "কারক ও বিভক্তি নির্ণয়ের শর্টকাট টেকনিক"))
-            codeUpper.contains("ECONOMICS") -> Triple("অর্থনীতি", "TrendingUp", listOf("চাহিদা ও যোগানের ভারসাম্য বিন্দু কিভাবে নির্ণয় করা হয়?", "জিডিপি (GDP) এবং জিএনপি (GNP) এর মূল পার্থক্য কী?", "মুদ্রাস্ফীতির কারণ ও প্রতিকার"))
-            codeUpper.contains("PHYSICS") -> Triple("পদার্থবিজ্ঞান", "ElectricBolt", listOf("ওহমের সূত্রের গাণিতিক রূপ ও ব্যাখ্যা দাও", "নিউটনের গতির দ্বিতীয় সূত্র F = ma প্রতিপাদন করো", "গতিশক্তি ও বিভব শক্তির মধ্যে সম্পর্ক কী?"))
-            codeUpper.contains("CHEMISTRY") -> Triple("রসায়ন", "Science", listOf("HCl এবং NaOH এর প্রশমন বিক্রিয়া ব্যাখ্যা করো", "পর্যায় সারণির পর্যায়বৃত্ত ধর্ম কী কী?", "লুইস ডট গঠন ও সমযোজী বন্ধন আঁকার নিয়ম"))
-            codeUpper.contains("BIOLOGY") -> Triple("জীববিজ্ঞান", "Biotech", listOf("উদ্ভিদ ও প্রাণীকোষের মধ্যে প্রধান পার্থক্য কী?", "মাইটোসিস কোষ বিভাজনের পর্যায়সমূহ", "ডিএনএ (DNA) এর দ্বি-সূত্রক কাঠামোর বর্ণনা"))
-            codeUpper.contains("ENGLISH") -> Triple("ইংরেজি", "Translate", listOf("Right form of verbs এর গুরুত্বপূর্ণ নিয়মাবলী", "Transformation of Sentences: Simple, Complex, Compound", "Completing sentences এর নিয়ম"))
-            else -> Triple(name, "AutoAwesome", listOf("$name বিষয়ের গুরুত্বপূর্ণ ব্যাখ্যা ও সূত্রের সমাধান দাও"))
-        }
-        return AiSubjectOption(
-            code = code,
-            titleBn = titleBn,
-            titleEn = name,
-            iconName = icon,
-            samplePrompts = prompts
-        )
-    }
-
-    private fun loadDefaultHistory() {
-        val sampleSession = AiChatSession(
-            id = "session_math_demo",
-            title = "ত্রিভুজের ক্ষেত্রফল নির্ণয়",
-            subject = "MATH",
-            timestamp = System.currentTimeMillis() - 3600000L * 2,
-            messages = listOf(
-                AiChatMessage(
-                    text = "ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?",
-                    isUser = true,
-                    subject = "MATH"
-                ),
-                generateAiAnswer(
-                    question = "ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?",
-                    subject = "MATH",
-                    imageAttached = false
-                )
-            )
-        )
-
-        val historyList = listOf(
-            sampleSession,
-            AiChatSession(
-                id = "session_chem_demo",
-                title = "HCl ও NaOH এর প্রশমন বিক্রিয়া",
-                subject = "CHEMISTRY",
-                timestamp = System.currentTimeMillis() - 3600000L * 24,
-                messages = emptyList()
-            ),
-            AiChatSession(
-                id = "session_phy_demo",
-                title = "ওহমের সূত্রের গাণিতিক প্রতিপাদন",
-                subject = "PHYSICS",
-                timestamp = System.currentTimeMillis() - 3600000L * 48,
-                messages = emptyList()
-            )
-        )
-
-        _uiState.update {
-            it.copy(chatSessions = historyList)
+        return when {
+            codeUpper.contains("MATH") -> "Calculate"
+            codeUpper.contains("ICT") -> "Computer"
+            codeUpper.contains("BANGLA") -> "MenuBook"
+            codeUpper.contains("ECONOMICS") -> "TrendingUp"
+            codeUpper.contains("PHYSICS") -> "ElectricBolt"
+            codeUpper.contains("CHEMISTRY") -> "Science"
+            codeUpper.contains("BIOLOGY") -> "Biotech"
+            codeUpper.contains("ENGLISH") -> "Translate"
+            else -> "AutoAwesome"
         }
     }
 
@@ -260,45 +173,18 @@ class AiViewModel(
         viewModelScope.launch {
             try {
                 val response = apiService.getAiSubscriptionList()
-                val activeItem = response.data?.firstOrNull() ?: createDefaultActiveSubscription()
+                val activeItem = response.data?.firstOrNull()
                 _uiState.update {
                     it.copy(
                         subscription = activeItem,
-                        isSubscribed = true,
+                        isSubscribed = activeItem != null,
                         isUnlimited = true
                     )
                 }
-            } catch (_: Exception) {
-                _uiState.update {
-                    it.copy(
-                        subscription = createDefaultActiveSubscription(),
-                        isSubscribed = true,
-                        isUnlimited = true
-                    )
-                }
+            } catch (e: Exception) {
+                Log.e("AiViewModel", "Error fetching subscription status", e)
             }
         }
-    }
-
-    private fun createDefaultActiveSubscription(): AiSubscriptionItem {
-        return AiSubscriptionItem(
-            id = "sub_learning_pass_active",
-            package_id = "pkg_learning_pass_01",
-            subscription_metadata = SubscriptionMetadata(
-                package_title = "লার্নিং পাস (Learning Pass)",
-                package_price = 299,
-                has_image_support = true,
-                usage_limit = UsageLimit(
-                    conversation_depth = 50,
-                    question_limit = 9999,
-                    daily_limit = 9999,
-                    used_count = 1
-                )
-            ),
-            start_date = "2026-09-01T00:00:00Z",
-            end_date = "2026-11-30T23:59:59Z",
-            status = "ACTIVE"
-        )
     }
 
     fun onSubjectSelected(subjectCode: String) {
@@ -329,32 +215,34 @@ class AiViewModel(
 
     fun startNewChat() {
         val currentMsgs = _uiState.value.currentMessages
-        if (currentMsgs.isNotEmpty()) {
-            val firstQuestion = currentMsgs.firstOrNull { it.isUser }?.text?.take(35) ?: "নতুন কথোপকথন"
+        val currentSessId = _uiState.value.currentSessionId
+        
+        if (currentMsgs.isNotEmpty() && !currentSessId.isNullOrBlank()) {
+            val firstUserMsg = currentMsgs.firstOrNull { it.isUser }?.text ?: "নতুন চ্যাট"
+            val title = firstUserMsg.take(30)
             val newSession = AiChatSession(
-                id = java.util.UUID.randomUUID().toString(),
-                title = firstQuestion,
+                id = currentSessId,
+                title = title,
                 subject = _uiState.value.selectedSubjectCode,
                 timestamp = System.currentTimeMillis(),
                 messages = currentMsgs
             )
-            val updatedHistory = listOf(newSession) + _uiState.value.chatSessions.filter { it.id != newSession.id }
             _uiState.update {
                 it.copy(
-                    chatSessions = updatedHistory,
+                    chatSessions = listOf(newSession) + it.chatSessions.filter { s -> s.id != currentSessId },
+                    currentSessionId = null,
                     currentMessages = emptyList(),
                     inputText = "",
-                    attachedImageUri = null,
-                    currentSessionId = null
+                    attachedImageUri = null
                 )
             }
         } else {
             _uiState.update {
                 it.copy(
+                    currentSessionId = null,
                     currentMessages = emptyList(),
                     inputText = "",
-                    attachedImageUri = null,
-                    currentSessionId = null
+                    attachedImageUri = null
                 )
             }
         }
@@ -363,31 +251,22 @@ class AiViewModel(
     fun loadSession(session: AiChatSession) {
         _uiState.update {
             it.copy(
-                currentMessages = if (session.messages.isNotEmpty()) session.messages else listOf(
-                    AiChatMessage(text = session.title, isUser = true, subject = session.subject),
-                    generateAiAnswer(session.title, session.subject, false)
-                ),
-                selectedSubjectCode = session.subject,
-                currentSessionId = session.id
+                currentSessionId = session.id,
+                currentMessages = session.messages,
+                selectedSubjectCode = session.subject.ifBlank { it.selectedSubjectCode }
             )
         }
     }
 
     fun deleteSession(sessionId: String) {
-        val updated = _uiState.value.chatSessions.filter { it.id != sessionId }
-        _uiState.update { it.copy(chatSessions = updated) }
-    }
-
-    fun submitFeedback(messageId: String, feedbackType: String) {
-        val updated = _uiState.value.currentMessages.map { msg ->
-            if (msg.id == messageId) {
-                msg.copy(feedback = feedbackType)
-            } else msg
-        }
         _uiState.update {
+            val updated = it.chatSessions.filter { s -> s.id != sessionId }
+            val newCurrId = if (it.currentSessionId == sessionId) null else it.currentSessionId
+            val newMsgs = if (it.currentSessionId == sessionId) emptyList() else it.currentMessages
             it.copy(
-                currentMessages = updated,
-                toastMessage = if (feedbackType == "like") "ধন্যবাদ! আপনার ফিডব্যাক গ্রহণ করা হয়েছে 👍" else "ফিডব্যাকের জন্য ধন্যবাদ, আমরা উন্নতির চেষ্টা করছি 👎"
+                chatSessions = updated,
+                currentSessionId = newCurrId,
+                currentMessages = newMsgs
             )
         }
     }
@@ -396,106 +275,196 @@ class AiViewModel(
         _uiState.update { it.copy(toastMessage = null) }
     }
 
+    private suspend fun createSessionWithApi(subject: String, title: String): String {
+        try {
+            val response = apiService.createAiSessionRaw(CreateSessionRequest(subject_code = subject, title = title))
+            val rawString = if (response.isSuccessful) response.body()?.string() ?: "" else response.errorBody()?.string() ?: ""
+            Log.d("AiViewModel", "Create Session API raw response ($subject): $rawString")
+            if (rawString.isNotBlank()) {
+                val root = org.json.JSONObject(rawString)
+                val sessionId = root.optString("session_id", "")
+                    .ifBlank { root.optJSONObject("data")?.optString("session_id", "") ?: "" }
+                if (sessionId.isNotBlank()) {
+                    return sessionId
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AiViewModel", "Error creating session via API", e)
+        }
+        return "session_${System.currentTimeMillis()}"
+    }
+
+    private fun parseAiReplyFromResponse(rawBody: String, httpCode: Int): String {
+        if (rawBody.isBlank()) {
+            return if (httpCode in 200..299) {
+                "Shikho AI থেকে কোনো উত্তর পাওয়া যায়নি।"
+            } else {
+                "⚠️ Shikho AI সার্ভার থেকে এরর কোড $httpCode পাওয়া গিয়েছে।"
+            }
+        }
+
+        try {
+            val root = org.json.JSONObject(rawBody)
+
+            fun extractFromObj(obj: org.json.JSONObject): String? {
+                val keys = listOf("text", "reply", "response", "answer", "content", "message", "prompt_response")
+                for (k in keys) {
+                    val valStr = obj.optString(k, "")
+                    if (valStr.isNotBlank()) return valStr
+                }
+                return null
+            }
+
+            val topExtract = extractFromObj(root)
+            if (topExtract != null) return topExtract
+
+            if (root.has("data")) {
+                val dataVal = root.get("data")
+                if (dataVal is String && dataVal.isNotBlank()) {
+                    return dataVal
+                } else if (dataVal is org.json.JSONObject) {
+                    val innerExtract = extractFromObj(dataVal)
+                    if (innerExtract != null) return innerExtract
+                } else if (dataVal is org.json.JSONArray && dataVal.length() > 0) {
+                    val sb = StringBuilder()
+                    for (i in 0 until dataVal.length()) {
+                        val item = dataVal.get(i)
+                        if (item is String) {
+                            sb.append(item).append("\n")
+                        } else if (item is org.json.JSONObject) {
+                            val itemText = extractFromObj(item)
+                            if (itemText != null) sb.append(itemText).append("\n")
+                        }
+                    }
+                    if (sb.isNotBlank()) return sb.toString().trim()
+                }
+            }
+        } catch (_: Exception) {
+            if (rawBody.contains("data:")) {
+                val lines = rawBody.lines()
+                val sb = StringBuilder()
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("data:")) {
+                        val content = trimmed.removePrefix("data:").trim()
+                        if (content != "[DONE]" && content.isNotBlank()) {
+                            try {
+                                val json = org.json.JSONObject(content)
+                                val chunk = json.optString("text", json.optString("content", json.optString("delta", "")))
+                                if (chunk.isNotBlank()) sb.append(chunk)
+                            } catch (_: Exception) {
+                                sb.append(content)
+                            }
+                        }
+                    }
+                }
+                if (sb.isNotBlank()) return sb.toString().trim()
+            }
+        }
+
+        return if (httpCode in 200..299) {
+            rawBody
+        } else {
+            "⚠️ Shikho AI API Error ($httpCode):\n$rawBody"
+        }
+    }
+
+    fun submitFeedback(msgId: String, feedbackType: String) {
+        _uiState.update {
+            it.copy(toastMessage = "ফিডব্যাক গ্রহণ করা হয়েছে: $feedbackType")
+        }
+    }
+
     fun sendQuestion(customPrompt: String? = null, context: Context? = null) {
         val question = (customPrompt ?: _uiState.value.inputText).trim()
         val imageUri = if (customPrompt == null) _uiState.value.attachedImageUri else null
-        val subject = _uiState.value.selectedSubjectCode
+        val subject = _uiState.value.selectedSubjectCode.ifBlank { "MATH" }
 
         if (question.isBlank() && imageUri == null) return
 
         val userMessage = AiChatMessage(
             id = java.util.UUID.randomUUID().toString(),
-            text = question.ifBlank { "📸 [আপলোড করা ছবির সমাধান]" },
-            imageUri = imageUri,
+            text = question.ifBlank { "[ছবি সংযুক্ত করা হয়েছে]" },
             isUser = true,
+            imageUri = imageUri,
             subject = subject,
             timestamp = System.currentTimeMillis()
         )
 
-        val updatedMessages = _uiState.value.currentMessages + userMessage
-
         _uiState.update {
             it.copy(
-                currentMessages = updatedMessages,
+                currentMessages = it.currentMessages + userMessage,
                 inputText = "",
                 attachedImageUri = null,
-                isGenerating = true,
-                usedQuestionsCount = it.usedQuestionsCount + 1
+                isGenerating = true
             )
         }
 
         viewModelScope.launch {
             try {
-                // Step 1: Create Session via POST /session/create if currentSessionId is null
+                // Step 1: Create Session
                 var activeSessionId = _uiState.value.currentSessionId
                 if (activeSessionId.isNullOrBlank()) {
-                    try {
-                        val sessionTitle = question.ifBlank { "Shikho AI Query" }.take(35)
-                        val sessionRes = apiService.createAiSession(
-                            CreateSessionRequest(subject_code = subject, title = sessionTitle)
-                        )
-                        activeSessionId = sessionRes.data?.session_id
-                            ?: sessionRes.session_id
-                            ?: "session_${System.currentTimeMillis()}"
-                        _uiState.update { it.copy(currentSessionId = activeSessionId) }
-                    } catch (e: Exception) {
-                        Log.e("AiViewModel", "Error creating AI session", e)
-                        activeSessionId = "session_${System.currentTimeMillis()}"
-                        _uiState.update { it.copy(currentSessionId = activeSessionId) }
-                    }
+                    val sessionTitle = question.ifBlank { "Shikho AI Query" }.take(35)
+                    activeSessionId = createSessionWithApi(subject, sessionTitle)
+                    _uiState.update { it.copy(currentSessionId = activeSessionId) }
                 }
 
-                // Step 2: Image Upload via POST /prompt-image/signed-url & PUT <upload_url>
+                // Step 2: Image Upload
                 var imageIdentifier: String? = null
                 if (imageUri != null && context != null) {
                     try {
-                        val signedUrlRes = apiService.getAiSignedUrl(SignedUrlRequest(file_extension = "jpg"))
-                        val uploadUrl = signedUrlRes.upload_url ?: signedUrlRes.data?.upload_url
-                        imageIdentifier = signedUrlRes.image_identifier ?: signedUrlRes.data?.image_identifier
+                        val signedRes = apiService.getAiSignedUrlRaw(SignedUrlRequest(file_extension = "jpg"))
+                        val rawSigned = if (signedRes.isSuccessful) signedRes.body()?.string() ?: "" else ""
+                        if (rawSigned.isNotBlank()) {
+                            val obj = org.json.JSONObject(rawSigned)
+                            val uploadUrl = obj.optString("upload_url", "")
+                                .ifBlank { obj.optJSONObject("data")?.optString("upload_url", "") ?: "" }
+                            imageIdentifier = obj.optString("image_identifier", "")
+                                .ifBlank { obj.optJSONObject("data")?.optString("image_identifier", "") ?: "" }
 
-                        if (!uploadUrl.isNullOrBlank()) {
-                            val inputStream = context.contentResolver.openInputStream(imageUri)
-                            val bytes = inputStream?.readBytes()
-                            inputStream?.close()
-                            if (bytes != null && bytes.isNotEmpty()) {
-                                val reqBody = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
-                                apiService.uploadImageBinary(uploadUrl, reqBody)
+                            if (uploadUrl.isNotBlank()) {
+                                val inputStream = context.contentResolver.openInputStream(imageUri)
+                                val bytes = inputStream?.readBytes()
+                                inputStream?.close()
+                                if (bytes != null && bytes.isNotEmpty()) {
+                                    val reqBody = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                                    apiService.uploadImageBinary(uploadUrl, reqBody)
+                                }
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("AiViewModel", "Error uploading image to signed URL", e)
+                        Log.e("AiViewModel", "Image upload failed", e)
                     }
                 }
 
-                // Step 3: Main Conversation API POST /conversation/continue
-                val conversationRes = apiService.continueAiConversation(
+                // Step 3: Main Conversation API
+                val response = apiService.continueAiConversationRaw(
                     ConversationContinueRequest(
-                        prompt = question.ifBlank { "এই ছবির ব্যাখ্যা দাও" },
+                        prompt = question.ifBlank { "এই ছবির সঠিক সমাধান ও ব্যাখ্যা দাও" },
                         session_id = activeSessionId,
                         image_identifier = imageIdentifier
                     )
                 )
 
-                val replyText = conversationRes.data?.text
-                    ?: conversationRes.text
-                    ?: conversationRes.data?.reply
-                    ?: conversationRes.reply
-                    ?: conversationRes.data?.response
-                    ?: conversationRes.response
-                    ?: conversationRes.data?.answer
-                    ?: conversationRes.answer
-
-                val aiMessage = if (!replyText.isNullOrBlank()) {
-                    AiChatMessage(
-                        id = java.util.UUID.randomUUID().toString(),
-                        text = replyText,
-                        isUser = false,
-                        subject = subject,
-                        timestamp = System.currentTimeMillis()
-                    )
+                val responseCode = response.code()
+                val rawBodyString = if (response.isSuccessful) {
+                    response.body()?.string() ?: ""
                 } else {
-                    generateAiAnswer(question = question, subject = subject, imageAttached = imageUri != null)
+                    response.errorBody()?.string() ?: ""
                 }
+
+                Log.d("AiViewModel", "Shikho AI Conversation Response Code: $responseCode, Body: $rawBodyString")
+
+                val replyText = parseAiReplyFromResponse(rawBodyString, responseCode)
+
+                val aiMessage = AiChatMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    text = replyText,
+                    isUser = false,
+                    subject = subject,
+                    timestamp = System.currentTimeMillis()
+                )
 
                 _uiState.update {
                     it.copy(
@@ -503,175 +472,25 @@ class AiViewModel(
                         isGenerating = false
                     )
                 }
+
             } catch (e: Exception) {
-                Log.e("AiViewModel", "Conversation API error, using fallback answer", e)
-                delay(600)
-                val fallbackAnswer = generateAiAnswer(
-                    question = question,
+                Log.e("AiViewModel", "Error in sendQuestion API call", e)
+                val errorMessage = "⚠️ Shikho AI API কানেকশনে সমস্যা হয়েছে:\n${e.localizedMessage ?: "Network/Server Connection Error"}"
+                val aiMessage = AiChatMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    text = errorMessage,
+                    isUser = false,
                     subject = subject,
-                    imageAttached = imageUri != null
+                    timestamp = System.currentTimeMillis()
                 )
                 _uiState.update {
                     it.copy(
-                        currentMessages = it.currentMessages + fallbackAnswer,
+                        currentMessages = it.currentMessages + aiMessage,
                         isGenerating = false
                     )
                 }
             }
         }
-    }
-
-    private fun generateAiAnswer(
-        question: String,
-        subject: String,
-        imageAttached: Boolean
-    ): AiChatMessage {
-        val qLower = question.lowercase()
-
-        val steps = mutableListOf<String>()
-        val formulas = mutableListOf<String>()
-        var finalAnswer: String
-        var tips: String
-        val formattedExplanation: StringBuilder = StringBuilder()
-
-        if (imageAttached) {
-            formattedExplanation.append("📸 **আপলোড করা ছবির প্রশ্নটি সফলভাবে বিশ্লেষণ করা হয়েছে:**\n\n")
-        }
-
-        when {
-            // 1. Math / Triangle Area
-            qLower.contains("ত্রিভুজ") || qLower.contains("triangle") || qLower.contains("ক্ষেত্রফল") -> {
-                formattedExplanation.append("ত্রিভুজের ক্ষেত্রফল নির্ণয়ের সাধারণ ও বিশেষ সূত্রসমূহ নিচে ধাপে ধাপে আলোচনা করা হলো:\n\n")
-                steps.add("১. সাধারণ ত্রিভুজের ক্ষেত্রে: ক্ষেত্রফল = ½ × ভূমি × উচ্চতা")
-                steps.add("২. সমবাহু ত্রিভুজের ক্ষেত্রে: ক্ষেত্রফল = (√3 / 4) × a² (যেখানে a হলো প্রতি বাহুর দৈর্ঘ্য)")
-                steps.add("৩. বিষমবাহু ত্রিভুজের ক্ষেত্রে (হেরনের সূত্র): s = (a + b + c)/2 হলে, ক্ষেত্রফল = √[s(s - a)(s - b)(s - c)]")
-                steps.add("৪. স্থানাঙ্ক জ্যামিতির মাধ্যমে: শীর্ষবিন্দু (x₁, y₁), (x₂, y₂), (x₃, y₃) দেওয়া থাকলে নির্ণায়কের মাধ্যমে মান বের করা হয়।")
-                
-                formulas.add("A = \\frac{1}{2} \\times \\text{base} \\times \\text{height}")
-                formulas.add("A = \\frac{\\sqrt{3}}{4} a^2 \\quad (\\text{Equilateral Triangle})")
-                formulas.add("A = \\sqrt{s(s-a)(s-b)(s-c)} \\quad \\text{where } s = \\frac{a+b+c}{2}")
-
-                finalAnswer = "ত্রিভুজের ক্ষেত্রফল = ½ × ভূমি × উচ্চতা বর্গ একক।"
-                tips = "💡 পরীক্ষার টিপস: যদি ৩টি বাহুর মান দেওয়া থাকে তবে সবসময় হেরনের সূত্র ব্যবহার করবে।"
-            }
-
-            // 2. Quadratic Equation
-            qLower.contains("quadratic") || qLower.contains("দ্বিঘাত") || qLower.contains("ax^2") || qLower.contains("ax²") -> {
-                formattedExplanation.append("দ্বিঘাত সমীকরণ ax² + bx + c = 0 এর সমাধান ও মূল নির্ণয়ের প্রক্রিয়া:\n\n")
-                steps.add("১. সমীকরণটিকে আদর্শ রূপ ax² + bx + c = 0 তে সাজাও।")
-                steps.add("২. নিশ্চয়ক (Discriminant) নির্ণয় করো: D = b² - 4ac")
-                steps.add("৩. সূত্র প্রয়োগ করো: x = (-b ± √(b² - 4ac)) / (2a)")
-                steps.add("৪. মূলদ্বয়ের প্রকৃতি: D > 0 হলে বাস্তব ও অসমান, D = 0 হলে বাস্তব ও সমান, D < 0 হলে অবাস্তব/জটিল সংখ্যা।")
-
-                formulas.add("x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}")
-                formulas.add("D = b^2 - 4ac")
-
-                finalAnswer = "সমীকরণের মূলদ্বয়: x₁ = (-b + √D) / 2a এবং x₂ = (-b - √D) / 2a"
-                tips = "💡 শর্টকাট: মূলদ্বয়ের যোগফল = -b/a এবং গুণফল = c/a।"
-            }
-
-            // 3. Matrix
-            qLower.contains("matrix") || qLower.contains("ম্যাট্রিক্স") || qLower.contains("নির্ণায়ক") -> {
-                formattedExplanation.append("ম্যাট্রিক্স যোগ ও গুণ করার মৌলিক শর্ত ও নিয়ম:\n\n")
-                steps.add("১. ম্যাট্রিক্স যোগ/বিয়োগ: দুটি ম্যাট্রিক্সের মাত্রা (Order) অবিকল এক হতে হবে (m × n)। অনুরূপ ভুক্তিগুলো যোগ বা বিয়োগ হবে।")
-                steps.add("২. ম্যাট্রিক্স গুণ: প্রথম ম্যাট্রিক্সের কলাম সংখ্যা = দ্বিতীয় ম্যাট্রিক্সের সারি সংখ্যা হতে হবে (A_{m×p} × B_{p×n} = C_{m×n})।")
-                steps.add("৩. সারি দিয়ে কলামের প্রতিটি উপাদানের সাথে গুণ করে যোগ করতে হয়।")
-
-                formulas.add("[A]_{m \\times p} \\times [B]_{p \\times n} = [C]_{m \\times n}")
-                formulas.add("c_{ij} = \\sum_{k=1}^{p} a_{ik} b_{kj}")
-
-                finalAnswer = "ম্যাট্রিক্স গুণের ক্রম পরিবর্তনশীল নয় (AB ≠ BA সাধারণ ক্ষেত্রে)।"
-                tips = "💡 অ্যাডমিশন শর্টকাট: ২×২ ম্যাট্রিক্সের বিপরীত ম্যাট্রিক্স নির্ণয়ে মুখ্য কর্ণের ভুক্তি অদলবদল এবং গৌণ কর্ণের চিহ্ন পরিবর্তন করতে হয়।"
-            }
-
-            // 4. Ohm's Law / Physics
-            qLower.contains("ohm") || qLower.contains("ওহম") || qLower.contains("বিদ্যুৎ") || qLower.contains("বর্তনী") -> {
-                formattedExplanation.append("ওহমের সূত্র (Ohm's Law) এর সংজ্ঞা, সমীকরণ ও প্রতিপাদন:\n\n")
-                steps.add("১. সূত্র: তাপমাত্রা স্থির থাকলে কোনো পরিবাহীর মধ্য দিয়ে প্রবাহিত তড়িৎ প্রবাহ (I) পরিবাহীর দুই প্রান্তের বিভব পার্থক্যের (V) সমানুপাতিক।")
-                steps.add("২. গাণিতিক রূপ: I ∝ V ⟹ V = IR")
-                steps.add("৩. এখানে R হলো পরিবাহীর রোধ (Resistance), যার একক ওহম (Ω)।")
-                steps.add("৪. গ্রাফ: V বনাম I লেখচিত্র মূলবিন্দুগামী একটি সরলরেখা।")
-
-                formulas.add("V = I \\times R")
-                formulas.add("I = \\frac{V}{R}, \\quad R = \\frac{V}{I}")
-                formulas.add("P = V \\times I = I^2 R = \\frac{V^2}{R}")
-
-                finalAnswer = "বিভব পার্থক্য V = IR এবং তড়িৎ প্রবাহ I = V / R"
-                tips = "💡 মনে রেখো: তাপমাত্রা বাড়লে ধাতব পরিবাহীর রোধ বৃদ্ধি পায় এবং তড়িৎ প্রবাহ হ্রাস পায়।"
-            }
-
-            // 5. Newton's 2nd Law
-            qLower.contains("newton") || qLower.contains("নিউটন") || qLower.contains("গতি") || qLower.contains("বল") -> {
-                formattedExplanation.append("নিউটনের গতির দ্বিতীয় সূত্রের গাণিতিক প্রতিপাদন:\n\n")
-                steps.add("১. বিবৃতি: বস্তুর ভরবেগের পরিবর্তনের হার তার উপর প্রযুক্ত বলের সমানুপাতিক এবং বল যেদিকে ক্রিয়া করে বস্তুর ভরবেগের পরিবর্তনও সেদিকে ঘটে।")
-                steps.add("২. ভরবেগ p = mv, ভরবেগের পরিবর্তন Δp = m(v - u)")
-                steps.add("৩. পরিবর্তনের হার = m(v - u) / t = ma (যেহেতু ত্বরণ a = (v - u)/t)")
-                steps.add("৪. বল F = k × ma; SI এককে k = 1 ধরে পাওয়া যায়: F = ma")
-
-                formulas.add("F = m \\times a")
-                formulas.add("p = m \\times v")
-                formulas.add("F = \\frac{dp}{dt} = m \\frac{dv}{dt}")
-
-                finalAnswer = "প্রযুক্ত বল F = ma (একক: নিউটন / N)"
-                tips = "💡 টিপস: যদি বল শূন্য হয় (F = 0), তবে ত্বরণও শূন্য হবে (a = 0), যা নিউটনের প্রথম সূত্র প্রমাণ করে।"
-            }
-
-            // 6. Chemistry - Neutralization / Acid Base
-            qLower.contains("hcl") || qLower.contains("naoh") || qLower.contains("প্রশমন") || qLower.contains("acid") || qLower.contains("এসিড") -> {
-                formattedExplanation.append("অ্যাসিড ও ক্ষারের প্রশমন বিক্রিয়া (Neutralization Reaction):\n\n")
-                steps.add("১. অ্যাসিড (হাইড্রোক্লোরিক অ্যাসিড - HCl) এবং ক্ষার (সোডিয়াম হাইড্রোক্সাইড - NaOH) বিক্রিয়া করে লবণ (NaCl) ও পানি (H₂O) উৎপন্ন করে।")
-                steps.add("২. সম্পূর্ণ বিক্রিয়া: HCl + NaOH → NaCl + H₂O + তাপ")
-                steps.add("৩. আয়নীয় সমীকরণ: H⁺(aq) + OH⁻(aq) → H₂O(l)")
-                steps.add("৪. এই বিক্রিয়ায় ৫৩.৪ কিলোজুল/মোল বা ৫৭.৩৪ কিলোজুল/মোল তাপ উৎপন্ন হয়, তাই এটি একটি তাপোৎপাদী বিক্রিয়া।")
-
-                formulas.add("\\text{HCl}_{(aq)} + \\text{NaOH}_{(aq)} \\longrightarrow \\text{NaCl}_{(aq)} + \\text{H}_2\\text{O}_{(l)}")
-                formulas.add("\\Delta H = -57.34 \\text{ kJ/mol}")
-
-                finalAnswer = "উৎপন্ন যৌগ: সোডিয়াম ক্লোরাইড (লবণ) এবং পানি। এটি প্রশমন তাপ উৎপন্ন করে।"
-                tips = "💡 যেকোনো তীব্র অ্যাসিড ও তীব্র ক্ষারের প্রশমন তাপের মান সর্বদা ধ্রুবক (প্রায় -৫৭.৩৪ kJ/mol)।"
-            }
-
-            // 7. ICT / Binary
-            qLower.contains("binary") || qLower.contains("বাইনারি") || qLower.contains("decimal") || qLower.contains("ডেসিমেল") || qLower.contains("ict") -> {
-                formattedExplanation.append("তথ্য ও যোগাযোগ প্রযুক্তি: ডেসিমেল থেকে বাইনারি রূপান্তরের সহজ নিয়ম:\n\n")
-                steps.add("১. দশমিক সংখ্যাটিকে ক্রমাগত ২ দিয়ে ভাগ করতে হবে এবং ভাগশেষগুলো পাশে লিখে রাখতে হবে।")
-                steps.add("২. ভাগফল ০ না হওয়া পর্যন্ত ভাগ প্রক্রিয়া চলবে।")
-                steps.add("৩. ভাগশেষগুলোকে নিচ থেকে উপরের দিকে (MSB to LSB) সাজালে কাঙ্ক্ষিত বাইনারি মান পাওয়া যায়।")
-                steps.add("৪. যেমন: (25)₁₀ = (11001)₂")
-
-                formulas.add("(25)_{10} = (11001)_2")
-                formulas.add("2^4 + 2^3 + 0 + 0 + 2^0 = 16 + 8 + 1 = 25")
-
-                finalAnswer = "দশমিক মানকে ২ দ্বারা ভাগ করে অবশিষ্ট উল্টো সাজিয়ে বাইনারি নির্ণীত হয়।"
-                tips = "💡 শর্টকাট টেকনিক: 1, 2, 4, 8, 16, 32... সিরিজের সংখ্যাগুলো যোগ করে দ্রুত বাইনারি মান বের করা যায়।"
-            }
-
-            // Default fallback solver
-            else -> {
-                formattedExplanation.append("তোমার প্রশ্নের বিষয়ভিত্তিক বিশ্লেষণ ও সমাধান:\n\n")
-                steps.add("১. প্রশ্নের মূল ধারণা: বিষয়ভিত্তিক মূল সূত্র ও তত্ত্ব পর্যালোচনা করা হয়েছে।")
-                steps.add("২. সমাধান প্রণালী: ধাপে ধাপে যুক্তি ও সমীকরণ প্রয়োগ করে কাঙ্ক্ষিত ফলাফল নির্ণয় করা সম্ভব।")
-                steps.add("৩. গাণিতিক বা তাত্ত্বিক সামঞ্জস্য: উত্তরটি বোর্ড বই ও পাঠ্যক্রম অনুসারে ভেরিফাই করা হয়েছে।")
-
-                formulas.add("\\text{Result} = f(\\text{Concept, Formula, Logic})")
-
-                finalAnswer = "প্রশ্নটির পূর্ণাঙ্গ সমাধান নির্ভুলভাবে প্রস্তুত করা হয়েছে।"
-                tips = "💡 আরও বিস্তারিত জানতে নিচের 'আরো এক্সপ্লেইন করো' বাটনে ট্যাপ করো।"
-            }
-        }
-
-        return AiChatMessage(
-            id = java.util.UUID.randomUUID().toString(),
-            text = formattedExplanation.toString(),
-            isUser = false,
-            subject = subject,
-            isStepByStep = true,
-            steps = steps,
-            formulas = formulas,
-            finalAnswer = finalAnswer,
-            tips = tips,
-            timestamp = System.currentTimeMillis()
-        )
     }
 }
 
