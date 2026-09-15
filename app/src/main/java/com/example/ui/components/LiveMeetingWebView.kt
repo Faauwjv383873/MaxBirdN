@@ -36,6 +36,7 @@ fun LiveMeetingWebView(
     meetingUrl: String,
     onBackToStream: () -> Unit,
     onOpenExternal: () -> Unit,
+    onStreamDiscovered: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isLoading by remember { mutableStateOf(true) }
@@ -71,6 +72,18 @@ fun LiveMeetingWebView(
                         }
                     }
                     webViewClient = object : WebViewClient() {
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): android.webkit.WebResourceResponse? {
+                            val reqUrl = request?.url?.toString()
+                            if (reqUrl != null && (reqUrl.contains("master.m3u8") || reqUrl.contains(".m3u8"))) {
+                                android.util.Log.d("LiveMeetingWebView", ">>> Dynamically discovered live m3u8 stream: $reqUrl")
+                                onStreamDiscovered?.invoke(reqUrl)
+                            }
+                            return super.shouldInterceptRequest(view, request)
+                        }
+
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
                             isLoading = false

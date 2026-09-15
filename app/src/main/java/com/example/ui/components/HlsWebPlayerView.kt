@@ -96,12 +96,24 @@ fun HlsWebPlayerView(
                             isLoading = false
                         }
                     }
-                    loadDataWithBaseURL("https://sh-cdn-in3.100ms.live", htmlContent, "text/html", "UTF-8", null)
+                    val baseUrl = try {
+                        val uri = android.net.Uri.parse(streamUrl)
+                        if (uri.scheme != null && uri.host != null) "${uri.scheme}://${uri.host}" else "https://live.shikho.com"
+                    } catch (_: Exception) {
+                        "https://live.shikho.com"
+                    }
+                    loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "UTF-8", null)
                     webViewInstance = this
                 }
             },
             update = { wv ->
-                wv.loadDataWithBaseURL("https://sh-cdn-in3.100ms.live", htmlContent, "text/html", "UTF-8", null)
+                val baseUrl = try {
+                    val uri = android.net.Uri.parse(streamUrl)
+                    if (uri.scheme != null && uri.host != null) "${uri.scheme}://${uri.host}" else "https://live.shikho.com"
+                } catch (_: Exception) {
+                    "https://live.shikho.com"
+                }
+                wv.loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "UTF-8", null)
             },
             modifier = Modifier.fillMaxSize()
         )

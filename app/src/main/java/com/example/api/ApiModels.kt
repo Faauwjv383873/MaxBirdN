@@ -549,60 +549,7 @@ data class StudentLessonItem(
                 if (!list.contains(url)) list.add(url)
             }
 
-            // 2. 100ms Live HLS Streams from HMS Room ID
-            val roomId = live_class?.hms_room_id
-            if (!roomId.isNullOrBlank()) {
-                val cleanRoomId = roomId.trim()
-                val appId = "6507e56768111f6fe4b574c7"
-
-                // User specific room stream links
-                if (cleanRoomId == "6aa00903f688c4f8bf624314") {
-                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624314/20260913/1789312508864/master.m3u8")
-                }
-                if (cleanRoomId == "6aa00903f688c4f8bf624313" || id == "6aa00903b9fdc07f687642b9" || live_class?.id == "6aa00903b9fdc07f687642b9") {
-                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/master.m3u8")
-                    list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/6aa00903f688c4f8bf624313/20260913/1789304361923/stream_0/stream.m3u8")
-                }
-
-                val dateFormat = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).apply {
-                    timeZone = java.util.TimeZone.getTimeZone("Asia/Dhaka")
-                }
-
-                val dates = mutableListOf<String>()
-                val timestamps = mutableListOf<String>()
-
-                timestamps.add("1789312508864")
-                timestamps.add("1789304361923")
-
-                val startMs = classStartMs
-                if (startMs != Long.MAX_VALUE && startMs > 0L) {
-                    dates.add(dateFormat.format(java.util.Date(startMs)))
-                    timestamps.add(startMs.toString())
-                }
-
-                val nowMs = System.currentTimeMillis()
-                dates.add(dateFormat.format(java.util.Date(nowMs)))
-                timestamps.add(nowMs.toString())
-
-                if (!session_id.isNullOrBlank()) {
-                    timestamps.add(session_id.trim())
-                }
-
-                val distinctDates = dates.distinct()
-                val distinctTs = timestamps.distinct()
-
-                for (dStr in distinctDates) {
-                    for (tStr in distinctTs) {
-                        list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/master.m3u8")
-                        list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/$dStr/$tStr/stream_0/stream.m3u8")
-                    }
-                }
-
-                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/master.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
-            }
-
-            // 3. Class ID & Session ID based Tenbyte CDN URLs (prioritizing live_class?.id Class ID over Lesson id)
+            // 2. Class ID & Session ID based Tenbyte CDN URLs (prioritizing live_class?.id Class ID over Lesson id)
             val targets = listOfNotNull(
                 live_class?.id,
                 content_id,
@@ -747,22 +694,7 @@ data class LiveClassDetails(
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
 
-            // 2. 100ms / Shikho Live HLS Streams from HMS Room ID
-            if (!hms_room_id.isNullOrBlank()) {
-                val cleanRoomId = hms_room_id.trim()
-                val appId = "6507e56768111f6fe4b574c7"
-                // beam3 variant playlists
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_0/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_1/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_2/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam3/$appId/$cleanRoomId/stream_3/stream.m3u8")
-                // beam1 direct & date-indexed streams
-                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_0/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam1/$appId/$cleanRoomId/stream_1/stream.m3u8")
-                list.add("https://sh-cdn-in3.100ms.live/beam1/shikho/$cleanRoomId/stream_1/stream.m3u8")
-            }
-
-            // 3. Session ID & Class ID CDN Reconstruction
+            // 2. Session ID & Class ID CDN Reconstruction (for recorded classes)
             val targets = listOfNotNull(session_id, id).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
             for (target in targets) {
                 val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"

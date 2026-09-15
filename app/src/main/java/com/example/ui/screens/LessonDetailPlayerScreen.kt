@@ -630,6 +630,11 @@ fun LessonDetailPlayerScreen(
                             context.startActivity(intent)
                         } catch (_: Exception) {}
                     },
+                    onStreamDiscovered = { discoveredUrl ->
+                        if (discoveredUrl.isNotBlank() && activeStreamUrl != discoveredUrl) {
+                            activeStreamUrl = discoveredUrl
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -722,6 +727,11 @@ fun LessonDetailPlayerScreen(
                         context.startActivity(intent)
                     } catch (_: Exception) {}
                 },
+                onStreamDiscovered = { discoveredUrl ->
+                    if (discoveredUrl.isNotBlank() && activeStreamUrl != discoveredUrl) {
+                        activeStreamUrl = discoveredUrl
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -759,23 +769,30 @@ fun LessonDetailPlayerScreen(
                                     context.startActivity(intent)
                                 } catch (_: Exception) {}
                             },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else if (livePlayerMode == "WEB_PLAYER") {
-                        val webStreamUrl = if (activeStreamUrl.isNotBlank()) activeStreamUrl else "https://sh-cdn-in3.100ms.live/beam1/6507e56768111f6fe4b574c7/6aa00903f688c4f8bf624313/20260913/1789304361923/stream_0/stream.m3u8"
-                        HlsWebPlayerView(
-                            streamUrl = webStreamUrl,
-                            onBackToStream = { livePlayerMode = "STREAM" },
-                            onOpenExternal = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webStreamUrl)).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
+                            onStreamDiscovered = { discoveredUrl ->
+                                if (discoveredUrl.isNotBlank() && activeStreamUrl != discoveredUrl) {
+                                    activeStreamUrl = discoveredUrl
+                                }
                             },
                             modifier = Modifier.fillMaxSize()
                         )
+                    } else if (livePlayerMode == "WEB_PLAYER") {
+                        val webStreamUrl = activeStreamUrl
+                        if (webStreamUrl.isNotBlank()) {
+                            HlsWebPlayerView(
+                                streamUrl = webStreamUrl,
+                                onBackToStream = { livePlayerMode = "STREAM" },
+                                onOpenExternal = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webStreamUrl)).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     } else if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
                         AndroidView(
                             factory = { ctx ->
