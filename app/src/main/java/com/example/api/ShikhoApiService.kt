@@ -16,8 +16,13 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Url
+import retrofit2.Response
+import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import java.util.concurrent.TimeUnit
 
 interface ShikhoApiService {
@@ -188,6 +193,30 @@ interface ShikhoApiService {
     suspend fun getAiSubscriptionList(
         @Body request: AiSubscriptionRequest = AiSubscriptionRequest(is_history = true)
     ): AiSubscriptionResponse
+
+    @GET("https://gen-ai-api.shikho.com/subject/list")
+    suspend fun getAiSubjectList(): ShikhoSubjectListResponse
+
+    @POST("https://gen-ai-api.shikho.com/prompt-image/signed-url")
+    suspend fun getAiSignedUrl(
+        @Body request: SignedUrlRequest = SignedUrlRequest()
+    ): SignedUrlResponse
+
+    @PUT
+    suspend fun uploadImageBinary(
+        @Url url: String,
+        @Body body: RequestBody
+    ): Response<ResponseBody>
+
+    @POST("https://gen-ai-api.shikho.com/session/create")
+    suspend fun createAiSession(
+        @Body request: CreateSessionRequest
+    ): CreateSessionResponse
+
+    @POST("https://gen-ai-api.shikho.com/conversation/continue")
+    suspend fun continueAiConversation(
+        @Body request: ConversationContinueRequest
+    ): ConversationContinueResponse
 
     companion object {
         private const val BASE_URL = "https://api.shikho.com"

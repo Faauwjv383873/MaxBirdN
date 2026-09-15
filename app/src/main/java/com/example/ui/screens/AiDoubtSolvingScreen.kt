@@ -124,7 +124,7 @@ fun AiDoubtSolvingScreen(
                     onTextChanged = { viewModel.onInputTextChanged(it) },
                     onAttachImage = { imagePickerLauncher.launch("image/*") },
                     onClearImage = { viewModel.clearAttachedImage() },
-                    onSend = { viewModel.sendQuestion() }
+                    onSend = { viewModel.sendQuestion(context = context) }
                 )
             },
             modifier = modifier
@@ -135,9 +135,11 @@ fun AiDoubtSolvingScreen(
                     .padding(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
+                val activeSubjects = if (uiState.subjectsList.isNotEmpty()) uiState.subjectsList else viewModel.availableSubjects
+
                 // Subject Filter Bar + Today's Usage Counter
                 AiSubjectAndUsageBar(
-                    subjects = viewModel.availableSubjects,
+                    subjects = activeSubjects,
                     selectedSubjectCode = uiState.selectedSubjectCode,
                     onSubjectSelected = { viewModel.onSubjectSelected(it) },
                     usedCount = uiState.usedQuestionsCount,
@@ -148,13 +150,13 @@ fun AiDoubtSolvingScreen(
                 // Main Chat Body or Empty State
                 if (uiState.currentMessages.isEmpty()) {
                     AiEmptyState(
-                        selectedSubject = viewModel.availableSubjects.find { it.code == uiState.selectedSubjectCode }
-                            ?: viewModel.availableSubjects.first(),
+                        selectedSubject = activeSubjects.find { it.code.equals(uiState.selectedSubjectCode, ignoreCase = true) }
+                            ?: activeSubjects.firstOrNull() ?: viewModel.availableSubjects.first(),
                         onSelectSamplePrompt = { prompt ->
                             viewModel.setSamplePrompt(prompt)
                         },
                         onQuickSendPrompt = { prompt ->
-                            viewModel.sendQuestion(prompt)
+                            viewModel.sendQuestion(prompt, context = context)
                         }
                     )
                 } else {

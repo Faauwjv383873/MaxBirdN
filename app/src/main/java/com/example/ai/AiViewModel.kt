@@ -2,6 +2,7 @@ package com.example.ai
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -11,13 +12,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 
 data class AiUiState(
     val currentMessages: List<AiChatMessage> = emptyList(),
     val chatSessions: List<AiChatSession> = emptyList(),
     val currentSessionId: String? = null,
-    val selectedSubjectCode: String = "math",
+    val selectedSubjectCode: String = "MATH",
+    val subjectsList: List<AiSubjectOption> = emptyList(),
+    val isLoadingSubjects: Boolean = false,
     val inputText: String = "",
     val attachedImageUri: Uri? = null,
     val isGenerating: Boolean = false,
@@ -45,9 +51,9 @@ class AiViewModel(
 
     val availableSubjects: List<AiSubjectOption> = listOf(
         AiSubjectOption(
-            code = "math",
+            code = "MATH",
             titleBn = "গণিত",
-            titleEn = "Mathematics",
+            titleEn = "General Math",
             iconName = "Calculate",
             samplePrompts = listOf(
                 "ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?",
@@ -57,45 +63,9 @@ class AiViewModel(
             )
         ),
         AiSubjectOption(
-            code = "physics",
-            titleBn = "পদার্থবিজ্ঞান",
-            titleEn = "Physics",
-            iconName = "ElectricBolt",
-            samplePrompts = listOf(
-                "ওহমের সূত্রের গাণিতিক রূপ ও ব্যাখ্যা দাও",
-                "নিউটনের গতির দ্বিতীয় সূত্র F = ma প্রতিপাদন করো",
-                "গতিশক্তি ও বিভব শক্তির মধ্যে সম্পর্ক কী?",
-                "আলোর প্রতিফলন ও প্রতিসরণের সূত্রাবলী"
-            )
-        ),
-        AiSubjectOption(
-            code = "chemistry",
-            titleBn = "রসায়ন",
-            titleEn = "Chemistry",
-            iconName = "Science",
-            samplePrompts = listOf(
-                "HCl এবং NaOH এর প্রশমন বিক্রিয়া ব্যাখ্যা করো",
-                "পর্যায় সারণির পর্যায়বৃত্ত ধর্ম কী কী?",
-                "লুইস ডট গঠন ও সমযোজী বন্ধন আঁকার নিয়ম",
-                "মোল সংখ্যা ও অ্যাভোগ্যাড্রোর সূত্রের গাণিতিক সমাধান"
-            )
-        ),
-        AiSubjectOption(
-            code = "biology",
-            titleBn = "জীববিজ্ঞান",
-            titleEn = "Biology",
-            iconName = "Biotech",
-            samplePrompts = listOf(
-                "উদ্ভিদ ও প্রাণীকোষের মধ্যে প্রধান পার্থক্য কী?",
-                "মাইটোসিস কোষ বিভাজনের পর্যায়সমূহ",
-                "ডিএনএ (DNA) এর দ্বি-সূত্রক কাঠামোর বর্ণনা",
-                "শালোকসংশ্লেষণ প্রক্রিয়ার আলোক পর্যায় ব্যাখ্যা করো"
-            )
-        ),
-        AiSubjectOption(
-            code = "ict",
+            code = "ICT",
             titleBn = "তথ্য ও যোগাযোগ প্রযুক্তি",
-            titleEn = "ICT",
+            titleEn = "HSC ICT",
             iconName = "Computer",
             samplePrompts = listOf(
                 "বাইনারি থেকে ডেসিমেল রূপান্তর করার নিয়ম",
@@ -105,19 +75,7 @@ class AiViewModel(
             )
         ),
         AiSubjectOption(
-            code = "english",
-            titleBn = "ইংরেজি",
-            titleEn = "English",
-            iconName = "Translate",
-            samplePrompts = listOf(
-                "Right form of verbs এর গুরুত্বপূর্ণ নিয়মাবলী",
-                "Transformation of Sentences: Simple, Complex, Compound",
-                "Completing sentences এর নিয়ম ব্যাখ্যা করো",
-                "Appropriate Preposition ব্যবহারের নিয়ম"
-            )
-        ),
-        AiSubjectOption(
-            code = "bangla",
+            code = "BANGLA",
             titleBn = "বাংলা",
             titleEn = "Bangla",
             iconName = "MenuBook",
@@ -127,11 +85,45 @@ class AiViewModel(
                 "কারক ও বিভক্তি নির্ণয়ের শর্টকাট টেকনিক",
                 "ধ্বনি পরিবর্তন এর উদাহরণসহ নিয়ম"
             )
+        ),
+        AiSubjectOption(
+            code = "ECONOMICS",
+            titleBn = "অর্থনীতি",
+            titleEn = "Economics",
+            iconName = "TrendingUp",
+            samplePrompts = listOf(
+                "চাহিদা ও যোগানের ভারসাম্য বিন্দু কিভাবে নির্ণয় করা হয়?",
+                "জিডিপি (GDP) এবং জিএনপি (GNP) এর মূল পার্থক্য কী?",
+                "মুদ্রাস্ফীতির কারণ ও প্রতিকার"
+            )
+        ),
+        AiSubjectOption(
+            code = "PHYSICS",
+            titleBn = "পদার্থবিজ্ঞান",
+            titleEn = "Physics",
+            iconName = "ElectricBolt",
+            samplePrompts = listOf(
+                "ওহমের সূত্রের গাণিতিক রূপ ও ব্যাখ্যা দাও",
+                "নিউটনের গতির দ্বিতীয় সূত্র F = ma প্রতিপাদন করো",
+                "গতিশক্তি ও বিভব শক্তির মধ্যে সম্পর্ক কী?"
+            )
+        ),
+        AiSubjectOption(
+            code = "CHEMISTRY",
+            titleBn = "রসায়ন",
+            titleEn = "Chemistry",
+            iconName = "Science",
+            samplePrompts = listOf(
+                "HCl এবং NaOH এর প্রশমন বিক্রিয়া ব্যাখ্যা করো",
+                "পর্যায় সারণির পর্যায়বৃত্ত ধর্ম কী কী?",
+                "লুইস ডট গঠন ও সমযোজী বন্ধন আঁকার নিয়ম"
+            )
         )
     )
 
     init {
         loadUserData()
+        fetchSubjectList()
         loadDefaultHistory()
         fetchSubscriptionStatus()
     }
@@ -143,12 +135,81 @@ class AiViewModel(
         val classDisplay = sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "Class 11"
         val group = sessionManager.getUserGroup() ?: "বিজ্ঞান"
 
-        _uiState.value = _uiState.value.copy(
-            userName = name,
-            userPhone = phone,
-            userAvatar = avatar,
-            userClassName = classDisplay,
-            userGroup = group
+        _uiState.update {
+            it.copy(
+                userName = name,
+                userPhone = phone,
+                userAvatar = avatar,
+                userClassName = classDisplay,
+                userGroup = group
+            )
+        }
+    }
+
+    fun fetchSubjectList() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingSubjects = true) }
+            try {
+                val response = apiService.getAiSubjectList()
+                val remoteSubjects = response.data
+                if (!remoteSubjects.isNullOrEmpty()) {
+                    val mappedList = remoteSubjects.map { item ->
+                        val code = item.subject_code ?: "MATH"
+                        val name = item.name ?: code
+                        mapRemoteSubjectToOption(code, name)
+                    }
+                    val currentSelected = _uiState.value.selectedSubjectCode
+                    val selected = if (mappedList.any { it.code.equals(currentSelected, ignoreCase = true) }) {
+                        currentSelected
+                    } else {
+                        mappedList.first().code
+                    }
+                    _uiState.update {
+                        it.copy(
+                            subjectsList = mappedList,
+                            selectedSubjectCode = selected,
+                            isLoadingSubjects = false
+                        )
+                    }
+                } else {
+                    useDefaultSubjects()
+                }
+            } catch (e: Exception) {
+                Log.e("AiViewModel", "Error fetching subject list", e)
+                useDefaultSubjects()
+            }
+        }
+    }
+
+    private fun useDefaultSubjects() {
+        _uiState.update {
+            it.copy(
+                subjectsList = availableSubjects,
+                selectedSubjectCode = if (it.selectedSubjectCode.isBlank()) "MATH" else it.selectedSubjectCode,
+                isLoadingSubjects = false
+            )
+        }
+    }
+
+    private fun mapRemoteSubjectToOption(code: String, name: String): AiSubjectOption {
+        val codeUpper = code.uppercase()
+        val (titleBn, icon, prompts) = when {
+            codeUpper.contains("MATH") -> Triple("গণিত", "Calculate", listOf("ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?", "How do I solve quadratic equation ax² + bx + c = 0?", "Matrix addition ও multiplication এর নিয়ম কী?"))
+            codeUpper.contains("ICT") -> Triple("আইসিটি", "Computer", listOf("বাইনারি থেকে ডেসিমেল রূপান্তর করার নিয়ম", "এইচটিএমএল (HTML) দিয়ে টেবিল তৈরির কোড", "লজিক গেইট এর ট্রুথ টেবিল"))
+            codeUpper.contains("BANGLA") -> Triple("বাংলা", "MenuBook", listOf("সমাস চেনার সহজ উপায় ও প্রকারভেদ", "ণ-ত্ব ও ষ-ত্ব বিধানের প্রধান নিয়মাবলী", "কারক ও বিভক্তি নির্ণয়ের শর্টকাট টেকনিক"))
+            codeUpper.contains("ECONOMICS") -> Triple("অর্থনীতি", "TrendingUp", listOf("চাহিদা ও যোগানের ভারসাম্য বিন্দু কিভাবে নির্ণয় করা হয়?", "জিডিপি (GDP) এবং জিএনপি (GNP) এর মূল পার্থক্য কী?", "মুদ্রাস্ফীতির কারণ ও প্রতিকার"))
+            codeUpper.contains("PHYSICS") -> Triple("পদার্থবিজ্ঞান", "ElectricBolt", listOf("ওহমের সূত্রের গাণিতিক রূপ ও ব্যাখ্যা দাও", "নিউটনের গতির দ্বিতীয় সূত্র F = ma প্রতিপাদন করো", "গতিশক্তি ও বিভব শক্তির মধ্যে সম্পর্ক কী?"))
+            codeUpper.contains("CHEMISTRY") -> Triple("রসায়ন", "Science", listOf("HCl এবং NaOH এর প্রশমন বিক্রিয়া ব্যাখ্যা করো", "পর্যায় সারণির পর্যায়বৃত্ত ধর্ম কী কী?", "লুইস ডট গঠন ও সমযোজী বন্ধন আঁকার নিয়ম"))
+            codeUpper.contains("BIOLOGY") -> Triple("জীববিজ্ঞান", "Biotech", listOf("উদ্ভিদ ও প্রাণীকোষের মধ্যে প্রধান পার্থক্য কী?", "মাইটোসিস কোষ বিভাজনের পর্যায়সমূহ", "ডিএনএ (DNA) এর দ্বি-সূত্রক কাঠামোর বর্ণনা"))
+            codeUpper.contains("ENGLISH") -> Triple("ইংরেজি", "Translate", listOf("Right form of verbs এর গুরুত্বপূর্ণ নিয়মাবলী", "Transformation of Sentences: Simple, Complex, Compound", "Completing sentences এর নিয়ম"))
+            else -> Triple(name, "AutoAwesome", listOf("$name বিষয়ের গুরুত্বপূর্ণ ব্যাখ্যা ও সূত্রের সমাধান দাও"))
+        }
+        return AiSubjectOption(
+            code = code,
+            titleBn = titleBn,
+            titleEn = name,
+            iconName = icon,
+            samplePrompts = prompts
         )
     }
 
@@ -156,17 +217,17 @@ class AiViewModel(
         val sampleSession = AiChatSession(
             id = "session_math_demo",
             title = "ত্রিভুজের ক্ষেত্রফল নির্ণয়",
-            subject = "math",
+            subject = "MATH",
             timestamp = System.currentTimeMillis() - 3600000L * 2,
             messages = listOf(
                 AiChatMessage(
                     text = "ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?",
                     isUser = true,
-                    subject = "math"
+                    subject = "MATH"
                 ),
                 generateAiAnswer(
                     question = "ত্রিভুজের ক্ষেত্রফল কিভাবে বের করবো?",
-                    subject = "math",
+                    subject = "MATH",
                     imageAttached = false
                 )
             )
@@ -177,22 +238,22 @@ class AiViewModel(
             AiChatSession(
                 id = "session_chem_demo",
                 title = "HCl ও NaOH এর প্রশমন বিক্রিয়া",
-                subject = "chemistry",
+                subject = "CHEMISTRY",
                 timestamp = System.currentTimeMillis() - 3600000L * 24,
                 messages = emptyList()
             ),
             AiChatSession(
                 id = "session_phy_demo",
                 title = "ওহমের সূত্রের গাণিতিক প্রতিপাদন",
-                subject = "physics",
+                subject = "PHYSICS",
                 timestamp = System.currentTimeMillis() - 3600000L * 48,
                 messages = emptyList()
             )
         )
 
-        _uiState.value = _uiState.value.copy(
-            chatSessions = historyList
-        )
+        _uiState.update {
+            it.copy(chatSessions = historyList)
+        }
     }
 
     fun fetchSubscriptionStatus() {
@@ -200,17 +261,21 @@ class AiViewModel(
             try {
                 val response = apiService.getAiSubscriptionList()
                 val activeItem = response.data?.firstOrNull() ?: createDefaultActiveSubscription()
-                _uiState.value = _uiState.value.copy(
-                    subscription = activeItem,
-                    isSubscribed = true,
-                    isUnlimited = true
-                )
+                _uiState.update {
+                    it.copy(
+                        subscription = activeItem,
+                        isSubscribed = true,
+                        isUnlimited = true
+                    )
+                }
             } catch (_: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    subscription = createDefaultActiveSubscription(),
-                    isSubscribed = true,
-                    isUnlimited = true
-                )
+                _uiState.update {
+                    it.copy(
+                        subscription = createDefaultActiveSubscription(),
+                        isSubscribed = true,
+                        isUnlimited = true
+                    )
+                }
             }
         }
     }
@@ -237,29 +302,29 @@ class AiViewModel(
     }
 
     fun onSubjectSelected(subjectCode: String) {
-        _uiState.value = _uiState.value.copy(selectedSubjectCode = subjectCode)
+        _uiState.update { it.copy(selectedSubjectCode = subjectCode) }
     }
 
     fun onInputTextChanged(text: String) {
         if (text.length <= 500) {
-            _uiState.value = _uiState.value.copy(inputText = text)
+            _uiState.update { it.copy(inputText = text) }
         }
     }
 
     fun onImageSelected(uri: Uri?) {
-        _uiState.value = _uiState.value.copy(attachedImageUri = uri)
+        _uiState.update { it.copy(attachedImageUri = uri) }
     }
 
     fun clearAttachedImage() {
-        _uiState.value = _uiState.value.copy(attachedImageUri = null)
+        _uiState.update { it.copy(attachedImageUri = null) }
     }
 
     fun setSamplePrompt(prompt: String) {
-        _uiState.value = _uiState.value.copy(inputText = prompt)
+        _uiState.update { it.copy(inputText = prompt) }
     }
 
     fun toggleWebMode() {
-        _uiState.value = _uiState.value.copy(isWebMode = !_uiState.value.isWebMode)
+        _uiState.update { it.copy(isWebMode = !it.isWebMode) }
     }
 
     fun startNewChat() {
@@ -274,37 +339,43 @@ class AiViewModel(
                 messages = currentMsgs
             )
             val updatedHistory = listOf(newSession) + _uiState.value.chatSessions.filter { it.id != newSession.id }
-            _uiState.value = _uiState.value.copy(
-                chatSessions = updatedHistory,
-                currentMessages = emptyList(),
-                inputText = "",
-                attachedImageUri = null,
-                currentSessionId = null
-            )
+            _uiState.update {
+                it.copy(
+                    chatSessions = updatedHistory,
+                    currentMessages = emptyList(),
+                    inputText = "",
+                    attachedImageUri = null,
+                    currentSessionId = null
+                )
+            }
         } else {
-            _uiState.value = _uiState.value.copy(
-                currentMessages = emptyList(),
-                inputText = "",
-                attachedImageUri = null,
-                currentSessionId = null
-            )
+            _uiState.update {
+                it.copy(
+                    currentMessages = emptyList(),
+                    inputText = "",
+                    attachedImageUri = null,
+                    currentSessionId = null
+                )
+            }
         }
     }
 
     fun loadSession(session: AiChatSession) {
-        _uiState.value = _uiState.value.copy(
-            currentMessages = if (session.messages.isNotEmpty()) session.messages else listOf(
-                AiChatMessage(text = session.title, isUser = true, subject = session.subject),
-                generateAiAnswer(session.title, session.subject, false)
-            ),
-            selectedSubjectCode = session.subject,
-            currentSessionId = session.id
-        )
+        _uiState.update {
+            it.copy(
+                currentMessages = if (session.messages.isNotEmpty()) session.messages else listOf(
+                    AiChatMessage(text = session.title, isUser = true, subject = session.subject),
+                    generateAiAnswer(session.title, session.subject, false)
+                ),
+                selectedSubjectCode = session.subject,
+                currentSessionId = session.id
+            )
+        }
     }
 
     fun deleteSession(sessionId: String) {
         val updated = _uiState.value.chatSessions.filter { it.id != sessionId }
-        _uiState.value = _uiState.value.copy(chatSessions = updated)
+        _uiState.update { it.copy(chatSessions = updated) }
     }
 
     fun submitFeedback(messageId: String, feedbackType: String) {
@@ -313,17 +384,19 @@ class AiViewModel(
                 msg.copy(feedback = feedbackType)
             } else msg
         }
-        _uiState.value = _uiState.value.copy(
-            currentMessages = updated,
-            toastMessage = if (feedbackType == "like") "ধন্যবাদ! আপনার ফিডব্যাক গ্রহণ করা হয়েছে 👍" else "ফিডব্যাকের জন্য ধন্যবাদ, আমরা উন্নতির চেষ্টা করছি 👎"
-        )
+        _uiState.update {
+            it.copy(
+                currentMessages = updated,
+                toastMessage = if (feedbackType == "like") "ধন্যবাদ! আপনার ফিডব্যাক গ্রহণ করা হয়েছে 👍" else "ফিডব্যাকের জন্য ধন্যবাদ, আমরা উন্নতির চেষ্টা করছি 👎"
+            )
+        }
     }
 
     fun clearToast() {
-        _uiState.value = _uiState.value.copy(toastMessage = null)
+        _uiState.update { it.copy(toastMessage = null) }
     }
 
-    fun sendQuestion(customPrompt: String? = null) {
+    fun sendQuestion(customPrompt: String? = null, context: Context? = null) {
         val question = (customPrompt ?: _uiState.value.inputText).trim()
         val imageUri = if (customPrompt == null) _uiState.value.attachedImageUri else null
         val subject = _uiState.value.selectedSubjectCode
@@ -341,28 +414,110 @@ class AiViewModel(
 
         val updatedMessages = _uiState.value.currentMessages + userMessage
 
-        _uiState.value = _uiState.value.copy(
-            currentMessages = updatedMessages,
-            inputText = "",
-            attachedImageUri = null,
-            isGenerating = true,
-            usedQuestionsCount = _uiState.value.usedQuestionsCount + 1
-        )
+        _uiState.update {
+            it.copy(
+                currentMessages = updatedMessages,
+                inputText = "",
+                attachedImageUri = null,
+                isGenerating = true,
+                usedQuestionsCount = it.usedQuestionsCount + 1
+            )
+        }
 
         viewModelScope.launch {
-            // Simulated AI thinking and streaming latency
-            delay(1200)
+            try {
+                // Step 1: Create Session via POST /session/create if currentSessionId is null
+                var activeSessionId = _uiState.value.currentSessionId
+                if (activeSessionId.isNullOrBlank()) {
+                    try {
+                        val sessionTitle = question.ifBlank { "Shikho AI Query" }.take(35)
+                        val sessionRes = apiService.createAiSession(
+                            CreateSessionRequest(subject_code = subject, title = sessionTitle)
+                        )
+                        activeSessionId = sessionRes.data?.session_id
+                            ?: sessionRes.session_id
+                            ?: "session_${System.currentTimeMillis()}"
+                        _uiState.update { it.copy(currentSessionId = activeSessionId) }
+                    } catch (e: Exception) {
+                        Log.e("AiViewModel", "Error creating AI session", e)
+                        activeSessionId = "session_${System.currentTimeMillis()}"
+                        _uiState.update { it.copy(currentSessionId = activeSessionId) }
+                    }
+                }
 
-            val aiMessage = generateAiAnswer(
-                question = question,
-                subject = subject,
-                imageAttached = imageUri != null
-            )
+                // Step 2: Image Upload via POST /prompt-image/signed-url & PUT <upload_url>
+                var imageIdentifier: String? = null
+                if (imageUri != null && context != null) {
+                    try {
+                        val signedUrlRes = apiService.getAiSignedUrl(SignedUrlRequest(file_extension = "jpg"))
+                        val uploadUrl = signedUrlRes.upload_url ?: signedUrlRes.data?.upload_url
+                        imageIdentifier = signedUrlRes.image_identifier ?: signedUrlRes.data?.image_identifier
 
-            _uiState.value = _uiState.value.copy(
-                currentMessages = _uiState.value.currentMessages + aiMessage,
-                isGenerating = false
-            )
+                        if (!uploadUrl.isNullOrBlank()) {
+                            val inputStream = context.contentResolver.openInputStream(imageUri)
+                            val bytes = inputStream?.readBytes()
+                            inputStream?.close()
+                            if (bytes != null && bytes.isNotEmpty()) {
+                                val reqBody = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                                apiService.uploadImageBinary(uploadUrl, reqBody)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("AiViewModel", "Error uploading image to signed URL", e)
+                    }
+                }
+
+                // Step 3: Main Conversation API POST /conversation/continue
+                val conversationRes = apiService.continueAiConversation(
+                    ConversationContinueRequest(
+                        prompt = question.ifBlank { "এই ছবির ব্যাখ্যা দাও" },
+                        session_id = activeSessionId,
+                        image_identifier = imageIdentifier
+                    )
+                )
+
+                val replyText = conversationRes.data?.text
+                    ?: conversationRes.text
+                    ?: conversationRes.data?.reply
+                    ?: conversationRes.reply
+                    ?: conversationRes.data?.response
+                    ?: conversationRes.response
+                    ?: conversationRes.data?.answer
+                    ?: conversationRes.answer
+
+                val aiMessage = if (!replyText.isNullOrBlank()) {
+                    AiChatMessage(
+                        id = java.util.UUID.randomUUID().toString(),
+                        text = replyText,
+                        isUser = false,
+                        subject = subject,
+                        timestamp = System.currentTimeMillis()
+                    )
+                } else {
+                    generateAiAnswer(question = question, subject = subject, imageAttached = imageUri != null)
+                }
+
+                _uiState.update {
+                    it.copy(
+                        currentMessages = it.currentMessages + aiMessage,
+                        isGenerating = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("AiViewModel", "Conversation API error, using fallback answer", e)
+                delay(600)
+                val fallbackAnswer = generateAiAnswer(
+                    question = question,
+                    subject = subject,
+                    imageAttached = imageUri != null
+                )
+                _uiState.update {
+                    it.copy(
+                        currentMessages = it.currentMessages + fallbackAnswer,
+                        isGenerating = false
+                    )
+                }
+            }
         }
     }
 

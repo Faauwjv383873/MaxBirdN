@@ -82,3 +82,83 @@ data class AiSubjectOption(
     val iconName: String,
     val samplePrompts: List<String>
 )
+
+// -------------------------------------------------------------
+// 3. Shikho Gen-AI API Data Models
+// -------------------------------------------------------------
+
+@JsonClass(generateAdapter = true)
+data class ShikhoSubjectListResponse(
+    val data: List<ShikhoSubjectItem>? = null,
+    val code: Int? = null,
+    val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ShikhoSubjectItem(
+    val subject_code: String? = null,
+    val name: String? = null,
+    val prompt_id: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SignedUrlRequest(
+    val file_extension: String = "jpg"
+)
+
+@JsonClass(generateAdapter = true)
+data class SignedUrlResponse(
+    val upload_url: String? = null,
+    val image_identifier: String? = null,
+    val data: SignedUrlData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SignedUrlData(
+    val upload_url: String? = null,
+    val image_identifier: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateSessionRequest(
+    val subject_code: String,
+    val title: String
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateSessionResponse(
+    val session_id: String? = null,
+    val data: CreateSessionData? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateSessionData(
+    val session_id: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ConversationContinueRequest(
+    val prompt: String,
+    val session_id: String,
+    val image_identifier: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ConversationContinueResponse(
+    val data: ConversationData? = null,
+    val text: String? = null,
+    val reply: String? = null,
+    val response: String? = null,
+    val answer: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ConversationData(
+    val text: String? = null,
+    val reply: String? = null,
+    val response: String? = null,
+    val answer: String? = null,
+    val prompt: String? = null,
+    val session_id: String? = null
+)
+
