@@ -72,7 +72,7 @@ data class VideoTrackQuality(
 @OptIn(UnstableApi::class)
 object ShikhoPlayerManager {
 
-    const val DEFAULT_REFERER = "https://shikho.com/"
+    const val DEFAULT_REFERER = "https://app.shikho.com/"
     const val DEFAULT_USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)"
 
     /**
@@ -89,7 +89,7 @@ object ShikhoPlayerManager {
                 mapOf(
                     "referer" to referer,
                     "Referer" to referer,
-                    "Origin" to "https://shikho.com",
+                    "Origin" to "https://app.shikho.com",
                     "Accept-Encoding" to "identity",
                     "Connection" to "Keep-Alive"
                 )

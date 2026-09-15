@@ -549,18 +549,20 @@ data class StudentLessonItem(
                 if (!list.contains(url)) list.add(url)
             }
 
-            // 2. Class ID & Session ID based Tenbyte CDN URLs (prioritizing live_class?.id Class ID over Lesson id)
-            val targets = listOfNotNull(
-                live_class?.id,
-                content_id,
-                live_class?.session_id,
-                session_id,
-                if (live_class?.id.isNullOrBlank() && content_id.isNullOrBlank()) id else null
-            ).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
+            // 2. Class ID & Session ID based Tenbyte CDN URLs (only for recorded / non-live classes)
+            if (!isLive) {
+                val targets = listOfNotNull(
+                    live_class?.id,
+                    content_id,
+                    live_class?.session_id,
+                    session_id,
+                    if (live_class?.id.isNullOrBlank() && content_id.isNullOrBlank()) id else null
+                ).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
 
-            for (target in targets) {
-                val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
-                if (!list.contains(cdnUrl)) list.add(cdnUrl)
+                for (target in targets) {
+                    val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
+                    if (!list.contains(cdnUrl)) list.add(cdnUrl)
+                }
             }
 
             return list.filter { it.isNotBlank() && it != "null" }.distinct()
@@ -694,11 +696,13 @@ data class LiveClassDetails(
                 ?: url?.takeIf { it.isNotBlank() && it != "null" }
             if (!direct.isNullOrBlank()) list.add(direct)
 
-            // 2. Session ID & Class ID CDN Reconstruction (for recorded classes)
-            val targets = listOfNotNull(session_id, id).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
-            for (target in targets) {
-                val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
-                if (!list.contains(cdnUrl)) list.add(cdnUrl)
+            // 2. Session ID & Class ID CDN Reconstruction (only for recorded classes, NOT when live)
+            if (is_on_going != true) {
+                val targets = listOfNotNull(session_id, id).map { it.trim() }.filter { it.isNotBlank() && it != "null" }.distinct()
+                for (target in targets) {
+                    val cdnUrl = "https://shikho-stream2.tenbytecdn.com/$target/playlist.m3u8"
+                    if (!list.contains(cdnUrl)) list.add(cdnUrl)
+                }
             }
 
             return list.filter { it.isNotBlank() && it != "null" }.distinct()

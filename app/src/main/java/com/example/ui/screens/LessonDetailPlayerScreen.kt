@@ -154,8 +154,8 @@ fun LessonDetailPlayerScreen(
         url ?: ""
     }
 
-    // Live Join State: "JOIN_PORTAL" (Get Started Screen) -> "LIVE_ROOM" (Full 100ms Room/Chat/Stream)
-    var isLiveJoined by remember(lesson?.id) { mutableStateOf(false) }
+    // Live Join State
+    var isLiveJoined by remember(lesson?.id) { mutableStateOf(true) }
 
     // Auto trigger joinLiveClass if it's a live class and joinLink or hmsRoomId is missing
     LaunchedEffect(lesson?.id, isLive) {
@@ -164,23 +164,12 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    // If it is a live class and user hasn't tapped "Join Now", show the exact "Get Started" screen from Screenshot 1!
+    // Auto bypass LiveGetStartedScreen directly into live stream
     if (isLive && !isLiveJoined) {
-        LiveGetStartedScreen(
-            lesson = lesson,
-            effectiveMeetingUrl = effectiveMeetingUrl,
-            onJoinClick = {
-                if (lesson != null && (lesson.live_class?.join_link.isNullOrBlank() || lesson.live_class?.hms_room_id.isNullOrBlank()) && onJoinLiveClass != null) {
-                    onJoinLiveClass.invoke(lesson)
-                }
-                isLiveJoined = true
-            },
-            onBack = onBack
-        )
-        return
+        isLiveJoined = true
     }
 
-    var livePlayerMode by remember(isLive) { mutableStateOf(if (isLive) "MEETING" else "STREAM") }
+    var livePlayerMode by remember(isLive) { mutableStateOf("STREAM") }
 
     val effectiveSocketManager = socketManager ?: remember { HmsLiveSocketManager() }
     val viewerCount by effectiveSocketManager.viewerCount.collectAsState()
@@ -615,30 +604,18 @@ fun LessonDetailPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            if (isLive && livePlayerMode == "MEETING" && effectiveMeetingUrl.isNotBlank()) {
+            if (isLive && effectiveMeetingUrl.isNotBlank()) {
                 LiveMeetingWebView(
                     meetingUrl = effectiveMeetingUrl,
-                    onBackToStream = {
+                    studentName = "Student",
+                    onStreamDiscovered = { discoveredM3u8 ->
+                        activeStreamUrl = discoveredM3u8
                         livePlayerMode = "STREAM"
-                        exoPlayer.play()
                     },
-                    onOpenExternal = {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {}
-                    },
-                    onStreamDiscovered = { discoveredUrl ->
-                        if (discoveredUrl.isNotBlank()) {
-                            activeStreamUrl = discoveredUrl
-                            livePlayerMode = "STREAM"
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = if (activeStreamUrl.isNotBlank() && livePlayerMode == "STREAM") Modifier.size(1.dp) else Modifier.fillMaxSize()
                 )
-            } else {
+            }
+            if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -707,36 +684,6 @@ fun LessonDetailPlayerScreen(
                 )
             }
         }
-    } else if (isLive && livePlayerMode == "MEETING" && effectiveMeetingUrl.isNotBlank()) {
-        // FULL HEIGHT LIVE ROOM (Matching Screenshot 2)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0B0E15))
-        ) {
-            LiveMeetingWebView(
-                meetingUrl = effectiveMeetingUrl,
-                onBackToStream = {
-                    livePlayerMode = "STREAM"
-                    exoPlayer.play()
-                },
-                onOpenExternal = {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
-                    } catch (_: Exception) {}
-                },
-                onStreamDiscovered = { discoveredUrl ->
-                    if (discoveredUrl.isNotBlank()) {
-                        activeStreamUrl = discoveredUrl
-                        livePlayerMode = "STREAM"
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
     } else {
         // PORTRAIT DETAIL SCREEN
         Scaffold(
@@ -756,30 +703,18 @@ fun LessonDetailPlayerScreen(
                         .aspectRatio(16f / 9f)
                         .background(Color.Black)
                 ) {
-                    if (isLive && livePlayerMode == "MEETING" && effectiveMeetingUrl.isNotBlank()) {
+                    if (isLive && effectiveMeetingUrl.isNotBlank()) {
                         LiveMeetingWebView(
                             meetingUrl = effectiveMeetingUrl,
-                            onBackToStream = {
+                            studentName = "Student",
+                            onStreamDiscovered = { discoveredM3u8 ->
+                                activeStreamUrl = discoveredM3u8
                                 livePlayerMode = "STREAM"
-                                exoPlayer.play()
                             },
-                            onOpenExternal = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(effectiveMeetingUrl)).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            },
-                            onStreamDiscovered = { discoveredUrl ->
-                                if (discoveredUrl.isNotBlank()) {
-                                    activeStreamUrl = discoveredUrl
-                                    livePlayerMode = "STREAM"
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = if (activeStreamUrl.isNotBlank() && livePlayerMode == "STREAM") Modifier.size(1.dp) else Modifier.fillMaxSize()
                         )
-                    } else if (livePlayerMode == "WEB_PLAYER") {
+                    }
+                    if (livePlayerMode == "WEB_PLAYER") {
                         val webStreamUrl = activeStreamUrl
                         if (webStreamUrl.isNotBlank()) {
                             HlsWebPlayerView(
@@ -796,7 +731,7 @@ fun LessonDetailPlayerScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                    } else if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
+                    } else if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
                         AndroidView(
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
@@ -891,12 +826,12 @@ fun LessonDetailPlayerScreen(
                                 }
                             )
                         }
-                    } else {
+                    } else if (!isLive) {
                         // Empty / No Direct Stream State Placeholder with Diagnostics
                         val slideUrlForEmpty = lesson?.resolvedSlideUrl
                             ?: lesson?.live_class?.lectureSlideUrl
                         LessonStreamPlaceholder(
-                            isLive = isLive,
+                            isLive = false,
                             lesson = lesson,
                             slideUrl = slideUrlForEmpty,
                             onJoinLiveClass = onJoinLiveClass,
