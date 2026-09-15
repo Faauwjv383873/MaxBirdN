@@ -1,0 +1,1830 @@
+package com.example.ui.screens
+
+import android.content.Intent
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.api.*
+import com.example.reportcard.ReportCardUiState
+import com.example.reportcard.ReportCardViewModel
+import com.example.reportcard.ReportTab
+import com.example.utils.AvatarUtils
+import com.example.utils.SubjectColorUtils
+
+// Bengali digit conversion helpers
+private fun Number?.toBn(): String {
+    if (this == null) return "০"
+    val digits = charArrayOf('০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯')
+    val str = this.toString()
+    val sb = StringBuilder()
+    for (ch in str) {
+        if (ch in '0'..'9') sb.append(digits[ch - '0']) else sb.append(ch)
+    }
+    return sb.toString()
+}
+
+private fun String?.toBn(): String {
+    if (this == null) return ""
+    val digits = charArrayOf('০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯')
+    val sb = StringBuilder()
+    for (ch in this) {
+        if (ch in '0'..'9') sb.append(digits[ch - '0']) else sb.append(ch)
+    }
+    return sb.toString()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReportCardScreen(
+    viewModel: ReportCardViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val pullRefreshState = rememberPullToRefreshState()
+
+    Scaffold(
+        topBar = {
+            ReportCardTopBar(
+                title = if (uiState.selectedTab == ReportTab.RESULT_DETAILS) "রিপোর্ট কার্ড" else "বিষয়ভিত্তিক লিডারবোর্ড",
+                subtitle = uiState.programTitle,
+                onBack = onBack,
+                onShare = {
+                    val shareText = if (uiState.selectedTab == ReportTab.RESULT_DETAILS) {
+                        val score = uiState.reportData?.performance_report?.total_score?.percentage ?: 0
+                        val rank = uiState.reportData?.performance_report?.class_rank?.rank ?: 0
+                        "আমার কোয়ার্টার রিপোর্ট কার্ড:\nমোট স্কোর: ${score}%\nর‍্যাঙ্ক: ${rank}তম\nশিখো অ্যাপে আমার সাথে যুক্ত হও!"
+                    } else {
+                        val rank = uiState.leaderboardData?.user_rank ?: 0
+                        val marks = uiState.leaderboardData?.user_marks ?: 0
+                        val subName = uiState.selectedLeaderboardSubject?.display_bn ?: "সকল বিষয়"
+                        "বিষয়: $subName | আমার মেধা র‍্যাঙ্ক: ${rank}তম (প্রাপ্ত নম্বর: ${marks}%)\nশিখো অ্যাপ থেকে।"
+                    }
+                    val sendIntent = Intent().apply {
+                        action = Intent.ACTION_SEND
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                        type = "text/plain"
+                    }
+                    val shareIntent = Intent.createChooser(sendIntent, "রিপোর্ট কার্ড শেয়ার করো")
+                    context.startActivity(shareIntent)
+                }
+            )
+        },
+        bottomBar = {
+            if (uiState.selectedTab == ReportTab.LEADERBOARD && uiState.leaderboardData != null) {
+                StickyMyRankBar(
+                    userRank = uiState.leaderboardData?.user_rank,
+                    userScore = uiState.leaderboardData?.user_marks,
+                    userName = uiState.userName,
+                    userAvatar = uiState.userAvatar,
+                    onShare = {
+                        val rank = uiState.leaderboardData?.user_rank ?: 0
+                        val marks = uiState.leaderboardData?.user_marks ?: 0
+                        val subName = uiState.selectedLeaderboardSubject?.display_bn ?: "সকল বিষয়"
+                        val shareText = "বিষয়: $subName\nআমার জাতীয় মেধা র‍্যাঙ্ক: ${rank}তম\nপ্রাপ্ত নম্বর: ${marks}%\nশিখো লাইভ ক্লাসে অংশ নাও!"
+                        val sendIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, shareText)
+                            type = "text/plain"
+                        }
+                        val shareIntent = Intent.createChooser(sendIntent, "লিডারবোর্ড শেয়ার করো")
+                        context.startActivity(shareIntent)
+                    }
+                )
+            }
+        },
+        containerColor = Color(0xFFF8FAFC),
+        modifier = modifier
+    ) { innerPadding ->
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = { viewModel.refreshData() },
+            state = pullRefreshState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = if (uiState.selectedTab == ReportTab.LEADERBOARD) 90.dp else 24.dp)
+            ) {
+                // 1. Quarters Horizontal Switcher
+                item {
+                    QuarterSwitcherSection(
+                        phases = uiState.phases,
+                        selectedPhase = uiState.selectedPhase,
+                        onSelectPhase = { viewModel.switchQuarter(it) }
+                    )
+                }
+
+                // 2. Tab Switcher (Result Details vs Leaderboard)
+                item {
+                    ReportTabSwitcher(
+                        selectedTab = uiState.selectedTab,
+                        onTabSelected = { viewModel.switchTab(it) }
+                    )
+                }
+
+                // 3. Tab Content
+                if (uiState.isLoading && uiState.reportData == null) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(300.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF1E3A8A),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
+                } else if (uiState.selectedTab == ReportTab.RESULT_DETAILS) {
+                    // TAB 1: RESULT DETAILS
+                    item {
+                        PerformanceReportBanner(
+                            totalScore = uiState.reportData?.performance_report?.total_score?.percentage,
+                            rank = uiState.reportData?.performance_report?.class_rank?.rank,
+                            totalStudents = uiState.reportData?.performance_report?.class_rank?.total_students
+                        )
+                    }
+
+                    item {
+                        LearningProgressCards(
+                            progress = uiState.reportData?.learning_progress
+                        )
+                    }
+
+                    item {
+                        LearningActivitySummarySection(
+                            summary = uiState.reportData?.learning_activity_summary
+                        )
+                    }
+
+                    item {
+                        PerformanceTrendCard(
+                            trendData = uiState.trendData,
+                            activeMetric = uiState.trendMetric,
+                            onMetricChange = { viewModel.switchMetric(it) }
+                        )
+                    }
+
+                    item {
+                        SubjectWisePerformanceSection(
+                            container = uiState.reportData?.subject_wise_performance
+                        )
+                    }
+                } else {
+                    // TAB 2: SUBJECT-WISE LEADERBOARD
+                    item {
+                        SubjectPickerChips(
+                            subjects = uiState.subjects,
+                            selectedSubject = uiState.selectedLeaderboardSubject,
+                            onSelectSubject = { viewModel.selectLeaderboardSubject(it) }
+                        )
+                    }
+
+                    if (uiState.isLeaderboardLoading && uiState.leaderboardData == null) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(260.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF3B82F6),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        val leaderboard = uiState.leaderboardData
+                        val users = leaderboard?.data ?: emptyList()
+
+                        if (users.isNotEmpty()) {
+                            // Top 3 Podium
+                            item {
+                                LeaderboardPodiumView(
+                                    topUsers = users.take(3)
+                                )
+                            }
+
+                            // 4th to 10th+ list
+                            val restUsers = if (users.size > 3) users.drop(3) else emptyList()
+                            if (restUsers.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "অন্যান্য শীর্ষ মেধাবী শিক্ষার্থী",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1E293B),
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+
+                                itemsIndexed(restUsers) { _, userItem ->
+                                    LeaderboardUserRowItem(
+                                        userItem = userItem,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "এই বিষয়ের জন্য এখনো লিডারবোর্ড ডেটা পাওয়া যায়নি",
+                                        color = Color(0xFF64748B),
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =======================================================
+// TOP BAR & COMMON COMPONENTS
+// =======================================================
+@Composable
+fun ReportCardTopBar(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    onShare: () -> Unit
+) {
+    Surface(
+        color = Color.White,
+        shadowElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFF1F5F9))
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color(0xFF1E293B)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onShare,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEFF6FF))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = "Share",
+                    tint = Color(0xFF2563EB),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun QuarterSwitcherSection(
+    phases: List<PhaseItem>,
+    selectedPhase: PhaseItem?,
+    onSelectPhase: (PhaseItem) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(phases) { phase ->
+            val isSelected = phase.id == selectedPhase?.id
+            val isCompleted = phase.status.equals("COMPLETED", true)
+            val isActive = phase.is_current == true || phase.status.equals("ACTIVE", true)
+
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onSelectPhase(phase) },
+                color = if (isSelected) Color(0xFF1E3A8A) else Color.White,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isSelected) Color(0xFF1E3A8A) else Color(0xFFE2E8F0)
+                ),
+                shadowElevation = if (isSelected) 3.dp else 1.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when {
+                                    isActive -> Color(0xFF10B981)
+                                    isCompleted -> Color(0xFF3B82F6)
+                                    else -> Color(0xFF94A3B8)
+                                }
+                            )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Column {
+                        Text(
+                            text = phase.title ?: "কোয়ার্টার",
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            color = if (isSelected) Color.White else Color(0xFF1E293B)
+                        )
+                        if (phase.course_progress_percentage != null && phase.course_progress_percentage > 0) {
+                            Text(
+                                text = "অগ্রগতি: ${phase.course_progress_percentage.toInt().toBn()}%",
+                                fontSize = 11.sp,
+                                color = if (isSelected) Color(0xFF93C5FD) else Color(0xFF64748B)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ReportTabSwitcher(
+    selectedTab: ReportTab,
+    onTabSelected: (ReportTab) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFFE2E8F0).copy(alpha = 0.7f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp)
+        ) {
+            // Tab 1: রেজাল্টের বিস্তারিত
+            val isTab1 = selectedTab == ReportTab.RESULT_DETAILS
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isTab1) Color.White else Color.Transparent)
+                    .clickable { onTabSelected(ReportTab.RESULT_DETAILS) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = null,
+                        tint = if (isTab1) Color(0xFF1E3A8A) else Color(0xFF64748B),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "রেজাল্টের বিস্তারিত",
+                        fontSize = 13.sp,
+                        fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isTab1) Color(0xFF1E3A8A) else Color(0xFF64748B)
+                    )
+                }
+            }
+
+            // Tab 2: বিষয়ভিত্তিক লিডারবোর্ড
+            val isTab2 = selectedTab == ReportTab.LEADERBOARD
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isTab2) Color.White else Color.Transparent)
+                    .clickable { onTabSelected(ReportTab.LEADERBOARD) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Leaderboard,
+                        contentDescription = null,
+                        tint = if (isTab2) Color(0xFF1E3A8A) else Color(0xFF64748B),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "বিষয়ভিত্তিক লিডারবোর্ড",
+                        fontSize = 13.sp,
+                        fontWeight = if (isTab2) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isTab2) Color(0xFF1E3A8A) else Color(0xFF64748B)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =======================================================
+// TAB 1: RESULT DETAILS VIEW COMPONENTS
+// =======================================================
+@Composable
+fun PerformanceReportBanner(
+    totalScore: Int?,
+    rank: Int?,
+    totalStudents: Int?
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF1E3A8A))
+                    )
+                )
+                .padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Surface(
+                        color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stars,
+                                contentDescription = null,
+                                tint = Color(0xFFFCD34D),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "পারফরম্যান্স রিপোর্ট",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFCD34D)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "সর্বমোট স্কোর",
+                        fontSize = 13.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+
+                    Text(
+                        text = "${(totalScore ?: 0).toBn()}%",
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+
+                    if (rank != null && rank > 0) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.EmojiEvents,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "মেধা র‍্যাঙ্ক: ${rank.toBn()}তম ${if (totalStudents != null) "(${totalStudents.toBn()} জনের মধ্যে)" else ""}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+                    }
+                }
+
+                // Golden Star / Medal Illustration
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(Color(0xFFF59E0B).copy(alpha = 0.35f), Color.Transparent)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFFF59E0B), Color(0xFFD97706))
+                                )
+                            )
+                            .border(2.dp, Color(0xFFFCD34D), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MilitaryTech,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LearningProgressCards(
+    progress: LearningProgressContainer?
+) {
+    val classComp = progress?.class_completion
+    val examProg = progress?.chapter_exam_score
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Card 1: ক্লাস কমপ্লিশন
+        val classAttended = classComp?.attended_classes ?: 0
+        val classTotal = (classComp?.total_classes ?: 1).coerceAtLeast(1)
+        val classPct = classComp?.percentage ?: ((classAttended.toDouble() / classTotal) * 100).toInt()
+
+        ProgressCircularCard(
+            title = "ক্লাস কমপ্লিশন",
+            valueText = "${classAttended.toBn()}/${classTotal.toBn()}",
+            subText = "উপস্থিতি সংখ্যা",
+            percentage = classPct,
+            primaryColor = Color(0xFF3B82F6),
+            secondaryColor = Color(0xFFDBEAFE),
+            icon = Icons.Default.VideoLibrary,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Card 2: চ্যাপ্টার এক্সাম স্কোর
+        val examObtained = examProg?.obtained ?: 0
+        val examTotal = (examProg?.total ?: 100).coerceAtLeast(1)
+        val examPct = examProg?.percentage ?: ((examObtained.toDouble() / examTotal) * 100).toInt()
+
+        ProgressCircularCard(
+            title = "চ্যাপ্টার এক্সাম স্কোর",
+            valueText = "${examObtained.toBn()}/${examTotal.toBn()}",
+            subText = "প্রাপ্ত মোট নম্বর",
+            percentage = examPct,
+            primaryColor = Color(0xFF10B981),
+            secondaryColor = Color(0xFFD1FAE5),
+            icon = Icons.Default.Quiz,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+fun ProgressCircularCard(
+    title: String,
+    valueText: String,
+    subText: String,
+    percentage: Int,
+    primaryColor: Color,
+    secondaryColor: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(secondaryColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = primaryColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1E293B),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Circular Arc Gauge
+            Box(
+                modifier = Modifier.size(80.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeW = 8.dp.toPx()
+                    // Background Track
+                    drawArc(
+                        color = secondaryColor,
+                        startAngle = 135f,
+                        sweepAngle = 270f,
+                        useCenter = false,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                    // Progress Arc
+                    val sweep = 270f * (percentage.coerceIn(0, 100) / 100f)
+                    drawArc(
+                        color = primaryColor,
+                        startAngle = 135f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                }
+
+                Text(
+                    text = "${percentage.toBn()}%",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF0F172A)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = valueText,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0F172A)
+            )
+
+            Text(
+                text = subText,
+                fontSize = 11.sp,
+                color = Color(0xFF64748B)
+            )
+        }
+    }
+}
+
+@Composable
+fun LearningActivitySummarySection(
+    summary: LearningActivitySummary?
+) {
+    val quizCount = summary?.practice_quiz_attempted ?: 0
+    val resourceCount = summary?.learning_resource_viewed ?: 0
+    val animatedCount = summary?.animated_lessons_watched ?: 0
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "লার্নিং এক্টিভিটির হিসাব",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF1E293B)
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ActivityChip(
+                count = quizCount,
+                label = "প্র্যাকটিস কুইজ দিয়েছো",
+                icon = Icons.Default.EditNote,
+                iconBg = Color(0xFFFEF3C7),
+                iconColor = Color(0xFFD97706),
+                modifier = Modifier.weight(1f)
+            )
+
+            ActivityChip(
+                count = resourceCount,
+                label = "লার্নিং রিসোর্স দেখেছো",
+                icon = Icons.Default.MenuBook,
+                iconBg = Color(0xFFEDE9FE),
+                iconColor = Color(0xFF7C3AED),
+                modifier = Modifier.weight(1f)
+            )
+
+            if (animatedCount > 0) {
+                ActivityChip(
+                    count = animatedCount,
+                    label = "অ্যানিমেটেড লেসন দেখেছো",
+                    icon = Icons.Default.PlayCircle,
+                    iconBg = Color(0xFFFCE7F3),
+                    iconColor = Color(0xFFDB2777),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ActivityChip(
+    count: Int,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconBg: Color,
+    iconColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        shadowElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(iconBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "${count.toBn()}টি",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color(0xFF0F172A)
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                color = Color(0xFF64748B),
+                lineHeight = 14.sp
+            )
+        }
+    }
+}
+
+// =======================================================
+// PERFORMANCE TREND LINE CHART
+// =======================================================
+@Composable
+fun PerformanceTrendCard(
+    trendData: PerformanceTrendResponse?,
+    activeMetric: String,
+    onMetricChange: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "পারফরম্যান্স ট্রেন্ড",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                    val avg = trendData?.summary?.current_average ?: 0
+                    Text(
+                        text = "বর্তমান গড়: ${avg.toBn()}%",
+                        fontSize = 12.sp,
+                        color = Color(0xFF3B82F6),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Metric Switcher Segmented Button
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF1F5F9)
+                ) {
+                    Row(modifier = Modifier.padding(2.dp)) {
+                        val isClass = activeMetric == "class_completion"
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isClass) Color(0xFF1E3A8A) else Color.Transparent)
+                                .clickable { onMetricChange("class_completion") }
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "ক্লাস",
+                                fontSize = 11.sp,
+                                fontWeight = if (isClass) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isClass) Color.White else Color(0xFF64748B)
+                            )
+                        }
+
+                        val isExam = activeMetric == "chapter_exam_score"
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isExam) Color(0xFF1E3A8A) else Color.Transparent)
+                                .clickable { onMetricChange("chapter_exam_score") }
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "এক্সাম",
+                                fontSize = 11.sp,
+                                fontWeight = if (isExam) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isExam) Color.White else Color(0xFF64748B)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Canvas Chart
+            val dataPoints = trendData?.current_phase?.data_points ?: listOf(10f, 20f, 35f, 50f, 65f, 75f, 85f)
+            val labels = trendData?.x_labels ?: listOf("W1", "W2", "W3", "W4", "W5", "W6", "W7")
+
+            var selectedIndex by remember { mutableStateOf<Int?>(null) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+                    .pointerInput(dataPoints) {
+                        // Detect tap on point
+                    }
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 20.dp, top = 10.dp, start = 8.dp, end = 8.dp)
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val n = dataPoints.size
+                    if (n < 2) return@Canvas
+
+                    // Draw subtle grid lines (0%, 50%, 100%)
+                    val gridY = listOf(0f, 0.5f, 1f)
+                    for (ratio in gridY) {
+                        val y = h * (1f - ratio)
+                        drawLine(
+                            color = Color(0xFFE2E8F0),
+                            start = Offset(0f, y),
+                            end = Offset(w, y),
+                            strokeWidth = 1f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+                        )
+                    }
+
+                    // Build Cubic Bézier Path
+                    val path = Path()
+                    val fillPath = Path()
+                    val stepX = w / (n - 1)
+
+                    val coords = dataPoints.mapIndexed { idx, value ->
+                        val clampedVal = value.coerceIn(0f, 100f)
+                        val x = idx * stepX
+                        val y = h * (1f - (clampedVal / 100f))
+                        Offset(x, y)
+                    }
+
+                    path.moveTo(coords[0].x, coords[0].y)
+                    fillPath.moveTo(coords[0].x, h)
+                    fillPath.lineTo(coords[0].x, coords[0].y)
+
+                    for (i in 0 until coords.size - 1) {
+                        val p0 = coords[i]
+                        val p1 = coords[i + 1]
+                        val cx1 = p0.x + (p1.x - p0.x) / 2
+                        val cy1 = p0.y
+                        val cx2 = p0.x + (p1.x - p0.x) / 2
+                        val cy2 = p1.y
+                        path.cubicTo(cx1, cy1, cx2, cy2, p1.x, p1.y)
+                        fillPath.cubicTo(cx1, cy1, cx2, cy2, p1.x, p1.y)
+                    }
+
+                    fillPath.lineTo(coords.last().x, h)
+                    fillPath.close()
+
+                    // Draw Gradient Fill
+                    drawPath(
+                        path = fillPath,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color(0xFF38BDF8).copy(alpha = 0.35f), Color(0xFF38BDF8).copy(alpha = 0.02f)),
+                            startY = 0f,
+                            endY = h
+                        )
+                    )
+
+                    // Draw Line Stroke
+                    drawPath(
+                        path = path,
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(Color(0xFF0284C7), Color(0xFF2563EB))
+                        ),
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+
+                    // Draw Points
+                    coords.forEachIndexed { idx, point ->
+                        val isSelected = selectedIndex == idx
+                        val radius = if (isSelected) 6.dp.toPx() else 4.dp.toPx()
+                        drawCircle(
+                            color = Color.White,
+                            radius = radius + 2.dp.toPx(),
+                            center = point
+                        )
+                        drawCircle(
+                            color = if (isSelected) Color(0xFFF59E0B) else Color(0xFF2563EB),
+                            radius = radius,
+                            center = point
+                        )
+                    }
+                }
+
+                // X-Axis Labels Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val displayLabels = if (labels.size > 8) {
+                        labels.filterIndexed { index, _ -> index % 2 == 0 || index == labels.size - 1 }
+                    } else labels
+
+                    displayLabels.forEach { label ->
+                        Text(
+                            text = label,
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =======================================================
+// SUBJECT-WISE PERFORMANCE ACCORDION SECTION
+// =======================================================
+@Composable
+fun SubjectWisePerformanceSection(
+    container: SubjectWisePerformanceContainer?
+) {
+    val groups = container?.groups ?: emptyList()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = "আমার বিষয়ভিত্তিক পারফরম্যান্স",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF1E293B)
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (groups.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "কোনো বিষয়ভিত্তিক তথ্য পাওয়া যায়নি",
+                    color = Color(0xFF64748B),
+                    fontSize = 13.sp
+                )
+            }
+        } else {
+            groups.forEach { group ->
+                PerformanceGroupBlock(group = group)
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun PerformanceGroupBlock(
+    group: PerformanceGroupItem
+) {
+    val level = group.performance_level?.lowercase() ?: "moderate"
+    val (badgeBg, badgeTextColor, headerBorder) = when {
+        level.contains("need") || level.contains("improvement") -> Triple(Color(0xFFFEE2E2), Color(0xFFDC2626), Color(0xFFFECACA))
+        level.contains("good") || level.contains("excellent") -> Triple(Color(0xFFD1FAE5), Color(0xFF059669), Color(0xFFA7F3D0))
+        else -> Triple(Color(0xFFFEF3C7), Color(0xFFD97706), Color(0xFFFDE68A))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, headerBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            // Group Header Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = badgeBg
+                ) {
+                    Text(
+                        text = group.label ?: "পারফরম্যান্স",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = badgeTextColor,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+
+                val count = group.subjects?.size ?: 0
+                Text(
+                    text = "${count.toBn()}টি বিষয়",
+                    fontSize = 11.sp,
+                    color = Color(0xFF64748B),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            group.subjects?.forEachIndexed { index, item ->
+                SubjectPerformanceItemRow(item = item)
+                if (index < (group.subjects.size - 1)) {
+                    HorizontalDivider(
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.padding(vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SubjectPerformanceItemRow(
+    item: SubjectPerformanceItem
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    val studentScore = item.student_avg_score ?: 0
+    val topperScore = item.topper_score ?: 90
+    val isTopper = item.is_topper == true
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Subject Icon / Color Indicator
+            val subjColor = SubjectColorUtils.getColorScheme(item.title).textColor
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(subjColor.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!item.icon.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
+                } else {
+                    Text(
+                        text = item.title?.take(1) ?: "ব",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = subjColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.title ?: "বিষয়",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                    if (isTopper) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            color = Color(0xFFFEF3C7),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "টপার 👑",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB45309),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Score comparison bars
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "তোমার: ${studentScore.toBn()}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (studentScore >= 70) Color(0xFF059669) else Color(0xFFDC2626)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "টপার: ${topperScore.toBn()}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+
+            // Expand / Collapse Icon
+            IconButton(
+                onClick = { isExpanded = !isExpanded },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = Color(0xFF64748B)
+                )
+            }
+        }
+
+        // Animated Expanded Details
+        AnimatedVisibility(visible = isExpanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, start = 48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFFF8FAFC))
+                    .padding(12.dp)
+            ) {
+                // Live class completed
+                val completedLive = item.completed_live_class ?: 0
+                val totalLive = item.total_live_class ?: 0
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "লাইভ ক্লাস সম্পন্ন", fontSize = 12.sp, color = Color(0xFF64748B))
+                    Text(
+                        text = "${completedLive.toBn()}/${totalLive.toBn()}টি",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Exam score breakdown
+                val obtainedExam = item.total_obtained_score ?: 0
+                val totalExam = item.total_exam_score ?: 100
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "চ্যাপ্টার এক্সাম নম্বর", fontSize = 12.sp, color = Color(0xFF64748B))
+                    Text(
+                        text = "${obtainedExam.toBn()}/${totalExam.toBn()}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =======================================================
+// TAB 2: SUBJECT-WISE LEADERBOARD COMPONENTS
+// =======================================================
+@Composable
+fun SubjectPickerChips(
+    subjects: List<AcademicSubjectItem>,
+    selectedSubject: AcademicSubjectItem?,
+    onSelectSubject: (AcademicSubjectItem) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(subjects) { subject ->
+            val isSelected = subject.code == selectedSubject?.code
+            val chipColor = SubjectColorUtils.getColorScheme(subject.display_bn ?: subject.code).textColor
+
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onSelectSubject(subject) },
+                shape = RoundedCornerShape(20.dp),
+                color = if (isSelected) chipColor else Color.White,
+                border = BorderStroke(
+                    1.dp,
+                    if (isSelected) chipColor else Color(0xFFCBD5E1)
+                ),
+                shadowElevation = if (isSelected) 2.dp else 0.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (subject.code == "ALL") {
+                        Icon(
+                            imageVector = Icons.Default.AllInclusive,
+                            contentDescription = null,
+                            tint = if (isSelected) Color.White else Color(0xFF64748B),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = subject.display_bn ?: subject.code ?: "বিষয়",
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color.White else Color(0xFF334155)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LeaderboardPodiumView(
+    topUsers: List<LeaderboardUserItem>
+) {
+    if (topUsers.isEmpty()) return
+
+    val first = topUsers.getOrNull(0)
+    val second = topUsers.getOrNull(1)
+    val third = topUsers.getOrNull(2)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "🏆 শীর্ষ ৩ মেধাবী শিক্ষার্থী",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1E293B)
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // 2nd Place (Silver)
+                if (second != null) {
+                    PodiumColumn(
+                        userItem = second,
+                        rank = 2,
+                        pedestalHeight = 90.dp,
+                        podiumColor = Color(0xFF94A3B8),
+                        badgeText = "২য়",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // 1st Place (Gold)
+                if (first != null) {
+                    PodiumColumn(
+                        userItem = first,
+                        rank = 1,
+                        pedestalHeight = 120.dp,
+                        podiumColor = Color(0xFFF59E0B),
+                        badgeText = "১ম",
+                        isWinner = true,
+                        modifier = Modifier.weight(1.15f)
+                    )
+                }
+
+                // 3rd Place (Bronze)
+                if (third != null) {
+                    PodiumColumn(
+                        userItem = third,
+                        rank = 3,
+                        pedestalHeight = 75.dp,
+                        podiumColor = Color(0xFFD97706),
+                        badgeText = "৩য়",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PodiumColumn(
+    userItem: LeaderboardUserItem,
+    rank: Int,
+    pedestalHeight: androidx.compose.ui.unit.Dp,
+    podiumColor: Color,
+    badgeText: String,
+    isWinner: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val user = userItem.user
+    val score = userItem.score ?: 0
+    val avatarUrl = user?.avatar
+    val name = user?.name ?: "শিক্ষার্থী"
+    val school = user?.school ?: ""
+
+    Column(
+        modifier = modifier.padding(horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Crown for Winner
+        if (isWinner) {
+            Icon(
+                imageVector = Icons.Default.EmojiEvents,
+                contentDescription = "Winner Crown",
+                tint = Color(0xFFF59E0B),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+        }
+
+        // Avatar with border
+        Box(
+            modifier = Modifier
+                .size(if (isWinner) 56.dp else 46.dp)
+                .clip(CircleShape)
+                .border(2.dp, podiumColor, CircleShape)
+                .background(Color(0xFFF1F5F9)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = avatarUrl,
+                    contentDescription = name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text(
+                    text = name.take(1),
+                    fontSize = if (isWinner) 20.sp else 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = podiumColor
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Student Name
+        Text(
+            text = name,
+            fontSize = if (isWinner) 13.sp else 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF0F172A),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+
+        // School Name
+        if (school.isNotBlank()) {
+            Text(
+                text = school,
+                fontSize = 9.sp,
+                color = Color(0xFF64748B),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Score Badge
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = podiumColor.copy(alpha = 0.15f)
+        ) {
+            Text(
+                text = "${score.toBn()}%",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = podiumColor,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Pedestal Box
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(pedestalHeight)
+                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(podiumColor, podiumColor.copy(alpha = 0.7f))
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = badgeText,
+                fontSize = if (isWinner) 22.sp else 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White
+            )
+        }
+    }
+}
+
+@Composable
+fun LeaderboardUserRowItem(
+    userItem: LeaderboardUserItem,
+    modifier: Modifier = Modifier
+) {
+    val rank = userItem.rank ?: 0
+    val score = userItem.score ?: 0
+    val user = userItem.user
+    val name = user?.name ?: "শিক্ষার্থী"
+    val avatar = user?.avatar
+    val school = user?.school ?: ""
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, Color(0xFFF1F5F9)),
+        shadowElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Rank Number Badge
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFF1F5F9)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "${rank.toBn()}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF475569)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Avatar
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFE2E8F0)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!avatar.isNullOrBlank()) {
+                    AsyncImage(
+                        model = avatar,
+                        contentDescription = name,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = name.take(1),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Name & School
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (school.isNotBlank()) {
+                    Text(
+                        text = school,
+                        fontSize = 11.sp,
+                        color = Color(0xFF64748B),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Score Pill
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFEFF6FF)
+            ) {
+                Text(
+                    text = "${score.toBn()}%",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF2563EB),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StickyMyRankBar(
+    userRank: Int?,
+    userScore: Int?,
+    userName: String,
+    userAvatar: String?,
+    onShare: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF0F172A),
+        shadowElevation = 12.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // User Avatar
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .border(1.5.dp, Color(0xFF38BDF8), CircleShape)
+                    .background(Color(0xFF1E293B)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!userAvatar.isNullOrBlank()) {
+                    AsyncImage(
+                        model = userAvatar,
+                        contentDescription = userName,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = userName.take(1).ifBlank { "তু" },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "তোমার র‍্যাঙ্ক: ${(userRank ?: 0).toBn()}তম",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                Text(
+                    text = "প্রাপ্ত মোট নম্বর: ${(userScore ?: 0).toBn()}%",
+                    fontSize = 12.sp,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+
+            // Share Button
+            Button(
+                onClick = onShare,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2563EB)
+                ),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "শেয়ার",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}

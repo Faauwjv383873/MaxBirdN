@@ -251,7 +251,8 @@ class AuthViewModel(
                         lastName = lastName,
                         avatar = profile.avatar,
                         schoolName = profile.school?.name,
-                        classDisplay = profile.`class`?.display ?: profile.`class`?.code
+                        classDisplay = profile.`class`?.display ?: profile.`class`?.code,
+                        phone = profile.user?.phone
                     )
                     sessionManager.saveUserAcademicInfo(
                         batchId = profile.passing_year ?: sessionManager.getUserBatchId(),

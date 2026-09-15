@@ -49,10 +49,14 @@ import com.example.quiz.PracticeQuizViewModel
 import com.example.quiz.PracticeQuizViewModelFactory
 import com.example.database.AppDatabase
 import com.example.database.SavedItemRepository
+import com.example.reportcard.ReportCardViewModel
+import com.example.reportcard.ReportCardViewModelFactory
 import com.example.saved.SavedViewModel
 import com.example.saved.SavedViewModelFactory
 import com.example.smartnotes.SmartNotesViewModel
 import com.example.smartnotes.SmartNotesViewModelFactory
+import com.example.ai.AiViewModel
+import com.example.ai.AiViewModelFactory
 import com.example.ui.screens.*
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -69,6 +73,10 @@ object Routes {
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SAVED_ITEMS = "saved_items"
     const val DOWNLOADS = "downloads"
+    const val AI_CHAT = "ai_chat"
+    const val AI_PROFILE = "ai_profile"
+    const val AI_WEB = "ai_web"
+    const val REPORT_CARD = "report_card?programId={programId}&programTitle={programTitle}&phaseId={phaseId}"
     const val SMART_NOTES = "smart_notes/{subjectCode}?title={title}&color={color}&phaseId={phaseId}"
     const val CHAPTER_RESOURCES = "chapter_resources/{chapterId}?name={name}&subjectCode={subjectCode}&phaseId={phaseId}"
     const val SUBJECT_CHAPTERS = "subject_chapters/{subjectCode}?title={title}&color={color}"
@@ -360,6 +368,15 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 },
                 onNavigateToDownloads = {
                     navController.navigate(Routes.DOWNLOADS)
+                },
+                onNavigateToReportCard = { programId, programTitle, phaseId ->
+                    val encTitle = if (!programTitle.isNullOrBlank()) URLEncoder.encode(programTitle, "UTF-8") else ""
+                    val pId = programId ?: ""
+                    val phId = phaseId ?: ""
+                    navController.navigate("report_card?programId=$pId&programTitle=$encTitle&phaseId=$phId")
+                },
+                onNavigateToAi = {
+                    navController.navigate(Routes.AI_CHAT)
                 },
                 onOpenLessonDetail = { lesson ->
                     courseViewModel.selectLesson(lesson)
@@ -920,6 +937,112 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 phaseId = phaseId,
                 viewModel = smartNotesViewModel,
                 onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.REPORT_CARD,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("programId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+                navArgument("programTitle") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                },
+                navArgument("phaseId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = ""
+                }
+            )
+        ) { backStackEntry ->
+            val programId = backStackEntry.arguments?.getString("programId")?.ifBlank { null }
+            val rawTitle = backStackEntry.arguments?.getString("programTitle") ?: ""
+            val programTitle = try {
+                URLDecoder.decode(rawTitle, "UTF-8").ifBlank { null }
+            } catch (_: Exception) {
+                rawTitle.ifBlank { null }
+            }
+            val phaseId = backStackEntry.arguments?.getString("phaseId")?.ifBlank { null }
+
+            val reportCardViewModel: ReportCardViewModel = viewModel(
+                factory = ReportCardViewModelFactory(apiService, sessionManager)
+            )
+
+            androidx.compose.runtime.LaunchedEffect(programId, phaseId) {
+                reportCardViewModel.initialize(
+                    programId = programId,
+                    programTitle = programTitle,
+                    initialPhaseId = phaseId
+                )
+            }
+
+            ReportCardScreen(
+                viewModel = reportCardViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // ============================================================
+        //  MaxBird AI ডাউট সলভিং ও চ্যাটবট (AI Learning Assistant)
+        // ============================================================
+        animatedComposable(
+            route = Routes.AI_CHAT,
+            anim = NavAnim.forward
+        ) {
+            val aiViewModel: AiViewModel = viewModel(
+                factory = AiViewModelFactory(apiService, sessionManager)
+            )
+
+            AiDoubtSolvingScreen(
+                viewModel = aiViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToProfile = {
+                    navController.navigate(Routes.AI_PROFILE)
+                },
+                onNavigateToWeb = {
+                    navController.navigate(Routes.AI_WEB)
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.AI_PROFILE,
+            anim = NavAnim.forward
+        ) {
+            val aiViewModel: AiViewModel = viewModel(
+                factory = AiViewModelFactory(apiService, sessionManager)
+            )
+
+            AiProfileScreen(
+                viewModel = aiViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.AI_WEB,
+            anim = NavAnim.forward
+        ) {
+            AiDoubtSolvingWebScreen(
+                sessionManager = sessionManager,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onSwitchToNative = {
                     navController.popBackStack()
                 }
             )

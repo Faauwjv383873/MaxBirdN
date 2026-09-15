@@ -166,6 +166,29 @@ interface ShikhoApiService {
         @Path("phaseId") phaseId: String
     ): QuarterlyResultResponse
 
+    @GET("https://analytics.shikho.com/api/v1/results/quarterly/quarter/{programId}/{phaseId}")
+    suspend fun getQuarterlyReport(
+        @Path("programId") programId: String,
+        @Path("phaseId") phaseId: String
+    ): QuarterlyReportResponse
+
+    @GET("https://analytics.shikho.com/api/v1/results/quarterly/performance/trend/{phaseId}")
+    suspend fun getPerformanceTrend(
+        @Path("phaseId") phaseId: String,
+        @Query("metric") metric: String = "class_completion",
+        @Query("compare_phase_id") comparePhaseId: String = "no_compare"
+    ): PerformanceTrendResponse
+
+    @POST("https://analytics.shikho.com/api/v1/results/rankings")
+    suspend fun getLeaderboardRankings(
+        @Body request: LeaderboardRankingRequest
+    ): LeaderboardRankingResponse
+
+    @POST("https://gen-ai-api.shikho.com/subscription/list?page=1&limit=100")
+    suspend fun getAiSubscriptionList(
+        @Body request: AiSubscriptionRequest = AiSubscriptionRequest(is_history = true)
+    ): AiSubscriptionResponse
+
     companion object {
         private const val BASE_URL = "https://api.shikho.com"
 

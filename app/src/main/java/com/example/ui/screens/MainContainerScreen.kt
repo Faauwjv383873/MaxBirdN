@@ -44,6 +44,8 @@ fun MainContainerScreen(
     onNavigateToFullRoutine: () -> Unit = {},
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
+    onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
+    onNavigateToAi: () -> Unit = {},
     onOpenLessonDetail: (com.example.api.StudentLessonItem) -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
@@ -134,7 +136,9 @@ fun MainContainerScreen(
                             selectedIndex = 1
                         },
                         onOpenFullRoutine = onNavigateToFullRoutine,
-                        onOpenLessonDetail = onOpenLessonDetail
+                        onOpenLessonDetail = onOpenLessonDetail,
+                        onNavigateToReportCard = onNavigateToReportCard,
+                        onNavigateToAi = onNavigateToAi
                     )
                 }
                 1 -> {
@@ -152,6 +156,8 @@ fun MainContainerScreen(
                         onNavigateToCourseEnrollment = onNavigateToCourseEnrollment,
                         onNavigateToSavedItems = onNavigateToSavedItems,
                         onNavigateToDownloads = onNavigateToDownloads,
+                        onNavigateToReportCard = { onNavigateToReportCard(null, null, null) },
+                        onNavigateToAi = onNavigateToAi,
                         onLogout = onLogout
                     )
                 }

@@ -110,16 +110,28 @@ class SessionManager(context: Context) {
         lastName: String?,
         avatar: String?,
         schoolName: String? = null,
-        classDisplay: String? = null
+        classDisplay: String? = null,
+        phone: String? = null
     ) {
-        sharedPreferences.edit()
+        val editor = sharedPreferences.edit()
             .putString("user_first_name", firstName)
             .putString("user_last_name", lastName)
             .putString("user_avatar", avatar)
             .putString("user_school_name", schoolName)
             .putString("user_class_display", classDisplay)
-            .apply()
+        if (!phone.isNullOrBlank()) {
+            editor.putString("user_phone", phone)
+        }
+        editor.apply()
     }
+
+    fun saveUserPhone(phone: String?) {
+        if (!phone.isNullOrBlank()) {
+            sharedPreferences.edit().putString("user_phone", phone).apply()
+        }
+    }
+
+    fun getUserPhone(): String? = sharedPreferences.getString("user_phone", null)
 
     fun getUserFirstName(): String? = sharedPreferences.getString("user_first_name", null)
     fun getUserSchoolName(): String? = sharedPreferences.getString("user_school_name", null)
@@ -137,6 +149,23 @@ class SessionManager(context: Context) {
     }
 
     fun getUserAvatar(): String? = sharedPreferences.getString("user_avatar", null)
+
+    fun getAiProductionUserJson(): String {
+        val firstName = getUserFirstName() ?: "Student"
+        val className = getUserClassName() ?: "C11"
+        val group = getUserGroup() ?: "Humanities"
+        val phone = getUserPhone() ?: "8801700000000"
+        val avatar = getUserAvatar() ?: ""
+        
+        return org.json.JSONObject().apply {
+            put("first_name", firstName)
+            put("class", className)
+            put("study_group", group)
+            put("phone", phone)
+            put("avatar", avatar)
+            put("has_access_to_ai", true)
+        }.toString()
+    }
 
     fun saveSelectedSubjectCodes(programId: String, subjectCodes: Set<String>) {
         sharedPreferences.edit()
