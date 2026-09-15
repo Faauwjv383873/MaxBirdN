@@ -18,7 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -237,17 +239,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
     )
 
     val authState by authViewModel.authState.collectAsState()
+    var showSessionExpiredDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         sessionManager.unauthorizedEvent.collect {
-            android.widget.Toast.makeText(
-                context,
-                "সেশন মেয়াদোত্তীর্ণ হয়ে গেছে। অন্য কোনো ডিভাইসে লগইন করা হয়েছে। অনুগ্রহ করে আবার লগইন করুন।",
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-            authViewModel.logout()
-            navController.navigate(Routes.LOGIN) {
-                popUpTo(0) { inclusive = true }
+            val currentRoute = navController.currentBackStackEntry?.destination?.route
+            if (currentRoute == null || !currentRoute.startsWith(Routes.LOGIN)) {
+                showSessionExpiredDialog = true
             }
         }
     }
@@ -1068,5 +1066,19 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 }
             )
         }
+    }
+
+    if (showSessionExpiredDialog) {
+        com.example.ui.dialogs.SessionExpiredDialog(
+            onReLogin = {
+                showSessionExpiredDialog = false
+                sessionManager.clearSession()
+                sessionManager.resetUnauthorizedNotified()
+                authViewModel.logout()
+                navController.navigate(Routes.LOGIN) {
+                    popUpTo(0) { inclusive = true }
+                }
+            }
+        )
     }
 }

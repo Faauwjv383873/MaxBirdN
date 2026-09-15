@@ -40,7 +40,11 @@ class SessionManager(context: Context) {
         return adsId
     }
 
+    @Volatile
+    private var isUnauthorizedNotified = false
+
     fun saveTokens(accessToken: String, refreshToken: String?, userId: String) {
+        isUnauthorizedNotified = false
         sharedPreferences.edit()
             .putString("access_token", accessToken)
             .putString("refresh_token", refreshToken)
@@ -235,8 +239,16 @@ class SessionManager(context: Context) {
     val unauthorizedEvent: SharedFlow<Unit> = _unauthorizedEvent.asSharedFlow()
 
     fun notifyUnauthorized() {
+        if (isUnauthorizedNotified) return
+        val activeToken = getAccessToken()
+        if (activeToken.isNullOrBlank()) return
+        isUnauthorizedNotified = true
         clearSession()
         _unauthorizedEvent.tryEmit(Unit)
+    }
+
+    fun resetUnauthorizedNotified() {
+        isUnauthorizedNotified = false
     }
 
     fun clearSession() {
