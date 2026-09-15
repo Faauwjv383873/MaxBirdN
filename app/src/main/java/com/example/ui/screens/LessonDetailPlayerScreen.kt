@@ -631,8 +631,9 @@ fun LessonDetailPlayerScreen(
                         } catch (_: Exception) {}
                     },
                     onStreamDiscovered = { discoveredUrl ->
-                        if (discoveredUrl.isNotBlank() && activeStreamUrl != discoveredUrl) {
+                        if (discoveredUrl.isNotBlank()) {
                             activeStreamUrl = discoveredUrl
+                            livePlayerMode = "STREAM"
                         }
                     },
                     modifier = Modifier.fillMaxSize()
@@ -728,8 +729,9 @@ fun LessonDetailPlayerScreen(
                     } catch (_: Exception) {}
                 },
                 onStreamDiscovered = { discoveredUrl ->
-                    if (discoveredUrl.isNotBlank() && activeStreamUrl != discoveredUrl) {
+                    if (discoveredUrl.isNotBlank()) {
                         activeStreamUrl = discoveredUrl
+                        livePlayerMode = "STREAM"
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -770,8 +772,9 @@ fun LessonDetailPlayerScreen(
                                 } catch (_: Exception) {}
                             },
                             onStreamDiscovered = { discoveredUrl ->
-                                if (discoveredUrl.isNotBlank() && activeStreamUrl != discoveredUrl) {
+                                if (discoveredUrl.isNotBlank()) {
                                     activeStreamUrl = discoveredUrl
+                                    livePlayerMode = "STREAM"
                                 }
                             },
                             modifier = Modifier.fillMaxSize()

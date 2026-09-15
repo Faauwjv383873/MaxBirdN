@@ -79,7 +79,9 @@ fun LiveMeetingWebView(
                             val reqUrl = request?.url?.toString()
                             if (reqUrl != null && (reqUrl.contains("master.m3u8") || reqUrl.contains(".m3u8"))) {
                                 android.util.Log.d("LiveMeetingWebView", ">>> Dynamically discovered live m3u8 stream: $reqUrl")
-                                onStreamDiscovered?.invoke(reqUrl)
+                                view?.post {
+                                    onStreamDiscovered?.invoke(reqUrl)
+                                }
                             }
                             return super.shouldInterceptRequest(view, request)
                         }
