@@ -158,23 +158,6 @@ class SessionManager(context: Context) {
 
     fun getUserAvatar(): String? = sharedPreferences.getString("user_avatar", null)
 
-    fun getAiProductionUserJson(): String {
-        val firstName = getUserFirstName() ?: "Student"
-        val className = getUserClassName() ?: "C11"
-        val group = getUserGroup() ?: "Humanities"
-        val phone = getUserPhone() ?: "8801700000000"
-        val avatar = getUserAvatar() ?: ""
-        
-        return org.json.JSONObject().apply {
-            put("first_name", firstName)
-            put("class", className)
-            put("study_group", group)
-            put("phone", phone)
-            put("avatar", avatar)
-            put("has_access_to_ai", true)
-        }.toString()
-    }
-
     fun saveSelectedSubjectCodes(programId: String, subjectCodes: Set<String>) {
         sharedPreferences.edit()
             .putStringSet("priority_subjects_$programId", subjectCodes)

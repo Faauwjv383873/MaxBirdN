@@ -61,7 +61,6 @@ fun SettingsScreen(
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToReportCard: () -> Unit = {},
-    onNavigateToAi: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -295,19 +294,6 @@ fun SettingsScreen(
                     subtitle = "কোয়ার্টার পারফরম্যান্স ট্রেন্ড ও বিষয়ভিত্তিক মেধা তালিকা",
                     badge = "নতুন",
                     onClick = onNavigateToReportCard
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                // 8. MaxBird AI ডাউট সলভার ও চ্যাটবট (AI Learning Assistant)
-                SettingsRowItem(
-                    icon = Icons.Default.AutoAwesome,
-                    iconTint = Color(0xFF7C3AED),
-                    iconBg = Color(0xFFF3E8FF),
-                    title = "MaxBird AI ডাউট সলভার",
-                    subtitle = "ছবি তুলে বা লিখে যেকোনো প্রশ্নের তাৎক্ষণিক সমাধান",
-                    badge = "AI PRO",
-                    onClick = onNavigateToAi
                 )
             }
 

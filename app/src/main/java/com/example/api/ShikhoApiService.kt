@@ -189,53 +189,6 @@ interface ShikhoApiService {
         @Body request: LeaderboardRankingRequest
     ): LeaderboardRankingResponse
 
-    @POST("https://gen-ai-api.shikho.com/subscription/list?page=1&limit=100")
-    suspend fun getAiSubscriptionList(
-        @Body request: AiSubscriptionRequest = AiSubscriptionRequest(is_history = true)
-    ): AiSubscriptionResponse
-
-    @GET("https://gen-ai-api.shikho.com/subject/list")
-    suspend fun getAiSubjectList(): ShikhoSubjectListResponse
-
-    @GET("https://gen-ai-api.shikho.com/subject/list")
-    suspend fun getAiSubjectListRaw(): Response<ResponseBody>
-
-    @POST("https://gen-ai-api.shikho.com/prompt-image/signed-url")
-    suspend fun getAiSignedUrl(
-        @Body request: SignedUrlRequest = SignedUrlRequest()
-    ): SignedUrlResponse
-
-    @POST("https://gen-ai-api.shikho.com/prompt-image/signed-url")
-    suspend fun getAiSignedUrlRaw(
-        @Body request: SignedUrlRequest = SignedUrlRequest()
-    ): Response<ResponseBody>
-
-    @PUT
-    suspend fun uploadImageBinary(
-        @Url url: String,
-        @Body body: RequestBody
-    ): Response<ResponseBody>
-
-    @POST("https://gen-ai-api.shikho.com/session/create")
-    suspend fun createAiSession(
-        @Body request: CreateSessionRequest
-    ): CreateSessionResponse
-
-    @POST("https://gen-ai-api.shikho.com/session/create")
-    suspend fun createAiSessionRaw(
-        @Body request: CreateSessionRequest
-    ): Response<ResponseBody>
-
-    @POST("https://gen-ai-api.shikho.com/conversation/continue")
-    suspend fun continueAiConversation(
-        @Body request: ConversationContinueRequest
-    ): ConversationContinueResponse
-
-    @POST("https://gen-ai-api.shikho.com/conversation/continue")
-    suspend fun continueAiConversationRaw(
-        @Body request: ConversationContinueRequest
-    ): Response<ResponseBody>
-
     companion object {
         private const val BASE_URL = "https://api.shikho.com"
 
@@ -262,9 +215,6 @@ interface ShikhoApiService {
 
             val enrolmentMockInterceptor = Interceptor { chain ->
                 val origRequest = chain.request()
-                if (origRequest.url.host.contains("gen-ai-api.shikho.com")) {
-                    return@Interceptor chain.proceed(origRequest)
-                }
                 val response = chain.proceed(origRequest)
                 try {
                     val body = response.body

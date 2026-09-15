@@ -58,8 +58,6 @@ import com.example.saved.SavedViewModel
 import com.example.saved.SavedViewModelFactory
 import com.example.smartnotes.SmartNotesViewModel
 import com.example.smartnotes.SmartNotesViewModelFactory
-import com.example.ai.AiViewModel
-import com.example.ai.AiViewModelFactory
 import com.example.ui.screens.*
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -76,9 +74,6 @@ object Routes {
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SAVED_ITEMS = "saved_items"
     const val DOWNLOADS = "downloads"
-    const val AI_CHAT = "ai_chat"
-    const val AI_PROFILE = "ai_profile"
-    const val AI_WEB = "ai_web"
     const val REPORT_CARD = "report_card?programId={programId}&programTitle={programTitle}&phaseId={phaseId}"
     const val SMART_NOTES = "smart_notes/{subjectCode}?title={title}&color={color}&phaseId={phaseId}"
     const val CHAPTER_RESOURCES = "chapter_resources/{chapterId}?name={name}&subjectCode={subjectCode}&phaseId={phaseId}"
@@ -388,9 +383,6 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val pId = programId ?: ""
                     val phId = phaseId ?: ""
                     navController.navigate("report_card?programId=$pId&programTitle=$encTitle&phaseId=$phId")
-                },
-                onNavigateToAi = {
-                    navController.navigate(Routes.AI_CHAT)
                 },
                 onOpenLessonDetail = { lesson ->
                     courseViewModel.selectLesson(lesson)
@@ -1006,62 +998,6 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             ReportCardScreen(
                 viewModel = reportCardViewModel,
                 onBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        // ============================================================
-        //  MaxBird AI ডাউট সলভিং ও চ্যাটবট (AI Learning Assistant)
-        // ============================================================
-        animatedComposable(
-            route = Routes.AI_CHAT,
-            anim = NavAnim.forward
-        ) {
-            val aiViewModel: AiViewModel = viewModel(
-                factory = AiViewModelFactory(apiService, sessionManager)
-            )
-
-            AiDoubtSolvingScreen(
-                viewModel = aiViewModel,
-                onBack = {
-                    navController.popBackStack()
-                },
-                onNavigateToProfile = {
-                    navController.navigate(Routes.AI_PROFILE)
-                },
-                onNavigateToWeb = {
-                    navController.navigate(Routes.AI_WEB)
-                }
-            )
-        }
-
-        animatedComposable(
-            route = Routes.AI_PROFILE,
-            anim = NavAnim.forward
-        ) {
-            val aiViewModel: AiViewModel = viewModel(
-                factory = AiViewModelFactory(apiService, sessionManager)
-            )
-
-            AiProfileScreen(
-                viewModel = aiViewModel,
-                onBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
-
-        animatedComposable(
-            route = Routes.AI_WEB,
-            anim = NavAnim.forward
-        ) {
-            AiDoubtSolvingWebScreen(
-                sessionManager = sessionManager,
-                onBack = {
-                    navController.popBackStack()
-                },
-                onSwitchToNative = {
                     navController.popBackStack()
                 }
             )
