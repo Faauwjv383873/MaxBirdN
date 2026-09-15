@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,8 +38,11 @@ fun ProfileScreen(
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
+    sessionManager: com.example.auth.SessionManager? = null,
     onLogout: () -> Unit
 ) {
+    var showSessionShareDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         viewModel.fetchProfile()
     }
@@ -108,13 +112,22 @@ fun ProfileScreen(
                     val profile = (authState as AuthState.ProfileLoaded).profile
                     ProfileContent(
                         profile = profile,
+                        sessionManager = sessionManager,
                         onNavigateToSavedItems = onNavigateToSavedItems,
-                        onNavigateToDownloads = onNavigateToDownloads
+                        onNavigateToDownloads = onNavigateToDownloads,
+                        onOpenSessionShare = { showSessionShareDialog = true }
                     )
                 }
                 else -> {
                     // Waiting state or idle
                 }
+            }
+
+            if (showSessionShareDialog && sessionManager != null) {
+                com.example.ui.dialogs.SessionShareDialog(
+                    sessionManager = sessionManager,
+                    onDismiss = { showSessionShareDialog = false }
+                )
             }
         }
     }
@@ -123,8 +136,10 @@ fun ProfileScreen(
 @Composable
 fun ProfileContent(
     profile: UserProfile,
+    sessionManager: com.example.auth.SessionManager? = null,
     onNavigateToSavedItems: () -> Unit = {},
-    onNavigateToDownloads: () -> Unit = {}
+    onNavigateToDownloads: () -> Unit = {},
+    onOpenSessionShare: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val imageRequest = remember(profile.avatar, profile.first_name, context) {
@@ -241,6 +256,64 @@ fun ProfileContent(
                     )
                     Text(
                         text = "ইন্টারনেট ছাড়া সংরক্ষিত ভিডিও ও পিডিএফ লেকচার",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Session Share & QR Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenSessionShare),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCode2,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "সেশন শেয়ার ও কিউআর ব্যাকআপ",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "অন্য ডিভাইসে অ্যাকাউন্ট পাঠাতে কিউআর কোড দেখুন",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

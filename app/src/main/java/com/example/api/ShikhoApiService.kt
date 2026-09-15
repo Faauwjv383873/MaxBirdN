@@ -303,9 +303,23 @@ interface ShikhoApiService {
                 response
             }
 
+            val auth401Interceptor = Interceptor { chain ->
+                val request = chain.request()
+                val response = chain.proceed(request)
+                if (response.code == 401 || response.code == 403) {
+                    val url = request.url.toString()
+                    if (!url.contains("/check-user") && !url.contains("/send-sms") && !url.contains("/verify-otp") && !url.contains("/verify-pin") && !url.contains("/login")) {
+                        android.util.Log.w("ShikhoApiService", "HTTP ${response.code} Unauthorized detected. Triggering auto-logout.")
+                        sessionManager.notifyUnauthorized()
+                    }
+                }
+                response
+            }
+
             val client = OkHttpClient.Builder()
                 .addInterceptor(headerInterceptor)
                 .addInterceptor(enrolmentMockInterceptor)
+                .addInterceptor(auth401Interceptor)
                 .addInterceptor(logging)
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)

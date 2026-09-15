@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -69,11 +70,14 @@ fun LoginScreen(
     viewModel: AuthViewModel,
     authState: AuthState,
     onNavigateToPin: (String) -> Unit,
-    onNavigateToOtp: (String, String) -> Unit
+    onNavigateToOtp: (String, String) -> Unit,
+    sessionManager: com.example.auth.SessionManager? = null,
+    onLoginSuccess: (() -> Unit)? = null
 ) {
     var phoneInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var visible by remember { mutableStateOf(false) }
+    var showQrLoginSheet by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val isDark = isSystemInDarkTheme()
 
@@ -564,8 +568,44 @@ fun LoginScreen(
                                 }
                             }
                         }
+
+                        // QR / Session Code Login Button
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedButton(
+                            onClick = { showQrLoginSheet = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.2.dp, primary.copy(alpha = 0.5f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                tint = primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "কিউআর / সেশন কোড দিয়ে লগইন",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = primary
+                            )
+                        }
                     }
                 }
+            }
+
+            if (showQrLoginSheet && sessionManager != null) {
+                com.example.ui.dialogs.QrSessionLoginSheet(
+                    sessionManager = sessionManager,
+                    onLoginSuccess = {
+                        showQrLoginSheet = false
+                        onLoginSuccess?.invoke()
+                    },
+                    onDismiss = { showQrLoginSheet = false }
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))

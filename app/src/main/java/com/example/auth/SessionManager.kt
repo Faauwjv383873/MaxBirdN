@@ -3,6 +3,10 @@ package com.example.auth
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.util.UUID
 
 class SessionManager(context: Context) {
@@ -196,11 +200,7 @@ class SessionManager(context: Context) {
     }
 
     fun isAccountComplete(): Boolean {
-        if (sharedPreferences.contains("is_account_completed")) {
-            return sharedPreferences.getBoolean("is_account_completed", true)
-        }
-        val firstName = getUserFirstName()?.trim()
-        return !firstName.isNullOrBlank()
+        return sharedPreferences.getBoolean("is_account_completed", true)
     }
 
     fun isAccountIncomplete(): Boolean = !isAccountComplete()
@@ -225,6 +225,18 @@ class SessionManager(context: Context) {
 
     fun getJustSignedUp(): Boolean {
         return sharedPreferences.getBoolean("just_signed_up", false)
+    }
+
+    // Unauthorized / Session Expiry Event
+    private val _unauthorizedEvent = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val unauthorizedEvent: SharedFlow<Unit> = _unauthorizedEvent.asSharedFlow()
+
+    fun notifyUnauthorized() {
+        clearSession()
+        _unauthorizedEvent.tryEmit(Unit)
     }
 
     fun clearSession() {

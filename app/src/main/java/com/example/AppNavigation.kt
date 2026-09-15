@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -237,6 +238,20 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
     val authState by authViewModel.authState.collectAsState()
 
+    LaunchedEffect(Unit) {
+        sessionManager.unauthorizedEvent.collect {
+            android.widget.Toast.makeText(
+                context,
+                "সেশন মেয়াদোত্তীর্ণ হয়ে গেছে। অন্য কোনো ডিভাইসে লগইন করা হয়েছে। অনুগ্রহ করে আবার লগইন করুন।",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            authViewModel.logout()
+            navController.navigate(Routes.LOGIN) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
     val startDestination = if (sessionManager.getAccessToken() != null) {
         Routes.HOME
     } else {
@@ -252,11 +267,17 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             LoginScreen(
                 viewModel = authViewModel,
                 authState = authState,
+                sessionManager = sessionManager,
                 onNavigateToPin = { phone ->
                     navController.navigate("pin/$phone")
                 },
                 onNavigateToOtp = { phone, authType ->
                     navController.navigate("otp/$phone/$authType")
+                },
+                onLoginSuccess = {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }
@@ -270,15 +291,10 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onLoginSuccess = {
                     homeViewModel.loadData()
                     courseViewModel.loadSubjects(forceRefresh = true)
-                    if (sessionManager.getJustSignedUp() || sessionManager.isAccountIncomplete()) {
-                        sessionManager.setJustSignedUp(false)
-                        navController.navigate(Routes.EDIT_PROFILE) {
-                            popUpTo(Routes.LOGIN) { inclusive = true }
-                        }
-                    } else {
-                        navController.navigate(Routes.HOME) {
-                            popUpTo(Routes.LOGIN) { inclusive = true }
-                        }
+                    sessionManager.setJustSignedUp(false)
+                    sessionManager.setAccountComplete(true)
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(0) { inclusive = true }
                     }
                 },
                 onForgotPasswordNavigate = { authType ->
@@ -411,7 +427,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             EditProfileScreen(
                 viewModel = editProfileViewModel,
                 onBack = {
-                    navController.popBackStack()
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Routes.HOME) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
                 }
             )
         }
@@ -685,6 +705,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             ProfileScreen(
                 viewModel = authViewModel,
                 authState = authState,
+                sessionManager = sessionManager,
                 onNavigateToEditProfile = {
                     navController.navigate(Routes.EDIT_PROFILE)
                 },
