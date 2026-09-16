@@ -552,7 +552,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
                     navController.navigate("chapter_exam/$sessionId?lessonId=$lessonId&title=$encodedTitle&chapter=$encodedChapter")
                 },
-                onOpenLessonDetail = { _ ->
+                onOpenLessonDetail = { lesson ->
+                    courseViewModel.selectLesson(lesson)
                     navController.navigate(Routes.LESSON_DETAIL_PLAYER)
                 },
                 onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->

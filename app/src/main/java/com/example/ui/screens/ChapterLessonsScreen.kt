@@ -92,6 +92,19 @@ fun ChapterLessonsScreen(
     val sessionManager = remember { SessionManager(context) }
     var lessonCompletionCounter by remember { mutableIntStateOf(0) }
     val uiState by viewModel.uiState.collectAsState()
+    var selectedFilterTab by remember(initialTab) { mutableIntStateOf(if (initialTab == 1) 1 else 0) }
+
+    val classLessons = remember(uiState.lessons) { uiState.lessons.filter { !it.isExam } }
+    val examLessons = remember(uiState.lessons) { uiState.lessons.filter { it.isExam } }
+    val displayedLessons = remember(uiState.lessons, selectedFilterTab, classLessons, examLessons) {
+        if (examLessons.isEmpty()) {
+            uiState.lessons
+        } else if (selectedFilterTab == 1) {
+            examLessons
+        } else {
+            classLessons
+        }
+    }
 
     val effectiveSubjectCode = subjectCode.ifBlank { uiState.selectedSubjectCode }
     val effectiveSubjectTitle = subjectTitle.ifBlank { uiState.selectedSubjectTitle }
@@ -285,6 +298,49 @@ fun ChapterLessonsScreen(
                             )
                         }
 
+                        // Filter Chips (when exams exist)
+                        if (examLessons.isNotEmpty()) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = selectedFilterTab == 0,
+                                        onClick = { selectedFilterTab = 0 },
+                                        label = {
+                                            Text(
+                                                text = "ক্লাস (${toBengaliDigits(classLessons.size)})",
+                                                fontWeight = if (selectedFilterTab == 0) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = subjectColor.copy(alpha = 0.15f),
+                                            selectedLabelColor = subjectColor
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    FilterChip(
+                                        selected = selectedFilterTab == 1,
+                                        onClick = { selectedFilterTab = 1 },
+                                        label = {
+                                            Text(
+                                                text = "পরীক্ষা (${toBengaliDigits(examLessons.size)})",
+                                                fontWeight = if (selectedFilterTab == 1) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                            selectedLabelColor = Color(0xFFD97706)
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+
                         // Section Header
                         item {
                             Row(
@@ -295,7 +351,13 @@ fun ChapterLessonsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "ক্লাস ও পরীক্ষা তালিকা (${toBengaliDigits(uiState.lessons.size)}টি)",
+                                    text = if (examLessons.isEmpty()) {
+                                        "ক্লাস ও পরীক্ষা তালিকা (${toBengaliDigits(displayedLessons.size)}টি)"
+                                    } else if (selectedFilterTab == 1) {
+                                        "অধ্যায় পরীক্ষা (${toBengaliDigits(displayedLessons.size)}টি)"
+                                    } else {
+                                        "অধ্যায় ক্লাস (${toBengaliDigits(displayedLessons.size)}টি)"
+                                    },
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -303,10 +365,26 @@ fun ChapterLessonsScreen(
                             }
                         }
 
-                        items(
-                            items = uiState.lessons,
-                            key = { it.id }
-                        ) { lesson ->
+                        if (displayedLessons.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (selectedFilterTab == 1) "এই অধ্যায়ে কোনো পরীক্ষা নেই" else "এই অধ্যায়ে কোনো ক্লাস নেই",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(
+                                items = displayedLessons,
+                                key = { it.id }
+                            ) { lesson ->
                             val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
                                     lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
                                     lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
@@ -363,6 +441,7 @@ fun ChapterLessonsScreen(
             }
         }
     }
+}
 }
 
 @Composable

@@ -73,6 +73,9 @@ interface ShikhoApiService {
     suspend fun getStudentLessons(@Body query: GraphQlQuery): StudentSpecificLessonsResponse
 
     @POST("/graphql")
+    suspend fun getUpcomingLessonsPhaseWise(@Body query: GraphQlQuery): UpcomingLessonsPhaseWiseResponse
+
+    @POST("/graphql")
     suspend fun getAcademicLiveClassDetails(@Body query: GraphQlQuery): AcademicLiveClassDetailsResponse
 
     @POST("/graphql")
