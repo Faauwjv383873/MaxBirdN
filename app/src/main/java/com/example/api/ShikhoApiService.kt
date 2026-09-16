@@ -216,6 +216,12 @@ interface ShikhoApiService {
             val enrolmentMockInterceptor = Interceptor { chain ->
                 val origRequest = chain.request()
                 val response = chain.proceed(origRequest)
+                if (!response.isSuccessful) {
+                    try {
+                        val peek = response.peekBody(1024 * 64).string()
+                        android.util.Log.e("ShikhoApiService", "HTTP ${response.code} error on ${origRequest.url}: $peek")
+                    } catch (_: Exception) {}
+                }
                 try {
                     val body = response.body
                     if (response.isSuccessful && body != null) {

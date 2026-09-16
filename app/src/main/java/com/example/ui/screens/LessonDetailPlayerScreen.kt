@@ -122,6 +122,7 @@ fun LessonDetailPlayerScreen(
     }
 
     val context = LocalContext.current
+    val sessionManager = remember(context) { com.example.auth.SessionManager(context) }
     val coroutineScope = rememberCoroutineScope()
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -137,21 +138,31 @@ fun LessonDetailPlayerScreen(
     val hmsRoomId = lesson?.live_class?.hms_room_id
     val liveProvider = lesson?.live_class?.provider ?: "100ms Live"
 
-    val effectiveMeetingUrl = remember(lesson?.live_class?.liveMeetingUrl, joinLink, hmsRoomId, lesson?.live_class?.hms_token) {
-        val url = when {
-            !joinLink.isNullOrBlank() && !lesson?.live_class?.hms_token.isNullOrBlank() && !joinLink.contains("token=") -> {
+    val effectiveMeetingUrl = remember(lesson?.live_class?.liveMeetingUrl, joinLink, hmsRoomId, lesson?.live_class?.hms_token, lesson?.id) {
+        val classId = lesson?.live_class?.id ?: lesson?.content_id ?: lesson?.id ?: ""
+        val lessonId = lesson?.id ?: ""
+
+        when {
+            // ১. Shikho সার্ভার থেকে সরাসরি পাওয়া আসল join_link
+            !joinLink.isNullOrBlank() && !joinLink.contains("live.shikho.com") -> {
                 val separator = if (joinLink.contains("?")) "&" else "?"
-                "$joinLink${separator}token=${lesson.live_class.hms_token}"
+                if (!lesson?.live_class?.hms_token.isNullOrBlank() && !joinLink.contains("token=")) {
+                    "$joinLink${separator}token=${lesson.live_class.hms_token}"
+                } else {
+                    joinLink
+                }
             }
-            !joinLink.isNullOrBlank() -> joinLink
-            lesson?.live_class?.liveMeetingUrl != null -> lesson.live_class.liveMeetingUrl
+            // ২. Shikho-র আসল ওয়েব লাইভ ক্লাস পেজ (যেখানে লাইভ ফ্রন্টএন্ড রান হয়)
+            classId.isNotBlank() -> {
+                "https://app.shikho.com/student/live-class/$classId?lesson_id=$lessonId"
+            }
+            // ৩. 100ms রুম আইডি থাকলে অফিসিয়াল 100ms মিটিং লিংক
             !hmsRoomId.isNullOrBlank() -> {
                 val tokenParam = if (!lesson?.live_class?.hms_token.isNullOrBlank()) "?token=${lesson.live_class.hms_token}" else ""
-                "https://live.shikho.com/meeting/${hmsRoomId.trim()}$tokenParam"
+                "https://app.100ms.live/meeting/${hmsRoomId.trim()}$tokenParam"
             }
             else -> ""
         }
-        url ?: ""
     }
 
     // Live Join State
@@ -607,7 +618,8 @@ fun LessonDetailPlayerScreen(
             if (isLive && effectiveMeetingUrl.isNotBlank()) {
                 LiveMeetingWebView(
                     meetingUrl = effectiveMeetingUrl,
-                    studentName = "Student",
+                    studentName = sessionManager.getUserFirstName() ?: "Student",
+                    authToken = sessionManager.getAccessToken(),
                     onStreamDiscovered = { discoveredM3u8 ->
                         activeStreamUrl = discoveredM3u8
                         livePlayerMode = "STREAM"
@@ -706,7 +718,8 @@ fun LessonDetailPlayerScreen(
                     if (isLive && effectiveMeetingUrl.isNotBlank()) {
                         LiveMeetingWebView(
                             meetingUrl = effectiveMeetingUrl,
-                            studentName = "Student",
+                            studentName = sessionManager.getUserFirstName() ?: "Student",
+                            authToken = sessionManager.getAccessToken(),
                             onStreamDiscovered = { discoveredM3u8 ->
                                 activeStreamUrl = discoveredM3u8
                                 livePlayerMode = "STREAM"

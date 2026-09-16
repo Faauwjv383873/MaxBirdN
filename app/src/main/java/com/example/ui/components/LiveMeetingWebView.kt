@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -24,6 +25,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 fun LiveMeetingWebView(
     meetingUrl: String,
     studentName: String = "Student",
+    authToken: String? = null,
     onStreamDiscovered: (String) -> Unit,
     onBackToStream: (() -> Unit)? = null,
     onOpenExternal: (() -> Unit)? = null,
@@ -44,6 +46,16 @@ fun LiveMeetingWebView(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
+
+                    // Shikho সেশন বজায় রাখতে কুকি সিঙ্ক করা
+                    val cookieManager = CookieManager.getInstance()
+                    cookieManager.setAcceptCookie(true)
+                    cookieManager.setAcceptThirdPartyCookies(this, true)
+                    if (!authToken.isNullOrBlank()) {
+                        cookieManager.setCookie("https://app.shikho.com", "token=$authToken; Path=/; Secure;")
+                        cookieManager.setCookie("https://app.shikho.com", "auth_token=$authToken; Path=/; Secure;")
+                    }
+
                     settings.apply {
                         javaScriptEnabled = true
                         domStorageEnabled = true
@@ -54,12 +66,11 @@ fun LiveMeetingWebView(
                         useWideViewPort = true
                         loadWithOverviewMode = true
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        userAgentString = "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                        userAgentString = "Mozilla/5.0 (Linux; Android 12; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 Shikho/6.0.7"
                     }
 
                     webChromeClient = object : WebChromeClient() {
                         override fun onPermissionRequest(request: PermissionRequest?) {
-                            // অডিও ও ক্যামেরা পারমিশন অটো গ্র্যান্ট করে দেওয়া
                             request?.grant(request.resources)
                         }
                     }
@@ -71,8 +82,10 @@ fun LiveMeetingWebView(
                         ): WebResourceResponse? {
                             val reqUrl = request?.url?.toString() ?: ""
 
-                            // 100ms-এর আসল master.m3u8 লিঙ্ক পাওয়া মাত্রই প্লেয়ারে পাঠানো
-                            if (reqUrl.contains("100ms.live") && (reqUrl.contains("master.m3u8") || reqUrl.contains(".m3u8"))) {
+                            // 100ms লাইভ স্ট্রিম ও master.m3u8 ক্যাপচার
+                            if ((reqUrl.contains("100ms.live") || reqUrl.contains("sh-cdn")) && 
+                                (reqUrl.contains("master.m3u8") || reqUrl.contains(".m3u8"))
+                            ) {
                                 if (!isLinkFound) {
                                     isLinkFound = true
                                     view?.post {
@@ -85,14 +98,23 @@ fun LiveMeetingWebView(
 
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
-                            // 100ms এর পেজে অটো-জয়েন করানোর জন্য স্ক্রিপ্ট ইনজেকশন
+
+                            // Shikho Web ও 100ms পেজে অটো-জয়েন স্ক্রিপ্ট
                             val autoJoinScript = """
                                 (function() {
+                                    // LocalStorage এ টোকেন ইনজেক্ট করা
+                                    try {
+                                        if ('$authToken' !== '') {
+                                            localStorage.setItem('auth_token', '$authToken');
+                                            localStorage.setItem('token', '$authToken');
+                                        }
+                                    } catch(e) {}
+
                                     var count = 0;
                                     var timer = setInterval(function() {
                                         count++;
 
-                                        // React Native Property Setter দিয়ে নাম ইনপুট করা
+                                        // ইনপুট ফিল্ডে নাম বসানো
                                         var inputs = document.querySelectorAll('input[type="text"], input[name="name"]');
                                         inputs.forEach(function(inp) {
                                             if (!inp.value || inp.value !== '$studentName') {
@@ -107,31 +129,37 @@ fun LiveMeetingWebView(
                                             }
                                         });
 
-                                        // 'Join Now' বাটনে ক্লিক
+                                        // 'Join Now' / 'যুক্ত হোন' / 'Get Started' বাটনে ক্লিক
                                         var buttons = document.querySelectorAll('button');
                                         for (var i = 0; i < buttons.length; i++) {
                                             var btn = buttons[i];
                                             var txt = (btn.innerText || btn.textContent || '').toLowerCase();
-                                            if ((txt.includes('join') || txt.includes('started') || txt.includes('যুক্ত')) && !btn.disabled) {
+                                            if ((txt.includes('join') || txt.includes('started') || txt.includes('যুক্ত') || txt.includes('ক্লাসে প্রবেশ')) && !btn.disabled) {
                                                 btn.click();
                                                 clearInterval(timer);
                                                 break;
                                             }
                                         }
-                                        if (count > 20) clearInterval(timer);
+                                        if (count > 25) clearInterval(timer);
                                     }, 600);
                                 })();
                             """.trimIndent()
                             view?.evaluateJavascript(autoJoinScript, null)
                         }
                     }
-                    loadUrl(meetingUrl)
+
+                    // হেডার সহ আসল পেজ লোড
+                    val headers = mutableMapOf<String, String>()
+                    if (!authToken.isNullOrBlank()) {
+                        headers["Authorization"] = "Bearer $authToken"
+                    }
+                    headers["Referer"] = "https://app.shikho.com/"
+                    loadUrl(meetingUrl, headers)
                 }
             },
             modifier = if (isLinkFound) Modifier.size(1.dp) else Modifier.fillMaxSize()
         )
 
-        // যতক্ষণ না ExoPlayer লিংকটি পেয়ে প্লে করছে, ততক্ষণ লোডিং দেখাবে
         if (!isLinkFound) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

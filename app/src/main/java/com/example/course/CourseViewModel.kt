@@ -73,84 +73,30 @@ class CourseViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isProgramsLoading = true) }
             try {
+                val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
                 val userClassName = sessionManager.getUserClassName() ?: "C11"
                 val group = sessionManager.getUserGroup() ?: "Humanities"
+                val vendor = sessionManager.getUserVendor() ?: "BD"
 
-                val response = repository.getAcademicProgramByEnrollment(userClassName)
-                var enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                val response = repository.getAcademicProgramByEnrollment(
+                    batchId = batchId,
+                    className = userClassName,
+                    group = group,
+                    vendor = vendor
+                )
+                val enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
                 val otherAll = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
 
-                val enrolledIds = enrolled.map { it.id }.toSet()
-                val nonEnrolledOthers = otherAll.filter { it.id !in enrolledIds }
+                // সার্ভার থেকে আসা other_programs কেও enrolled হিসেবে প্রমোট করে সব কোর্স আনলক রাখা
+                val promotedEnrolled = otherAll.map { it.toEnrolledProgram() }
+                val allEnrolled = (enrolled + promotedEnrolled).distinctBy { it.id }
 
-                // Promote syllabus other programs into enrolled programs so all syllabus courses are unlocked
-                val promotedEnrolled = nonEnrolledOthers.map { it.toEnrolledProgram() }
-                enrolled = (enrolled + promotedEnrolled).distinctBy { it.id }
-
-                var freeList = nonEnrolledOthers.filter { it.is_free == true }
-                var paidOtherList = nonEnrolledOthers.filter { it.is_free != true }
-
-                // Prioritize/sort lists based on selected group so that the selected department is #1
-                val groupLower = group.lowercase()
-                val keywords = when {
-                    groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("বিজ্ঞান", "science")
-                    groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("মানবিক", "humanities")
-                    groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
-                    else -> emptyList()
-                }
-
-                val otherKeywords = when {
-                    groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("মানবিক", "humanities", "ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
-                    groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("বিজ্ঞান", "science", "ব্যবসায়", "ব্যাবসা", "business", "commerce")
-                    groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("বিজ্ঞান", "science", "মানবিক", "humanities")
-                    else -> emptyList()
-                }
-
-                val filterPredicate = { title: String? ->
-                    val t = title?.lowercase() ?: ""
-                    var matchesOther = false
-                    for (okw in otherKeywords) {
-                        if (t.contains(okw)) {
-                            matchesOther = true
-                            break
-                        }
-                    }
-                    !matchesOther
-                }
-
-                enrolled = enrolled.filter { filterPredicate(it.title_bn) }
-                freeList = freeList.filter { filterPredicate(it.title_bn) }
-                paidOtherList = paidOtherList.filter { filterPredicate(it.title_bn) }
-
-                val scoreCalculator = { title: String? ->
-                    val t = title?.lowercase() ?: ""
-                    var score = 0
-                    for (kw in keywords) {
-                        if (t.contains(kw)) score += 10
-                    }
-                    if (t.contains("কমন") || t.contains("common") || t.contains("আবশ্যিক")) {
-                        score += 5
-                    }
-                    score
-                }
-
-                enrolled = enrolled.sortedByDescending { scoreCalculator(it.title_bn) }
-                freeList = freeList.sortedByDescending { scoreCalculator(it.title_bn) }
-                paidOtherList = paidOtherList.sortedByDescending { scoreCalculator(it.title_bn) }
-
-                if (enrolled.isEmpty()) {
-                    enrolled = CourseFallbackDataProvider.getFallbackEnrolledPrograms(userClassName, group)
-                }
-                if (freeList.isEmpty()) {
-                    freeList = CourseFallbackDataProvider.getFallbackFreePrograms(userClassName, group)
-                }
-                if (paidOtherList.isEmpty()) {
-                    paidOtherList = CourseFallbackDataProvider.getFallbackOtherPrograms(userClassName, group)
-                }
+                val freeList = otherAll.filter { it.is_free == true }
+                val paidOtherList = otherAll.filter { it.is_free != true }
 
                 _uiState.update {
                     it.copy(
-                        enrolledPrograms = enrolled,
+                        enrolledPrograms = allEnrolled,
                         freePrograms = freeList,
                         otherPrograms = paidOtherList,
                         isProgramsLoading = false
@@ -397,7 +343,8 @@ class CourseViewModel(
             val prog = _uiState.value.enrolledPrograms.find { it.id == programId }
                 ?: _uiState.value.freePrograms.find { it.id == programId }?.toEnrolledProgram()
                 ?: _uiState.value.otherPrograms.find { it.id == programId }?.toEnrolledProgram()
-            val hasAnimated = prog?.has_animated_video == true || _uiState.value.selectedCourseProgram?.has_animated_video == true
+            // DISABLED: Animated lessons disabled per user request
+            val hasAnimated = false
 
             _uiState.update { 
                 it.copy(
@@ -647,10 +594,12 @@ class CourseViewModel(
                         if (cid.isNotBlank() && !lessonsCache.containsKey(cid)) {
                             viewModelScope.launch {
                                 try {
-                                    val l1 = if (phId.isNotBlank()) repository.fetchLessonsWithPhase(cid, pId, phId) else emptyList()
-                                    val l2 = if (l1.isEmpty()) repository.fetchLessonsStandard(cid, pId) else l1
-                                    if (l2.isNotEmpty()) {
-                                        lessonsCache[cid] = l2
+                                    val l1 = if (phId.isNotBlank()) repository.fetchLessonsWithPhase(cid, pId, phId, chapter.effectiveName) else emptyList()
+                                    val l2 = if (l1.isEmpty()) repository.fetchLessonsStandard(cid, pId, chapter.effectiveName) else l1
+                                    // DISABLED: Animated topic pre-caching disabled per user request
+                                    val l3 = l2
+                                    if (l3.isNotEmpty()) {
+                                        lessonsCache[cid] = l3
                                     }
                                 } catch (e: Exception) {
                                     Log.e("CourseViewModel", "Error pre-caching lessons for chapter $cid: ${e.message}", e)
@@ -730,7 +679,21 @@ class CourseViewModel(
         val primaryChapterId = chapterId.ifBlank { matchingChapter?.chapter_id ?: matchingChapter?.id ?: "" }
         val secondaryChapterId = altChapterId ?: matchingChapter?.chapter_id?.takeIf { it != primaryChapterId } ?: matchingChapter?.id?.takeIf { it != primaryChapterId }
 
-        val candidateChapterIds = listOfNotNull(primaryChapterId, secondaryChapterId).filter { it.isNotBlank() }.distinct()
+        val candidateChapterIds = listOfNotNull(
+            primaryChapterId,
+            secondaryChapterId,
+            matchingChapter?.id,
+            matchingChapter?.chapter_id,
+            chapterId,
+            altChapterId
+        ).filter { it.isNotBlank() }.distinct()
+
+        val effChapterName = chapterName ?: matchingChapter?.chapter_name ?: matchingChapter?.effectiveName
+        val subjectTitle = _uiState.value.selectedSubjectTitle
+
+        val batchId = sessionManager.getActiveProgramBatchId()
+            ?: sessionManager.getUserBatchId()
+            ?: _uiState.value.selectedCourseProgram?.enrollment_details?.batch_id
 
         val currentPhaseId = _uiState.value.activePhaseId
         val enrolledPhaseId = _uiState.value.phases.firstOrNull { it.has_enrolment == true }?.id
@@ -741,15 +704,17 @@ class CourseViewModel(
             *_uiState.value.phases.map { it.id }.toTypedArray()
         ).filter { it.isNotBlank() }.distinct()
 
-        val cachedLessons = lessonsCache[primaryChapterId]
+        // 1. Check in-memory LessonCacheManager and local lessonsCache
+        val cachedFromManager = LessonCacheManager.findLessonsForChapter(candidateChapterIds, effChapterName, subjectTitle)
+        val initialCached = if (cachedFromManager.isNotEmpty()) cachedFromManager else lessonsCache[primaryChapterId]
 
         _uiState.update {
             it.copy(
                 selectedChapterId = primaryChapterId,
-                selectedChapterName = chapterName ?: matchingChapter?.chapter_name ?: it.selectedChapterName,
+                selectedChapterName = effChapterName ?: it.selectedChapterName,
                 selectedChapterStatus = chapterStatus ?: matchingChapter?.status ?: it.selectedChapterStatus,
-                lessons = cachedLessons ?: emptyList(),
-                isLessonsLoading = cachedLessons == null,
+                lessons = initialCached ?: emptyList(),
+                isLessonsLoading = initialCached == null,
                 lessonsErrorMessage = null,
                 lessonsDiagnosticInfo = null
             )
@@ -757,48 +722,85 @@ class CourseViewModel(
 
         viewModelScope.launch {
             try {
-                var lessonList = emptyList<StudentLessonItem>()
-                val queryAttempts = mutableListOf<String>()
+                var lessonList = initialCached ?: emptyList()
 
-                // Try each candidate chapter ID across candidate program IDs and phases
-                searchLoop@ for (cid in candidateChapterIds) {
+                // If not found in cache or cache is empty, fetch comprehensively from network
+                if (lessonList.isEmpty()) {
+                    val candidateProgId = candidateProgramIds.firstOrNull()
+                    val candidatePhId = candidatePhaseIds.firstOrNull()
+
+                    val fetched = repository.fetchChapterLessons(
+                        chapterId = primaryChapterId,
+                        altChapterId = secondaryChapterId,
+                        chapterName = effChapterName,
+                        subjectTitle = subjectTitle,
+                        programId = candidateProgId,
+                        phaseId = candidatePhId,
+                        batchId = batchId
+                    )
+                    if (fetched.isNotEmpty()) {
+                        lessonList = fetched
+                    }
+                }
+
+                // If still empty, try candidate programs with phase IDs
+                if (lessonList.isEmpty()) {
                     for (pid in candidateProgramIds) {
-                        // 1. Try with phase IDs
+                        // Try with phase IDs
                         for (phId in candidatePhaseIds) {
-                            val attemptKey = "Phase(cid=$cid, pid=$pid, phId=$phId)"
-                            queryAttempts.add(attemptKey)
-                            val fetchedLessons = repository.fetchLessonsWithPhase(cid, pid, phId)
-                            val hasValidStream = fetchedLessons.any { !it.resolvedVideoUrl.isNullOrBlank() }
-                            if (fetchedLessons.isNotEmpty()) {
-                                lessonList = fetchedLessons
+                            val fetched = repository.fetchLessonsWithPhase(
+                                chapterId = primaryChapterId,
+                                programId = pid,
+                                phaseId = phId,
+                                chapterName = effChapterName,
+                                batchId = batchId,
+                                subjectTitle = subjectTitle
+                            )
+                            if (fetched.isNotEmpty()) {
+                                lessonList = fetched
                                 _uiState.update {
                                     it.copy(
                                         activePhaseId = phId,
                                         activePhaseTitle = _uiState.value.phases.firstOrNull { p -> p.id == phId }?.title ?: it.activePhaseTitle
                                     )
                                 }
-                                if (hasValidStream) {
-                                    break@searchLoop
-                                }
+                                break
                             }
                         }
+                        if (lessonList.isNotEmpty()) break
 
-                        // 2. Try standard query without phase ID
-                        val standardKey = "Standard(cid=$cid, pid=$pid)"
-                        queryAttempts.add(standardKey)
-                        val fetchedLessons = repository.fetchLessonsStandard(cid, pid)
-                        if (fetchedLessons.isNotEmpty()) {
-                            lessonList = fetchedLessons
-                            if (fetchedLessons.any { !it.resolvedVideoUrl.isNullOrBlank() }) {
-                                break@searchLoop
-                            }
+                        // Try without phase ID
+                        val fetchedStandard = repository.fetchLessonsStandard(
+                            chapterId = primaryChapterId,
+                            programId = pid,
+                            chapterName = effChapterName,
+                            batchId = batchId,
+                            subjectTitle = subjectTitle
+                        )
+                        if (fetchedStandard.isNotEmpty()) {
+                            lessonList = fetchedStandard
+                            break
                         }
                     }
                 }
 
-                val diagInfo = if (lessonList.isEmpty()) {
-                    "কোর্স আইডি: ${candidateProgramIds.joinToString(", ")}\nঅধ্যায় আইডি: ${candidateChapterIds.joinToString(", ")}\nকোয়ার্টার আইডি: ${candidatePhaseIds.joinToString(", ")}\nঅনুসন্ধান সংখ্যা: ${queryAttempts.size}টি কোয়েরি"
-                } else null
+                // Final check against LessonCacheManager in case lessons were stored by other flows
+                if (lessonList.isEmpty()) {
+                    val finalCached = LessonCacheManager.findLessonsForChapter(candidateChapterIds, effChapterName, subjectTitle)
+                    if (finalCached.isNotEmpty()) {
+                        lessonList = finalCached
+                    }
+                }
+
+                // If still empty, guarantee fallback chapter lessons
+                if (lessonList.isEmpty()) {
+                    lessonList = repository.fetchChapterLessons(
+                        chapterId = primaryChapterId,
+                        altChapterId = secondaryChapterId,
+                        chapterName = effChapterName,
+                        subjectTitle = subjectTitle
+                    )
+                }
 
                 if (lessonList.isNotEmpty()) {
                     lessonsCache[primaryChapterId] = lessonList
@@ -809,14 +811,17 @@ class CourseViewModel(
                         lessons = lessonList,
                         isLessonsLoading = false,
                         lessonsErrorMessage = if (lessonList.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস বা লেকচার পাওয়া যায়নি" else null,
-                        lessonsDiagnosticInfo = diagInfo
+                        lessonsDiagnosticInfo = null
                     )
                 }
             } catch (e: Exception) {
+                // If an exception occurred, fallback to cache
+                val fallbackCached = LessonCacheManager.findLessonsForChapter(candidateChapterIds, effChapterName, subjectTitle)
                 _uiState.update {
                     it.copy(
+                        lessons = fallbackCached,
                         isLessonsLoading = false,
-                        lessonsErrorMessage = "ক্লাস লোড করা যায়নি: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}",
+                        lessonsErrorMessage = if (fallbackCached.isEmpty()) "ক্লাস লোড করতে সমস্যা হয়েছে: ${e.localizedMessage}" else null,
                         lessonsDiagnosticInfo = "এরর: ${e.javaClass.simpleName} - ${e.localizedMessage}"
                     )
                 }
@@ -829,12 +834,14 @@ class CourseViewModel(
         altChapterId: String? = null,
         chapterName: String? = null
     ) {
+        // DISABLED: Animated lessons kept inactive per user request
         _uiState.update {
             it.copy(
-                isChapterAnimationsLoading = true,
+                isChapterAnimationsLoading = false,
                 chapterAnimatedLessons = emptyList()
             )
         }
+        /*
         viewModelScope.launch {
             try {
                 val matching = _uiState.value.chapters.firstOrNull {
@@ -849,7 +856,6 @@ class CourseViewModel(
                 ).filter { it.isNotBlank() }.distinct()
 
                 var topicsList = emptyList<TopicFullItem>()
-
                 for (candId in candidates) {
                     try {
                         val fetched = repository.getTopics(candId)
@@ -859,25 +865,6 @@ class CourseViewModel(
                         }
                     } catch (_: Exception) {}
                 }
-
-                // If still empty, attempt to resolve chapter UUID from GetChapters(subject_code)
-                if (topicsList.isEmpty() && _uiState.value.selectedSubjectCode.isNotBlank()) {
-                    try {
-                        val subjectChapters = repository.getChaptersBySubjectCode(_uiState.value.selectedSubjectCode)
-                        val matchedByTitle = subjectChapters.find { ch ->
-                            (!chapterName.isNullOrBlank() && ch.effectiveName.equals(chapterName, ignoreCase = true)) ||
-                            (matching?.effectiveNo != null && ch.effectiveNo == matching.effectiveNo)
-                        } ?: subjectChapters.firstOrNull()
-
-                        if (matchedByTitle != null && matchedByTitle.id.isNotBlank()) {
-                            val fetched = repository.getTopics(matchedByTitle.id)
-                            if (fetched.isNotEmpty()) {
-                                topicsList = fetched
-                            }
-                        }
-                    } catch (_: Exception) {}
-                }
-
                 _uiState.update {
                     it.copy(
                         chapterAnimatedLessons = topicsList,
@@ -893,46 +880,30 @@ class CourseViewModel(
                 }
             }
         }
+        */
     }
 
     fun loadAnimatedLessonsForSubject() {
-        val subjectCode = _uiState.value.selectedSubjectCode
+        // DISABLED: Animated lessons kept inactive per user request
         _uiState.update {
             it.copy(
-                isSubjectAnimationsLoading = true,
+                isSubjectAnimationsLoading = false,
                 subjectAnimatedLessons = emptyList()
             )
         }
-
+        /*
+        val subjectCode = _uiState.value.selectedSubjectCode
         viewModelScope.launch {
             try {
-                // 1. Fetch chapters by subject code to get actual Chapter UUIDs
                 val subjectChapters = if (subjectCode.isNotBlank()) {
                     try { repository.getChaptersBySubjectCode(subjectCode) } catch (_: Exception) { emptyList() }
                 } else emptyList()
-
                 val chaptersToUse = if (subjectChapters.isNotEmpty()) subjectChapters else _uiState.value.chapters
-
-                if (chaptersToUse.isEmpty()) {
-                    _uiState.update {
-                        it.copy(
-                            subjectAnimatedLessons = emptyList(),
-                            isSubjectAnimationsLoading = false
-                        )
-                    }
-                    return@launch
-                }
-
                 val deferreds = chaptersToUse.map { chapter ->
-                    val chId = chapter.chapter_id?.takeIf { it.isNotBlank() }
-                        ?: chapter.id.takeIf { it.isNotBlank() } ?: ""
+                    val chId = chapter.chapter_id?.takeIf { it.isNotBlank() } ?: chapter.id.takeIf { it.isNotBlank() } ?: ""
                     async {
                         if (chId.isBlank()) return@async emptyList<TopicFullItem>()
-                        try {
-                            repository.getTopics(chId)
-                        } catch (e: Exception) {
-                            emptyList<TopicFullItem>()
-                        }
+                        try { repository.getTopics(chId) } catch (e: Exception) { emptyList<TopicFullItem>() }
                     }
                 }
                 val results = deferreds.awaitAll().flatten()
@@ -952,6 +923,7 @@ class CourseViewModel(
                 }
             }
         }
+        */
     }
 }
 

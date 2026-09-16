@@ -271,11 +271,7 @@ fun ChapterLessonsScreen(
                                 selectedTab = 0,
                                 onTabSelected = { tab ->
                                     if (tab == 1) {
-                                        onNavigateToAnimatedTopics?.invoke(
-                                            chapterId,
-                                            chapterName,
-                                            effectiveSubjectCode
-                                        )
+                                        // DISABLED: Animated lessons navigation disabled per user request
                                     } else if (tab == 2) {
                                         onNavigateToPracticeQuiz?.invoke(
                                             effectiveSubjectCode,

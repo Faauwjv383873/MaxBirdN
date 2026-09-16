@@ -47,7 +47,7 @@ data class HomeUiState(
     val filteredWeeklyRoutine: List<StudentLessonItem>
         get() {
             if (selectedSubjectCodes.isEmpty()) return weeklyRoutine
-            return weeklyRoutine.filter { lesson ->
+            val filtered = weeklyRoutine.filter { lesson ->
                 val code = lesson.subject_id ?: ""
                 val name = lesson.subject_name ?: ""
                 // Match by subject code, subject_id, or subject name / display_bn
@@ -60,6 +60,7 @@ data class HomeUiState(
                     }
                 }
             }
+            return if (filtered.isEmpty() && weeklyRoutine.isNotEmpty()) weeklyRoutine else filtered
         }
 }
 
@@ -359,419 +360,226 @@ class HomeViewModel(
 
     private suspend fun fetchAcademicPrograms() {
         val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
-        val className = sessionManager.getActiveProgramClassCode() ?: sessionManager.getUserClassName() ?: "C11"
+        val className = sessionManager.getUserClassName() ?: "C11"
         val group = sessionManager.getUserGroup() ?: "Humanities"
         val vendor = sessionManager.getUserVendor() ?: "BD"
 
-        // Map group to standard GraphQL enum formatting
-        val formattedGroup = when (group.lowercase()) {
-            "humanities", "humanities_group" -> "Humanities"
-            "science", "science_group" -> "Science"
-            "businessstudies" -> "BusinessStudies"
-            "commerce" -> "Commerce"
-            "business" -> "Business"
-            "business_studies", "business studies" -> "Business_Studies"
-            else -> group
-        }
-
-        var programs: List<EnrolledProgram> = emptyList()
-
-        // 0. Primary query: List all user enrollments directly without narrow restrictive filters
         try {
-            val allEnrollmentsQuery = GraphQlQuery(
-                operationName = "GetAcademicProgram",
-                query = """
-                    query GetAcademicProgram {
-                      listAcademicProgramByEnrollment {
-                        enrolled_programs {
-                          id
-                          classes
-                          title_bn
-                          banner_url
-                          color
-                          is_free
-                          trial_enabled
-                          enrollment_details {
-                            batch_id
-                            is_active
-                            trial_end_date
-                            type
-                            expiry_date
-                          }
-                          subjects {
-                            code
-                            display_bn
-                            color_code
-                            icon
-                          }
-                        }
-                        other_programs {
-                          id
-                          classes
-                          title_bn
-                          banner_url
-                          phase_pricing
-                          is_free
-                          has_animated_video
-                          full_program_discount_price
-                          trial_enabled
-                          trial_duration
-                        }
-                      }
-                    }
-                """.trimIndent()
-            )
-            val response = apiService.getAcademicProgram(allEnrollmentsQuery)
-            val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
-            val otherList = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
-            val promoted = otherList.map { it.toEnrolledProgram() }
-            val merged = (list + promoted).distinctBy { it.id }
-            if (merged.isNotEmpty()) {
-                programs = merged
-            }
-        } catch (_: Exception) {}
-
-        // 1. Try querying with batch_id if available and no programs found yet
-        if (programs.isEmpty() && !batchId.isNullOrBlank()) {
-            try {
-                val queryWithBatch = GraphQlQuery(
+            val response = apiService.getAcademicProgram(
+                GraphQlQuery(
                     operationName = "GetAcademicProgram",
                     query = """
-                        query GetAcademicProgram(${'$'}batch_id: String, ${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum, ${'$'}vendor: VendorEnum, ${'$'}classes: [AcademicProgramClassEnum]) {
-                          listAcademicProgramByEnrollment(batch_id: ${'$'}batch_id, class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
+                        query GetAcademicProgram(${'$'}batch_id: String, ${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum, ${'$'}vendor: VendorEnum) {
+                          listAcademicProgramByEnrollment(batch_id: ${'$'}batch_id, class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor) {
                             enrolled_programs {
-                              id
-                              classes
-                              title_bn
-                              banner_url
-                              color
-                              is_free
-                              trial_enabled
-                              enrollment_details {
-                                batch_id
-                                is_active
-                                trial_end_date
-                                type
-                                expiry_date
-                              }
-                              subjects {
-                                code
-                                display_bn
-                                color_code
-                                icon
-                              }
+                              id classes title_bn banner_url color is_free trial_enabled has_animated_video
+                              enrollment_details { batch_id is_active trial_end_date type expiry_date }
+                              subjects { code display_bn color_code icon }
                             }
                             other_programs {
-                              id
-                              classes
-                              title_bn
-                              banner_url
-                              phase_pricing
-                              is_free
-                              has_animated_video
-                              full_program_discount_price
-                              trial_enabled
-                              trial_duration
+                              id classes title_bn banner_url phase_pricing is_free has_animated_video trial_enabled trial_duration
                             }
                           }
                         }
                     """.trimIndent(),
-                    variables = mutableMapOf<String, Any?>(
+                    variables = mapOf(
                         "batch_id" to batchId,
                         "className" to className,
-                        "group" to null, // Fetch ALL groups under this class/batch
+                        "group" to (if (className.uppercase() in listOf("C5", "C6", "C7", "C8", "C05", "C06", "C07", "C08")) "None" else when(group.lowercase()) {
+                            "humanities", "arts", "hum" -> "Humanities"
+                            "science", "sci" -> "Science"
+                            "business_studies", "business", "commerce" -> "Business_Studies"
+                            else -> "None"
+                        }),
                         "vendor" to vendor
                     )
                 )
-                val response = apiService.getAcademicProgram(queryWithBatch)
-                val list = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
-                val otherList = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
-                val promoted = otherList.map { it.toEnrolledProgram() }
-                programs = (list + promoted).distinctBy { it.id }
-            } catch (_: Exception) {
-                // Ignore and try fallback without batch_id
-            }
-        }
-
-        // 2. Fallback query without batch_id if programs are empty
-        if (programs.isEmpty()) {
-            try {
-                val fallbackQuery = GraphQlQuery(
-                    operationName = "GetAcademicProgram",
-                    query = """
-                        query GetAcademicProgram(${'$'}className: AcademicProgramClassEnum, ${'$'}group: StudyGroupTypeEnum, ${'$'}vendor: VendorEnum, ${'$'}classes: [AcademicProgramClassEnum]) {
-                          listAcademicProgramByEnrollment(class: ${'$'}className, group: ${'$'}group, vendor: ${'$'}vendor, classes: ${'$'}classes) {
-                            enrolled_programs {
-                              id
-                              classes
-                              title_bn
-                              banner_url
-                              color
-                              is_free
-                              trial_enabled
-                              enrollment_details {
-                                batch_id
-                                is_active
-                                trial_end_date
-                                type
-                                expiry_date
-                              }
-                              subjects {
-                                code
-                                display_bn
-                                color_code
-                                icon
-                              }
-                            }
-                            other_programs {
-                              id
-                              classes
-                              title_bn
-                              banner_url
-                              phase_pricing
-                              is_free
-                              has_animated_video
-                              full_program_discount_price
-                              trial_enabled
-                              trial_duration
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf(
-                        "className" to className,
-                        "group" to null, // Fetch ALL groups under this class
-                        "vendor" to vendor
-                    )
-                )
-                val fallbackResponse = apiService.getAcademicProgram(fallbackQuery)
-                val list = fallbackResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
-                val otherList = fallbackResponse.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
-                val promoted = otherList.map { it.toEnrolledProgram() }
-                programs = (list + promoted).distinctBy { it.id }
-            } catch (_: Exception) {
-                // Ignore and proceed to class-only fallback
-            }
-        }
-
-        // 3. Fallback query with class only if still empty
-        if (programs.isEmpty()) {
-            try {
-                val classOnlyQuery = GraphQlQuery(
-                    operationName = "GetAcademicProgram",
-                    query = """
-                        query GetAcademicProgram(${'$'}className: AcademicProgramClassEnum, ${'$'}vendor: VendorEnum) {
-                          listAcademicProgramByEnrollment(class: ${'$'}className, vendor: ${'$'}vendor) {
-                            enrolled_programs {
-                              id
-                              classes
-                              title_bn
-                              banner_url
-                              color
-                              is_free
-                              trial_enabled
-                              enrollment_details {
-                                batch_id
-                                is_active
-                                trial_end_date
-                                type
-                                expiry_date
-                              }
-                            }
-                            other_programs {
-                              id
-                              classes
-                              title_bn
-                              banner_url
-                              phase_pricing
-                              is_free
-                              has_animated_video
-                              full_program_discount_price
-                              trial_enabled
-                              trial_duration
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf(
-                        "className" to className,
-                        "vendor" to vendor
-                    )
-                )
-                val classOnlyResponse = apiService.getAcademicProgram(classOnlyQuery)
-                val list = classOnlyResponse.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
-                val otherList = classOnlyResponse.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
-                val promoted = otherList.map { it.toEnrolledProgram() }
-                programs = (list + promoted).distinctBy { it.id }
-            } catch (_: Exception) {
-                // Final fallback
-            }
-        }
-
-        // Filter/Prioritize programs based on user group so that only the selected department/group and common/skills are shown
-        val groupLower = group.lowercase()
-        val keywords = when {
-            groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("বিজ্ঞান", "science")
-            groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("মানবিক", "humanities")
-            groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
-            else -> emptyList()
-        }
-
-        val otherKeywords = when {
-            groupLower.contains("science") || groupLower.contains("বিজ্ঞান") -> listOf("মানবিক", "humanities", "ব্যবসায়", "ব্যাবসা", "business", "commerce", "studies")
-            groupLower.contains("humanities") || groupLower.contains("মানবিক") || groupLower.contains("hum") -> listOf("বিজ্ঞান", "science", "ব্যবসায়", "ব্যাবসা", "business", "commerce")
-            groupLower.contains("business") || groupLower.contains("commerce") || groupLower.contains("ব্যবসায়") || groupLower.contains("ব্যাবসা") -> listOf("বিজ্ঞান", "science", "মানবিক", "humanities")
-            else -> emptyList()
-        }
-
-        programs = programs.filter { program ->
-            val t = program.title_bn?.lowercase() ?: ""
-            var matchesOther = false
-            for (okw in otherKeywords) {
-                if (t.contains(okw)) {
-                    matchesOther = true
-                    break
-                }
-            }
-            !matchesOther
-        }.sortedWith(compareByDescending { program ->
-            val title = program.title_bn?.lowercase() ?: ""
-            var score = 0
-            for (kw in keywords) {
-                if (title.contains(kw)) {
-                    score += 10
-                }
-            }
-            if (title.contains("কমন") || title.contains("common") || title.contains("আবশ্যিক")) {
-                score += 5
-            }
-            score
-        })
-
-        // Determine active program: prioritize saved program, then actively enrolled program (is_active == true), then first
-        val savedProgramId = sessionManager.getActiveProgramId()
-        val active = programs.firstOrNull { it.id == savedProgramId }
-            ?: programs.firstOrNull { it.enrollment_details?.is_active == true }
-            ?: programs.firstOrNull()
-
-        if (active != null) {
-            sessionManager.saveActiveProgram(
-                programId = active.id,
-                titleBn = active.title_bn,
-                batchId = active.enrollment_details?.batch_id,
-                classCode = active.classes?.firstOrNull()
             )
-        }
 
-        val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||
-                programs.any { it.enrollment_details?.is_active == true }
+            val enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+            val others = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
 
-        val activeSavedSubjects = if (active != null) sessionManager.getSelectedSubjectCodes(active.id) ?: emptySet() else emptySet()
-        val activeInitialSubjects = active?.subjects?.map {
-            AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon)
-        } ?: emptyList()
+            // সার্ভার থেকে আসা other_programs কেও enrolled হিসেবে প্রমোট করে সব আনলক রাখা
+            val promotedOthers = others.map { it.toEnrolledProgram() }
+            val allPrograms = (enrolled + promotedOthers).distinctBy { it.id }
 
-        _uiState.value = _uiState.value.copy(
-            enrolledPrograms = programs,
-            activeProgram = active,
-            selectedSubjectCodes = activeSavedSubjects,
-            courseSubjects = activeInitialSubjects,
-            isPremium = hasActiveEnrollment,
-            isLoading = false,
-            isRefreshing = false,
-            errorMessage = if (programs.isEmpty()) "কোনো সক্রিয় কোর্স পাওয়া যায়নি" else null
-        )
+            // একটিভ কোর্স নির্ধারণ (ইউজারের সেভ করা কোর্স অথবা প্রথমটি)
+            val savedProgramId = sessionManager.getActiveProgramId()
+            val active = allPrograms.firstOrNull { it.id == savedProgramId } ?: allPrograms.firstOrNull()
 
-        if (active != null) {
-            loadCourseSubjects(active)
+            if (active != null) {
+                sessionManager.saveActiveProgram(
+                    programId = active.id,
+                    titleBn = active.title_bn,
+                    batchId = active.enrollment_details?.batch_id,
+                    classCode = active.classes?.firstOrNull()
+                )
+            }
+
+            val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||
+                    allPrograms.any { it.enrollment_details?.is_active == true }
+
+            val activeSavedSubjects = if (active != null) sessionManager.getSelectedSubjectCodes(active.id) ?: emptySet() else emptySet()
+            val activeInitialSubjects = active?.subjects?.map {
+                AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon)
+            } ?: emptyList()
+
+            _uiState.value = _uiState.value.copy(
+                enrolledPrograms = allPrograms,
+                activeProgram = active,
+                selectedSubjectCodes = activeSavedSubjects,
+                courseSubjects = activeInitialSubjects,
+                isPremium = hasActiveEnrollment,
+                isLoading = false,
+                isRefreshing = false,
+                errorMessage = if (allPrograms.isEmpty()) "কোনো সক্রিয় কোর্স পাওয়া যায়নি" else null
+            )
+
+            if (active != null) {
+                fetchWeeklyRoutine(active)
+                loadCourseSubjects(active)
+            }
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(isLoading = false, isRefreshing = false)
         }
     }
+    private fun fetchWeeklyRoutine(program: EnrolledProgram) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRoutineLoading = true)
+            try {
+                val programId = program.id
+
+                // ১. কোর্সের ফেজ আনা (কোয়ার্টার ১, ২, ৩ অথবা "ফুল কোর্স")
+                val phaseQuery = GraphQlQuery(
+                    operationName = "ProgramPhasesByStudent",
+                    query = """
+                        query ProgramPhasesByStudent(${'$'}program_id: String!, ${'$'}course_progress_percentage: Boolean) {
+                          programPhasesByStudent(program_id: ${'$'}program_id, course_progress_percentage: ${'$'}course_progress_percentage) {
+                            data {
+                              id academic_program_id title status is_current has_enrolment
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf("program_id" to programId, "course_progress_percentage" to true)
+                )
+                val phaseRes = apiService.getProgramPhases(phaseQuery)
+                val phases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                _uiState.value = _uiState.value.copy(programPhases = phases)
+
+                // ২. কারেন্ট / একটিভ ফেজ সিলেক্ট করা
+                val currentPhase = phases.firstOrNull { it.is_current == true }
+                    ?: phases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                    ?: phases.firstOrNull()
+
+                if (currentPhase == null || currentPhase.id.isBlank()) {
+                    _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
+                    return@launch
+                }
+
+                // ৩. অফিসিয়াল অ্যাপের মতো চলতি সপ্তাহের শনিবার থেকে শুক্রবার (৭ দিন) ক্যালকুলেট করা
+                val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
+                val cal = Calendar.getInstance(dhakaZone)
+                // বর্তমান দিনের সপ্তাহের শনিবার বের করা (বাংলাদেশ ক্যালেন্ডার অনুযায়ী)
+                while (cal.get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
+                    cal.add(Calendar.DAY_OF_MONTH, -1)
+                }
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                val startCal = cal.clone() as Calendar
+
+                cal.add(Calendar.DAY_OF_MONTH, 6) // শুক্রবার
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                val endCal = cal.clone() as Calendar
+
+                val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val startDate = isoFormat.format(startCal.time)
+                val endDate = isoFormat.format(endCal.time)
+
+                // ৪. অফিসিয়াল অ্যাপের মতো একক কুয়েরি পাঠানো (কোনো অপ্রয়োজনীয় ফলব্যাক লুপ ছাড়া)
+                val routineQuery = GraphQlQuery(
+                    operationName = "GetStudentSpecificLessons",
+                    query = """
+                        query GetStudentSpecificLessons(${'$'}programId: String!, ${'$'}phaseId: String!, ${'$'}startDate: String!, ${'$'}endDate: String!) {
+                          studentSpecificLessons(program_id: ${'$'}programId, phase_id: ${'$'}phaseId, start_date: ${'$'}startDate, end_date: ${'$'}endDate) {
+                            data {
+                              access_level hw_type start_time subject_id subject_name title end_time icon id content_id content_type user_activity_state batch_id chapter_id
+                              live_class { chapter_id chapter_name end_time is_on_going start_time subject_name subject_id id type }
+                              model_test { result_publish_time type exam_category }
+                              topics { id name }
+                              color_code phase_id
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf(
+                        "programId" to programId,
+                        "phaseId" to currentPhase.id,
+                        "startDate" to startDate,
+                        "endDate" to endDate
+                    )
+                )
+
+                val routineResponse = apiService.getStudentLessons(routineQuery)
+                val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
+
+                com.example.course.LessonCacheManager.saveLessons(routineLessons)
+
+                // ৫. খালি আসলে খালিই থাকবে (যেমন Think AI তে খালি আসে), স্প্যাম কুয়েরি হবে না
+                _uiState.value = _uiState.value.copy(
+                    weeklyRoutine = routineLessons.sortedBy { it.start_time ?: "" },
+                    isRoutineLoading = false
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isRoutineLoading = false)
+            }
+        }
+    }
+
     fun fetchMonthlyRoutine(
         year: Int,
         monthZeroIndexed: Int,
         program: EnrolledProgram? = _uiState.value.activeProgram
     ) {
         val targetProgram = program ?: return
-        fetchRoutineForMonth(targetProgram, year, monthZeroIndexed)
-    }
-
-    private fun fetchWeeklyRoutine(program: EnrolledProgram) {
-        val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
-        val now = Calendar.getInstance(dhakaZone)
-        fetchRoutineForMonth(program, now.get(Calendar.YEAR), now.get(Calendar.MONTH))
-    }
-
-    private fun fetchRoutineForMonth(
-        program: EnrolledProgram,
-        year: Int,
-        monthZeroIndexed: Int
-    ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRoutineLoading = true)
             try {
-                val programId = program.id
-                var fetchedPhases = emptyList<PhaseItem>()
-
-                // 1. Fetch active and all phases for the selected program (Science, Business, Humanities, etc.)
-                try {
+                val programId = targetProgram.id
+                var phases = _uiState.value.programPhases
+                if (phases.isEmpty()) {
                     val phaseQuery = GraphQlQuery(
                         operationName = "ProgramPhasesByStudent",
                         query = """
-                            query ProgramPhasesByStudent(${'$'}program_id: String!) {
-                              programPhasesByStudent(program_id: ${'$'}program_id) {
+                            query ProgramPhasesByStudent(${'$'}program_id: String!, ${'$'}course_progress_percentage: Boolean) {
+                              programPhasesByStudent(program_id: ${'$'}program_id, course_progress_percentage: ${'$'}course_progress_percentage) {
                                 data {
-                                  id
-                                  academic_program_id
-                                  title
-                                  status
-                                  is_current
-                                  has_enrolment
-                                  has_free_trial_enrolment
-                                  course_progress_percentage
-                                  start_date
-                                  end_date
+                                  id academic_program_id title status is_current has_enrolment
                                 }
                               }
                             }
                         """.trimIndent(),
-                        variables = mapOf("program_id" to programId)
+                        variables = mapOf("program_id" to programId, "course_progress_percentage" to true)
                     )
                     val phaseRes = apiService.getProgramPhases(phaseQuery)
-                    fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
-                    if (fetchedPhases.isNotEmpty()) {
-                        _uiState.value = _uiState.value.copy(programPhases = fetchedPhases)
-                    }
-                } catch (_: Exception) {}
-
-                // Fallback: fetch programPhases if programPhasesByStudent returned empty
-                if (fetchedPhases.isEmpty()) {
-                    try {
-                        val fallbackPhaseQuery = GraphQlQuery(
-                            operationName = "GetProgramPhases",
-                            query = """
-                                query GetProgramPhases(${'$'}program_id: String!) {
-                                  programPhases(program_id: ${'$'}program_id) {
-                                    data {
-                                      id
-                                      academic_program_id
-                                      title
-                                      status
-                                      is_current
-                                    }
-                                  }
-                                }
-                            """.trimIndent(),
-                            variables = mapOf("program_id" to programId)
-                        )
-                        val fallbackRes = apiService.getProgramPhases(fallbackPhaseQuery)
-                        fetchedPhases = fallbackRes.data?.programPhases?.data ?: emptyList()
-                        if (fetchedPhases.isNotEmpty()) {
-                            _uiState.value = _uiState.value.copy(programPhases = fetchedPhases)
-                        }
-                    } catch (_: Exception) {}
+                    phases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                    _uiState.value = _uiState.value.copy(programPhases = phases)
                 }
 
-                // Calculate exact month range in Asia/Dhaka (1st day 00:00:00 to last day 23:59:59)
+                val currentPhase = phases.firstOrNull { it.is_current == true }
+                    ?: phases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                    ?: phases.firstOrNull()
+
+                if (currentPhase == null || currentPhase.id.isBlank()) {
+                    _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
+                    return@launch
+                }
+
                 val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka"))
                 cal.set(Calendar.YEAR, year)
                 cal.set(Calendar.MONTH, monthZeroIndexed)
@@ -779,8 +587,6 @@ class HomeViewModel(
                 cal.set(Calendar.HOUR_OF_DAY, 0)
                 cal.set(Calendar.MINUTE, 0)
                 cal.set(Calendar.SECOND, 0)
-                cal.set(Calendar.MILLISECOND, 0)
-
                 val startCal = cal.clone() as Calendar
 
                 val maxDay = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
@@ -790,271 +596,40 @@ class HomeViewModel(
                 cal.set(Calendar.SECOND, 59)
                 val endCal = cal.clone() as Calendar
 
-                val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                     timeZone = TimeZone.getTimeZone("UTC")
                 }
+                val startDate = isoFormat.format(startCal.time)
+                val endDate = isoFormat.format(endCal.time)
 
-                val startDate = dateFormat.format(startCal.time)
-                val endDate = dateFormat.format(endCal.time)
+                val routineQuery = GraphQlQuery(
+                    operationName = "GetStudentSpecificLessons",
+                    query = """
+                        query GetStudentSpecificLessons(${'$'}programId: String!, ${'$'}phaseId: String!, ${'$'}startDate: String!, ${'$'}endDate: String!) {
+                          studentSpecificLessons(program_id: ${'$'}programId, phase_id: ${'$'}phaseId, start_date: ${'$'}startDate, end_date: ${'$'}endDate) {
+                            data {
+                              access_level hw_type start_time subject_id subject_name title end_time icon id content_id content_type user_activity_state batch_id chapter_id
+                              live_class { chapter_id chapter_name end_time is_on_going start_time subject_name subject_id id type }
+                              model_test { result_publish_time type exam_category }
+                              topics { id name }
+                              color_code phase_id
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    variables = mapOf(
+                        "programId" to programId,
+                        "phaseId" to currentPhase.id,
+                        "startDate" to startDate,
+                        "endDate" to endDate
+                    )
+                )
 
-                val collectedLessons = mutableListOf<StudentLessonItem>()
-
-                // 2. Query lessons for each phase of this course
-                val validPhases = fetchedPhases.mapNotNull { it.id.ifBlank { null } }.distinct()
-                if (validPhases.isNotEmpty()) {
-                    for (phaseId in validPhases) {
-                        try {
-                            val query = GraphQlQuery(
-                                operationName = "GetStudentSpecificLessons",
-                                query = """
-                                    query GetStudentSpecificLessons(${'$'}program_id: String!, ${'$'}phase_id: String!, ${'$'}start_date: String!, ${'$'}end_date: String!) {
-                                      studentSpecificLessons(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id, start_date: ${'$'}start_date, end_date: ${'$'}end_date) {
-                                        data {
-                                          access_level
-                                          hw_type
-                                          start_time
-                                          subject_id
-                                          subject_name
-                                          title
-                                          end_time
-                                          icon
-                                          id
-                                          content_id
-                                          content_type
-                                          user_activity_state
-                                          batch_id
-                                          chapter_id
-                                          live_class {
-                                            chapter_id
-                                            chapter_name
-                                            end_time
-                                            is_on_going
-                                            recording_url
-                                            start_time
-                                            subject_name
-                                            subject_id
-                                            id
-                                            type
-                                          }
-                                          model_test {
-                                            result_publish_time
-                                            type
-                                            exam_category
-                                          }
-                                          topics {
-                                            id
-                                            name
-                                          }
-                                          color_code
-                                          phase_id
-                                        }
-                                      }
-                                    }
-                                """.trimIndent(),
-                                variables = mapOf(
-                                    "program_id" to programId,
-                                    "phase_id" to phaseId,
-                                    "start_date" to startDate,
-                                    "end_date" to endDate
-                                )
-                            )
-                            val response = apiService.getStudentLessons(query)
-                            val phaseLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
-                            collectedLessons.addAll(phaseLessons)
-                        } catch (_: Exception) {}
-                    }
-                }
-
-                // 3. If still empty or no phases found, query without phase_id filter
-                if (collectedLessons.isEmpty()) {
-                    try {
-                        val noPhaseQuery = GraphQlQuery(
-                            operationName = "GetStudentSpecificLessonsNoPhase",
-                            query = """
-                                query GetStudentSpecificLessonsNoPhase(${'$'}program_id: String!, ${'$'}start_date: String!, ${'$'}end_date: String!) {
-                                  studentSpecificLessons(program_id: ${'$'}program_id, start_date: ${'$'}start_date, end_date: ${'$'}end_date) {
-                                    data {
-                                      access_level
-                                      hw_type
-                                      start_time
-                                      subject_id
-                                      subject_name
-                                      title
-                                      end_time
-                                      icon
-                                      id
-                                      content_id
-                                      content_type
-                                      user_activity_state
-                                      batch_id
-                                      chapter_id
-                                      live_class {
-                                        chapter_id
-                                        chapter_name
-                                        end_time
-                                        is_on_going
-                                        recording_url
-                                        start_time
-                                        subject_name
-                                        subject_id
-                                        id
-                                        type
-                                      }
-                                      model_test {
-                                        result_publish_time
-                                        type
-                                        exam_category
-                                      }
-                                      topics {
-                                        id
-                                        name
-                                      }
-                                      color_code
-                                      phase_id
-                                    }
-                                  }
-                                }
-                            """.trimIndent(),
-                            variables = mapOf(
-                                "program_id" to programId,
-                                "start_date" to startDate,
-                                "end_date" to endDate
-                            )
-                        )
-                        val response = apiService.getStudentLessons(noPhaseQuery)
-                        val directLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
-                        collectedLessons.addAll(directLessons)
-                    } catch (_: Exception) {}
-                }
-
-                // 4. If still empty, query without date range restriction across all phases
-                if (collectedLessons.isEmpty() && validPhases.isNotEmpty()) {
-                    for (phaseId in validPhases) {
-                        try {
-                            val allPhaseLessonsQuery = GraphQlQuery(
-                                operationName = "GetStudentSpecificLessonsPhaseAll",
-                                query = """
-                                    query GetStudentSpecificLessonsPhaseAll(${'$'}program_id: String!, ${'$'}phase_id: String!) {
-                                      studentSpecificLessons(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id) {
-                                        data {
-                                          access_level
-                                          hw_type
-                                          start_time
-                                          subject_id
-                                          subject_name
-                                          title
-                                          end_time
-                                          icon
-                                          id
-                                          content_id
-                                          content_type
-                                          user_activity_state
-                                          batch_id
-                                          chapter_id
-                                          live_class {
-                                            chapter_id
-                                            chapter_name
-                                            end_time
-                                            is_on_going
-                                            recording_url
-                                            start_time
-                                            subject_name
-                                            subject_id
-                                            id
-                                            type
-                                          }
-                                          model_test {
-                                            result_publish_time
-                                            type
-                                            exam_category
-                                          }
-                                          topics {
-                                            id
-                                            name
-                                          }
-                                          color_code
-                                          phase_id
-                                        }
-                                      }
-                                    }
-                                """.trimIndent(),
-                                variables = mapOf(
-                                    "program_id" to programId,
-                                    "phase_id" to phaseId
-                                )
-                            )
-                            val response = apiService.getStudentLessons(allPhaseLessonsQuery)
-                            val phaseLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
-                            collectedLessons.addAll(phaseLessons)
-                        } catch (_: Exception) {}
-                    }
-                }
-
-                // 5. If still empty, query without phase_id AND without date range
-                if (collectedLessons.isEmpty()) {
-                    try {
-                        val noPhaseNoDateQuery = GraphQlQuery(
-                            operationName = "GetStudentSpecificLessonsNoPhaseAll",
-                            query = """
-                                query GetStudentSpecificLessonsNoPhaseAll(${'$'}program_id: String!) {
-                                  studentSpecificLessons(program_id: ${'$'}program_id) {
-                                    data {
-                                      access_level
-                                      hw_type
-                                      start_time
-                                      subject_id
-                                      subject_name
-                                      title
-                                      end_time
-                                      icon
-                                      id
-                                      content_id
-                                      content_type
-                                      user_activity_state
-                                      batch_id
-                                      chapter_id
-                                      live_class {
-                                        chapter_id
-                                        chapter_name
-                                        end_time
-                                        is_on_going
-                                        recording_url
-                                        start_time
-                                        subject_name
-                                        subject_id
-                                        id
-                                        type
-                                      }
-                                      model_test {
-                                        result_publish_time
-                                        type
-                                        exam_category
-                                      }
-                                      topics {
-                                        id
-                                        name
-                                      }
-                                      color_code
-                                      phase_id
-                                    }
-                                  }
-                                }
-                            """.trimIndent(),
-                            variables = mapOf("program_id" to programId)
-                        )
-                        val response = apiService.getStudentLessons(noPhaseNoDateQuery)
-                        val directLessons = response.data?.studentSpecificLessons?.data ?: emptyList()
-                        collectedLessons.addAll(directLessons)
-                    } catch (_: Exception) {}
-                }
-
-                // Deduplicate by ID and sort chronologically
-                val distinctLessons = collectedLessons
-                    .distinctBy { it.id.ifBlank { "${it.content_id}_${it.start_time}" } }
-                    .sortedBy { it.start_time ?: "" }
-
+                val routineResponse = apiService.getStudentLessons(routineQuery)
+                val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
+                com.example.course.LessonCacheManager.saveLessons(routineLessons)
                 _uiState.value = _uiState.value.copy(
-                    weeklyRoutine = distinctLessons,
+                    weeklyRoutine = routineLessons.sortedBy { it.start_time ?: "" },
                     isRoutineLoading = false
                 )
             } catch (e: Exception) {

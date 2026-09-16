@@ -276,7 +276,7 @@ fun SubjectChaptersScreen(
                                 selectedMode = 0,
                                 onSelectMode = { mode ->
                                     if (mode == 1) {
-                                        onNavigateToAnimatedChapters?.invoke(subjectCode, subjectTitle)
+                                        // DISABLED: Animated lessons navigation disabled per user request
                                     } else if (mode == 2) {
                                         onNavigateToPracticeQuiz?.invoke(subjectCode, subjectTitle, subjectColorHex)
                                     } else if (mode == 3) {

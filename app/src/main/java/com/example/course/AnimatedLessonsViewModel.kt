@@ -40,12 +40,16 @@ class AnimatedLessonsViewModel(
     val topicsUiState: StateFlow<AnimatedTopicsUiState> = _topicsUiState.asStateFlow()
 
     fun loadAnimatedChapters(subjectCode: String, subjectTitle: String) {
+        // DISABLED: Animated lessons disabled per user request (kept inactive)
+        _chaptersUiState.value = AnimatedChaptersUiState(
+            isLoading = false,
+            subjectCode = subjectCode,
+            subjectTitle = subjectTitle,
+            chapters = emptyList(),
+            errorMessage = "এনিমেটেড লেসন ফিচারটি বর্তমানে ডিজেবল রয়েছে।"
+        )
+        /*
         viewModelScope.launch {
-            _chaptersUiState.value = AnimatedChaptersUiState(
-                isLoading = true,
-                subjectCode = subjectCode,
-                subjectTitle = subjectTitle
-            )
             try {
                 val chapters = repository.getChaptersBySubjectCode(subjectCode)
                 _chaptersUiState.value = _chaptersUiState.value.copy(
@@ -59,22 +63,26 @@ class AnimatedLessonsViewModel(
                 )
             }
         }
+        */
     }
 
     fun loadAnimatedTopics(chapterId: String, chapterName: String, subjectCode: String) {
+        // DISABLED: Animated lessons disabled per user request (kept inactive)
+        _topicsUiState.value = AnimatedTopicsUiState(
+            isLoading = false,
+            chapterId = chapterId,
+            chapterName = chapterName,
+            subjectCode = subjectCode,
+            topics = emptyList(),
+            errorMessage = "এনিমেটেড লেসন ফিচারটি বর্তমানে ডিজেবল রয়েছে।"
+        )
+        /*
         viewModelScope.launch {
-            _topicsUiState.value = AnimatedTopicsUiState(
-                isLoading = true,
-                chapterId = chapterId,
-                chapterName = chapterName,
-                subjectCode = subjectCode
-            )
             try {
                 var topics = if (chapterId.isNotBlank()) {
                     repository.getTopics(chapterId)
                 } else emptyList()
 
-                // If chapterId was blank or returned empty, try resolving via GetChapters(subjectCode)
                 if (topics.isEmpty() && subjectCode.isNotBlank()) {
                     val subjectChapters = repository.getChaptersBySubjectCode(subjectCode)
                     val matchedChapter = subjectChapters.find { ch ->
@@ -107,6 +115,7 @@ class AnimatedLessonsViewModel(
                 )
             }
         }
+        */
     }
 }
 

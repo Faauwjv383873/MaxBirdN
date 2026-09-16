@@ -434,6 +434,9 @@ data class StudentLessonItem(
     val stream_url: String? = null,
     val recording_url: String? = null,
     val session_id: String? = null,
+    val hw_type: String? = null,
+    val phase_id: String? = null,
+    val topics: List<TopicItem>? = null,
     val is_free: Boolean? = false,
     val is_locked: Boolean? = false
 ) {
@@ -654,6 +657,9 @@ data class LiveClassDetails(
     val playback_url: String? = null,
     val hls_url: String? = null,
     val chapter_name: String? = null,
+    val chapter_id: String? = null,
+    val subject_name: String? = null,
+    val subject_id: String? = null,
     val is_on_going: Boolean? = false,
     val start_time: String? = null,
     val end_time: String? = null,
@@ -675,11 +681,11 @@ data class LiveClassDetails(
 ) {
     val liveMeetingUrl: String?
         get() {
-            if (!join_link.isNullOrBlank() && (join_link.startsWith("http://") || join_link.startsWith("https://"))) return join_link
+            if (!join_link.isNullOrBlank() && !join_link.contains("live.shikho.com") && (join_link.startsWith("http://") || join_link.startsWith("https://"))) return join_link
             if (!hms_room_id.isNullOrBlank()) {
                 val cleanId = hms_room_id.trim()
                 val tokenParam = if (!hms_token.isNullOrBlank()) "?token=$hms_token" else ""
-                return "https://live.100ms.live/meeting/$cleanId$tokenParam"
+                return "https://app.100ms.live/meeting/$cleanId$tokenParam"
             }
             return null
         }
@@ -728,7 +734,8 @@ data class LiveClassDetails(
 @JsonClass(generateAdapter = true)
 data class ModelTestDetails(
     val exam_category: String?,
-    val type: String?
+    val type: String?,
+    val result_publish_time: String? = null
 )
 
 // ==========================================
