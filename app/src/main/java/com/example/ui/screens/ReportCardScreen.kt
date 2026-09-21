@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
+import android.app.DownloadManager
+import android.content.Context
 import android.content.Intent
+import android.os.Environment
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -30,13 +34,18 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.api.*
 import com.example.reportcard.ReportCardUiState
@@ -1730,20 +1739,27 @@ fun PodiumColumn(
                 .background(Color(0xFFF1F5F9)),
             contentAlignment = Alignment.Center
         ) {
-            if (!avatarUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = avatarUrl,
-                    contentDescription = name,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Text(
-                    text = name.take(1),
-                    fontSize = if (isWinner) 20.sp else 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = podiumColor
-                )
-            }
+            val formattedAvatar = AvatarUtils.formatAvatarUrl(avatarUrl, name)
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(formattedAvatar)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF1F5F9)), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = podiumColor, strokeWidth = 1.5.dp)
+                    }
+                },
+                error = {
+                    UserInitialBadge(
+                        name = name,
+                        textStyle = TextStyle(fontSize = if (isWinner) 20.sp else 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    )
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -1813,6 +1829,42 @@ fun PodiumColumn(
 }
 
 @Composable
+fun UserInitialBadge(
+    name: String,
+    modifier: Modifier = Modifier,
+    textStyle: TextStyle = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+) {
+    val cleanName = name.trim()
+    val initial = cleanName.take(1).ifBlank { "শ" }
+    val hash = kotlin.math.abs(cleanName.hashCode())
+    val gradientPairs = listOf(
+        Pair(Color(0xFF2563EB), Color(0xFF60A5FA)),
+        Pair(Color(0xFF059669), Color(0xFF34D399)),
+        Pair(Color(0xFFD97706), Color(0xFFFBBF24)),
+        Pair(Color(0xFF7C3AED), Color(0xFFA78BFA)),
+        Pair(Color(0xFFE11D48), Color(0xFFFB7185)),
+        Pair(Color(0xFF0284C7), Color(0xFF38BDF8))
+    )
+    val colorPair = gradientPairs[hash % gradientPairs.size]
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(colorPair.first, colorPair.second)
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = initial,
+            style = textStyle
+        )
+    }
+}
+
+@Composable
 fun LeaderboardUserRowItem(
     userItem: LeaderboardUserItem,
     onClick: () -> Unit = {},
@@ -1866,20 +1918,27 @@ fun LeaderboardUserRowItem(
                     .background(Color(0xFFE2E8F0)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!avatar.isNullOrBlank()) {
-                    AsyncImage(
-                        model = avatar,
-                        contentDescription = name,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Text(
-                        text = name.take(1),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
-                    )
-                }
+                val formattedAvatar = AvatarUtils.formatAvatarUrl(avatar, name)
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(formattedAvatar)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFE2E8F0)), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                        }
+                    },
+                    error = {
+                        UserInitialBadge(
+                            name = name,
+                            textStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        )
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -1954,20 +2013,27 @@ fun StickyMyRankBar(
                     .background(Color(0xFF1E293B)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!userAvatar.isNullOrBlank()) {
-                    AsyncImage(
-                        model = userAvatar,
-                        contentDescription = userName,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Text(
-                        text = userName.take(1).ifBlank { "তু" },
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF38BDF8)
-                    )
-                }
+                val formattedAvatar = AvatarUtils.formatAvatarUrl(userAvatar, userName)
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(formattedAvatar)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = userName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1E293B)), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(12.dp), color = Color(0xFF38BDF8), strokeWidth = 1.5.dp)
+                        }
+                    },
+                    error = {
+                        UserInitialBadge(
+                            name = userName,
+                            textStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        )
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -2013,6 +2079,355 @@ fun StickyMyRankBar(
     }
 }
 
+fun downloadProfileImage(context: Context, imageUrl: String, studentName: String) {
+    if (imageUrl.isBlank()) {
+        Toast.makeText(context, "ডাউনলোড করার মত ছবি নেই", Toast.LENGTH_SHORT).show()
+        return
+    }
+    try {
+        val request = DownloadManager.Request(android.net.Uri.parse(imageUrl)).apply {
+            setTitle("$studentName - প্রোফাইল ছবি")
+            setDescription("ছবি ডাউনলোড হচ্ছে...")
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(
+                Environment.DIRECTORY_DOWNLOADS,
+                "profile_${studentName.replace(" ", "_")}_${System.currentTimeMillis()}.jpg"
+            )
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        if (manager != null) {
+            manager.enqueue(request)
+            Toast.makeText(context, "ডাউনলোড শুরু হয়েছে! নোটিফিকেশন বার চেক করুন", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(context, "ডাউনলোড ম্যানেজার পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "ডাউনলোড করতে সমস্যা হয়েছে: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullScreenImageViewerDialog(
+    imageUrl: String?,
+    studentName: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val formattedUrl = AvatarUtils.formatAvatarUrl(imageUrl, studentName)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.92f))
+        ) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = studentName,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "বন্ধ করুন",
+                        tint = Color.White
+                    )
+                }
+            }
+
+            // Image Center Display
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(formattedUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = studentName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(20.dp)),
+                    loading = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = Color.White)
+                        }
+                    },
+                    error = {
+                        UserInitialBadge(
+                            name = studentName,
+                            textStyle = TextStyle(fontSize = 64.sp, fontWeight = FontWeight.ExtraBold)
+                        )
+                    }
+                )
+            }
+
+            // Bottom Action Bar
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(20.dp),
+                color = Color(0xFF1E293B),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            downloadProfileImage(context, formattedUrl, studentName)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "ডাউনলোড",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "ছবি ডাউনলোড",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("Profile Image URL", formattedUrl)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "ছবির লিংক কপি করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        border = BorderStroke(1.dp, Color(0xFF475569)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "কপি লিংক",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "লিংক কপি",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SocialContactSection(
+    phone: String,
+    context: Context
+) {
+    if (phone.isBlank()) return
+
+    val rawDigits = phone.filter { it.isDigit() }
+    val formattedPhone = when {
+        rawDigits.startsWith("880") -> rawDigits
+        rawDigits.startsWith("0") -> "88$rawDigits"
+        rawDigits.length == 10 -> "880$rawDigits"
+        else -> rawDigits
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.ContactPhone,
+                    contentDescription = null,
+                    tint = Color(0xFF16A34A),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "সরাসরি যোগাযোগ করুন",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A)
+                )
+            }
+
+            HorizontalDivider(color = Color(0xFFE2E8F0))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // WhatsApp Button
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val waIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    data = android.net.Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone")
+                                }
+                                context.startActivity(waIntent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "WhatsApp খোলা সম্ভব হয়নি", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFDCFCE7),
+                    border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "💬", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "WhatsApp",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                    }
+                }
+
+                // Telegram Button
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val tgIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    data = android.net.Uri.parse("https://t.me/+$formattedPhone")
+                                }
+                                context.startActivity(tgIntent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Telegram খোলা সম্ভব হয়নি", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFE0F2FE),
+                    border = BorderStroke(1.dp, Color(0xFF7DD3FC))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "✈️", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Telegram",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0369A1)
+                        )
+                    }
+                }
+
+                // Phone Call Button
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val callIntent = Intent(Intent.ACTION_DIAL).apply {
+                                    data = android.net.Uri.parse("tel:$phone")
+                                }
+                                context.startActivity(callIntent)
+                            } catch (_: Exception) {}
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF1F5F9),
+                    border = BorderStroke(1.dp, Color(0xFFCBD5E1))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = "কল",
+                            tint = Color(0xFF334155),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "কল করুন",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF334155)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudentProfileDetailDialog(
@@ -2030,46 +2445,59 @@ fun StudentProfileDetailDialog(
         if (combined.isNotBlank()) combined else (user?.name ?: "শিক্ষার্থী")
     }
 
-    val avatar = fullProfile?.avatar ?: user?.avatar
-    val phone = fullProfile?.user?.phone ?: user?.effectivePhone ?: ""
-    val email = fullProfile?.user?.email ?: ""
+    val rawAvatar = fullProfile?.avatar ?: user?.avatar
+    val formattedAvatar = AvatarUtils.formatAvatarUrl(rawAvatar, name)
+
+    val phone = (fullProfile?.user?.phone ?: user?.phone ?: "").trim()
+    val email = (fullProfile?.user?.email ?: "").trim()
 
     val gender = run {
         val raw = fullProfile?.gender ?: user?.gender
         when (raw?.lowercase()) {
             "male", "পুরুষ" -> "পুরুষ"
             "female", "নারী", "মহিলা" -> "মহিলা"
-            else -> raw ?: "তথ্য দেয়া নেই"
+            else -> raw?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
         }
     }
 
-    val dob = fullProfile?.dob ?: user?.dob ?: "তথ্য দেয়া নেই"
+    val dob = fullProfile?.dob?.takeIf { it.isNotBlank() && it.lowercase() != "null" } ?: user?.dob?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
 
-    val guardianName = fullProfile?.guardian_name ?: "তথ্য দেয়া নেই"
-    val guardianPhone = fullProfile?.guardian_mobile ?: "তথ্য দেয়া নেই"
+    val guardianName = fullProfile?.guardian_name?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
+    val guardianPhone = fullProfile?.guardian_mobile?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
 
-    val studyGroup = fullProfile?.study_group ?: user?.group ?: "বিজ্ঞান বিভাগ"
-    val className = fullProfile?.`class`?.display ?: "Class 11"
-    val shift = when (fullProfile?.shift?.lowercase()) {
-        "morning" -> "মর্নিং"
-        "day" -> "ডে"
-        else -> fullProfile?.shift ?: "প্রযোজ্য নয়"
+    val studyGroup = fullProfile?.study_group?.takeIf { it.isNotBlank() && it.lowercase() != "null" } ?: user?.group?.takeIf { it.isNotBlank() } ?: "বিজ্ঞান বিভাগ"
+    val className = fullProfile?.`class`?.display?.takeIf { it.isNotBlank() && it.lowercase() != "null" } ?: "Class 11"
+    val shift = fullProfile?.shift?.takeIf { it.isNotBlank() && it.lowercase() != "null" }?.let {
+        when (it.lowercase()) {
+            "morning" -> "মর্নিং"
+            "day" -> "ডে"
+            else -> it
+        }
     }
 
-    val division = fullProfile?.school?.address?.division?.display ?: "তথ্য দেয়া নেই"
-    val district = fullProfile?.school?.address?.district?.display ?: user?.district ?: "তথ্য দেয়া নেই"
-    val college = fullProfile?.school?.name ?: user?.effectiveCollege ?: "তথ্য দেয়া নেই"
+    val division = fullProfile?.school?.address?.division?.display?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
+    val district = fullProfile?.school?.address?.district?.display?.takeIf { it.isNotBlank() && it.lowercase() != "null" } ?: user?.district?.takeIf { it.isNotBlank() }
+    val college = fullProfile?.school?.name?.takeIf { it.isNotBlank() && it.lowercase() != "null" } ?: user?.effectiveCollege?.takeIf { it.isNotBlank() && it != "কলেজ নাম পাওয়া যায়নি" } ?: "শিক্ষা প্রতিষ্ঠান"
 
-    val sscBoard = fullProfile?.ssc_board_name ?: "তথ্য দেয়া নেই"
-    val sscRoll = fullProfile?.board_roll_number ?: "তথ্য দেয়া নেই"
-    val regNo = fullProfile?.board_reg_number ?: "তথ্য দেয়া নেই"
-    val hscBoard = fullProfile?.hsc_board_name ?: "তথ্য দেয়া নেই"
-    val hscRoll = fullProfile?.hsc_board_roll_number ?: "তথ্য দেয়া নেই"
+    val sscBoard = fullProfile?.ssc_board_name?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
+    val sscRoll = fullProfile?.board_roll_number?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
+    val regNo = fullProfile?.board_reg_number?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
+    val hscBoard = fullProfile?.hsc_board_name?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
+    val hscRoll = fullProfile?.hsc_board_roll_number?.takeIf { it.isNotBlank() && it.lowercase() != "null" }
 
     val rank = userItem.rank
     val score = userItem.score
 
     val context = LocalContext.current
+    var showFullScreenAvatar by remember { mutableStateOf(false) }
+
+    if (showFullScreenAvatar) {
+        FullScreenImageViewerDialog(
+            imageUrl = formattedAvatar,
+            studentName = name,
+            onDismiss = { showFullScreenAvatar = false }
+        )
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2180,27 +2608,64 @@ fun StudentProfileDetailDialog(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(72.dp)
+                                .size(84.dp)
                                 .clip(CircleShape)
                                 .border(3.dp, Color(0xFF3B82F6), CircleShape)
-                                .background(Color(0xFFE0F2FE)),
+                                .background(Color(0xFFE0F2FE))
+                                .clickable { showFullScreenAvatar = true },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (!avatar.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = avatar,
-                                    contentDescription = name,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Text(
-                                    text = name.take(1),
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0284C7)
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(formattedAvatar)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                                loading = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().background(Color(0xFFE0F2FE)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    }
+                                },
+                                error = {
+                                    UserInitialBadge(
+                                        name = name,
+                                        textStyle = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    )
+                                }
+                            )
+
+                            // Zoom Badge Overlay
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2563EB))
+                                    .border(1.5.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ZoomIn,
+                                    contentDescription = "বড় করে দেখুন",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "🔍 ছবিতে চাপ দিয়ে বড় করুন ও ডাউনলোড করুন",
+                            fontSize = 11.sp,
+                            color = Color(0xFF2563EB),
+                            fontWeight = FontWeight.Medium
+                        )
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -2258,6 +2723,11 @@ fun StudentProfileDetailDialog(
                     }
                 }
 
+                // WhatsApp, Telegram, Direct Call Quick Connect
+                if (phone.isNotBlank()) {
+                    SocialContactSection(phone = phone, context = context)
+                }
+
                 // Section 1: 👤 ব্যক্তিগত তথ্য (Personal Information)
                 ProfileSectionCard(
                     sectionTitle = "ব্যক্তিগত তথ্য",
@@ -2293,21 +2763,21 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.Email,
                         iconTint = Color(0xFF0284C7),
                         label = "ইমেইল",
-                        value = email
+                        value = email.ifBlank { "তথ্য দেয়া নেই" }
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Wc,
                         iconTint = Color(0xFF8B5CF6),
                         label = "লিঙ্গ",
-                        value = gender
+                        value = gender ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Cake,
                         iconTint = Color(0xFFEC4899),
                         label = "জন্ম তারিখ",
-                        value = dob
+                        value = dob ?: "তথ্য দেয়া নেই"
                     )
                 }
 
@@ -2321,20 +2791,21 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.Person,
                         iconTint = Color(0xFF7C3AED),
                         label = "অভিভাবকের নাম",
-                        value = guardianName
+                        value = guardianName ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF16A34A),
                         label = "অভিভাবকের মোবাইল নম্বর",
-                        value = guardianPhone,
-                        isClickable = guardianPhone.isNotBlank() && guardianPhone != "তথ্য দেয়া নেই",
+                        value = guardianPhone ?: "তথ্য দেয়া নেই",
+                        isClickable = !guardianPhone.isNullOrBlank(),
                         onClick = {
-                            if (guardianPhone.isNotBlank() && guardianPhone != "তথ্য দেয়া নেই") {
+                            val gPhone = guardianPhone
+                            if (!gPhone.isNullOrBlank()) {
                                 try {
                                     val intent = Intent(Intent.ACTION_DIAL).apply {
-                                        data = android.net.Uri.parse("tel:${guardianPhone.replace("-", "").replace(" ", "")}")
+                                        data = android.net.Uri.parse("tel:${gPhone.replace("-", "").replace(" ", "")}")
                                     }
                                     context.startActivity(intent)
                                 } catch (_: Exception) {}
@@ -2360,21 +2831,21 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.Schedule,
                         iconTint = Color(0xFF0284C7),
                         label = "শিফট (Shift)",
-                        value = shift
+                        value = shift ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Map,
                         iconTint = Color(0xFF059669),
                         label = "বিভাগ (Division)",
-                        value = division
+                        value = division ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.LocationOn,
                         iconTint = Color(0xFFE11D48),
                         label = "জেলা (District)",
-                        value = district
+                        value = district ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
@@ -2395,35 +2866,35 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.AccountBalance,
                         iconTint = Color(0xFF059669),
                         label = "এসএসসি বোর্ড",
-                        value = sscBoard
+                        value = sscBoard ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Numbers,
                         iconTint = Color(0xFF6366F1),
                         label = "এসএসসি রোল নম্বর",
-                        value = sscRoll
+                        value = sscRoll ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Pin,
                         iconTint = Color(0xFF8B5CF6),
                         label = "বোর্ড রেজিস্ট্রেশন নম্বর",
-                        value = regNo
+                        value = regNo ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.AccountBalance,
                         iconTint = Color(0xFF0284C7),
                         label = "এইচএসসি বোর্ড",
-                        value = hscBoard
+                        value = hscBoard ?: "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Numbers,
                         iconTint = Color(0xFFD97706),
                         label = "এইচএসসি রোল নম্বর",
-                        value = hscRoll
+                        value = hscRoll ?: "তথ্য দেয়া নেই"
                     )
                 }
             }
