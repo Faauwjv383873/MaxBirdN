@@ -71,7 +71,8 @@ fun SubjectChaptersScreen(
         viewModel.loadChaptersForSubject(
             subjectCode = subjectCode,
             subjectTitle = subjectTitle,
-            subjectColor = subjectColorHex
+            subjectColor = subjectColorHex,
+            phaseId = uiState.activePhaseId.ifBlank { null }
         )
     }
 

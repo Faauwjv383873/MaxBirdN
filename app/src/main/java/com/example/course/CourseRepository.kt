@@ -611,45 +611,7 @@ class CourseRepository(
         val cached = LessonCacheManager.findLessonsForChapter(listOfNotNull(chapterId, altChapterId), chapterName, subjectTitle)
         if (cached.isNotEmpty()) return cached
 
-        // 5. If completely empty, generate high-quality fallback chapter lessons so the user has content
-        val effName = chapterName?.ifBlank { null } ?: "অধ্যায় ক্লাস"
-        val fallbackLessons = listOf(
-            StudentLessonItem(
-                id = "${chapterId}_lecture_1",
-                title = "$effName - বেসিক ধারণা ও সূত্র পরিচিতি",
-                content_id = "${chapterId}_c1",
-                content_type = "RecordedClass",
-                access_level = "FREE",
-                chapter_id = chapterId,
-                subject_name = subjectTitle,
-                is_free = true,
-                is_locked = false
-            ),
-            StudentLessonItem(
-                id = "${chapterId}_lecture_2",
-                title = "$effName - গুরুত্বপূর্ণ গাণিতিক ও বাস্তব সমস্যা সমাধান",
-                content_id = "${chapterId}_c2",
-                content_type = "RecordedClass",
-                access_level = "FREE",
-                chapter_id = chapterId,
-                subject_name = subjectTitle,
-                is_free = true,
-                is_locked = false
-            ),
-            StudentLessonItem(
-                id = "${chapterId}_lecture_3",
-                title = "$effName - বিগত বোর্ড ও ভর্তি পরীক্ষার প্রশ্ন বিশ্লেষণ",
-                content_id = "${chapterId}_c3",
-                content_type = "RecordedClass",
-                access_level = "FREE",
-                chapter_id = chapterId,
-                subject_name = subjectTitle,
-                is_free = true,
-                is_locked = false
-            )
-        )
-        LessonCacheManager.saveLessons(fallbackLessons)
-        return fallbackLessons
+        return emptyList()
     }
 
     suspend fun getLiveClassDetails(liveClassId: String): AcademicProgramLiveClassItem? {

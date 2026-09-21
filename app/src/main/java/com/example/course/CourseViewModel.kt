@@ -455,12 +455,17 @@ class CourseViewModel(
         val progId = if (currentProgId.isNotBlank()) currentProgId else (sessionManager.getActiveProgramId() ?: "")
         val targetPhaseId = phaseId ?: _uiState.value.activePhaseId
         
-        val matchedPhase = _uiState.value.phases.find { it.id == targetPhaseId }
-            ?: _uiState.value.selectedPhase
-            ?: _uiState.value.phases.firstOrNull { it.is_current == true }
-            ?: _uiState.value.phases.firstOrNull()
+        val matchedPhase = if (targetPhaseId.isNotBlank()) {
+            _uiState.value.phases.find { it.id == targetPhaseId }
+        } else {
+            _uiState.value.selectedPhase
+                ?: _uiState.value.phases.firstOrNull { it.is_current == true }
+                ?: _uiState.value.phases.firstOrNull()
+        }
 
-        val cacheKey = "${progId}_${subjectCode}_${matchedPhase?.id ?: targetPhaseId}"
+        val effectivePhaseId = matchedPhase?.id ?: targetPhaseId
+
+        val cacheKey = "${progId}_${subjectCode}_${effectivePhaseId}"
         val cachedChapters = chaptersCache[cacheKey]
 
         _uiState.update {
@@ -470,7 +475,7 @@ class CourseViewModel(
                 selectedSubjectTitle = subjectTitle ?: it.selectedSubjectTitle,
                 selectedSubjectColor = subjectColor ?: it.selectedSubjectColor,
                 selectedPhase = matchedPhase,
-                activePhaseId = matchedPhase?.id ?: targetPhaseId,
+                activePhaseId = effectivePhaseId,
                 activePhaseTitle = matchedPhase?.title ?: it.activePhaseTitle,
                 chapters = cachedChapters ?: emptyList(),
                 isChaptersLoading = cachedChapters == null,
@@ -481,7 +486,7 @@ class CourseViewModel(
         viewModelScope.launch {
             try {
                 var currentPhases = _uiState.value.phases
-                var effectivePhaseId = _uiState.value.activePhaseId
+                var currentEffectivePhaseId = effectivePhaseId
 
                 if (currentPhases.isEmpty() || _uiState.value.programId != progId) {
                     try {
@@ -490,18 +495,19 @@ class CourseViewModel(
                             currentPhases = fetchedPhases
                             val activePhase = if (targetPhaseId.isNotBlank()) {
                                 fetchedPhases.find { it.id == targetPhaseId }
-                            } else null
-                                ?: fetchedPhases.firstOrNull { it.is_current == true }
-                                ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
-                                ?: fetchedPhases.firstOrNull()
+                            } else {
+                                fetchedPhases.firstOrNull { it.is_current == true }
+                                    ?: fetchedPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                                    ?: fetchedPhases.firstOrNull()
+                            }
 
-                            effectivePhaseId = activePhase?.id ?: targetPhaseId
+                            currentEffectivePhaseId = activePhase?.id ?: targetPhaseId
                             _uiState.update {
                                 it.copy(
                                     programId = progId,
                                     phases = fetchedPhases,
                                     selectedPhase = activePhase,
-                                    activePhaseId = effectivePhaseId,
+                                    activePhaseId = currentEffectivePhaseId,
                                     activePhaseTitle = activePhase?.title ?: ""
                                 )
                             }
@@ -514,45 +520,18 @@ class CourseViewModel(
                 var chaptersList = emptyList<AcademicChapterItem>()
                 var queryError: Exception? = null
 
-                // 1. If phaseId / effectivePhaseId is set, fetch phase/quarter-wise chapters first
-                if (effectivePhaseId.isNotBlank()) {
+                // 1. If phaseId / effectivePhaseId is set, fetch phase/quarter-wise chapters strictly for this phase
+                if (currentEffectivePhaseId.isNotBlank()) {
                     try {
-                        chaptersList = repository.getPhaseWiseChapters(progId, effectivePhaseId, subjectCode)
+                        chaptersList = repository.getPhaseWiseChapters(progId, currentEffectivePhaseId, subjectCode)
                     } catch (e: Exception) {
                         queryError = e
-                        Log.e("CourseViewModel", "Error fetching phase-wise chapters for phase=$effectivePhaseId: ${e.message}", e)
+                        Log.e("CourseViewModel", "Error fetching phase-wise chapters for phase=$currentEffectivePhaseId: ${e.message}", e)
                     }
                 }
 
-                // 2. If no phase-specific chapters found on initial entry (phaseId == null) and multiple phases exist,
-                // check if chapters exist in another phase (e.g. Quarter 1)
-                if (chaptersList.isEmpty() && currentPhases.size > 1) {
-                    for (p in currentPhases) {
-                        if (p.id != effectivePhaseId && p.id.isNotBlank()) {
-                            try {
-                                val altList = repository.getPhaseWiseChapters(progId, p.id, subjectCode)
-                                if (altList.isNotEmpty()) {
-                                    chaptersList = altList
-                                    effectivePhaseId = p.id
-                                    _uiState.update {
-                                        it.copy(
-                                            selectedPhase = p,
-                                            activePhaseId = p.id,
-                                            activePhaseTitle = p.title ?: ""
-                                        )
-                                    }
-                                    break
-                                }
-                            } catch (e: Exception) {
-                                queryError = e
-                                Log.e("CourseViewModel", "Error checking alternate phase ${p.id}: ${e.message}", e)
-                            }
-                        }
-                    }
-                }
-
-                // 3. If still empty or no phase was set, try query without phase_id
-                if (chaptersList.isEmpty()) {
+                // 2. Only if the program has NO phases at all, try query without phase_id
+                if (chaptersList.isEmpty() && currentPhases.isEmpty()) {
                     try {
                         val fallbackList = repository.getAcademicProgramChaptersFallback(progId, subjectCode)
                         if (fallbackList.isNotEmpty()) {
@@ -565,32 +544,13 @@ class CourseViewModel(
                 }
 
                 if (chaptersList.isNotEmpty()) {
-                    chaptersCache[cacheKey] = chaptersList
-                    val pId = progId
-                    val phId = effectivePhaseId
-                    chaptersList.take(6).forEach { chapter ->
-                        val cid = (chapter.id ?: chapter.chapter_id ?: "").ifBlank { chapter.chapter_id ?: "" }
-                        if (cid.isNotBlank() && !lessonsCache.containsKey(cid)) {
-                            viewModelScope.launch {
-                                try {
-                                    val l1 = if (phId.isNotBlank()) repository.fetchLessonsWithPhase(cid, pId, phId, chapter.effectiveName) else emptyList()
-                                    val l2 = if (l1.isEmpty()) repository.fetchLessonsStandard(cid, pId, chapter.effectiveName) else l1
-                                    // DISABLED: Animated topic pre-caching disabled per user request
-                                    val l3 = l2
-                                    if (l3.isNotEmpty()) {
-                                        lessonsCache[cid] = l3
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("CourseViewModel", "Error pre-caching lessons for chapter $cid: ${e.message}", e)
-                                }
-                            }
-                        }
-                    }
+                    val finalCacheKey = "${progId}_${subjectCode}_${currentEffectivePhaseId}"
+                    chaptersCache[finalCacheKey] = chaptersList
                 }
 
                 val finalError = if (chaptersList.isEmpty()) {
                     if (queryError != null) "অধ্যায় লোড করতে সমস্যা হয়েছে: ${queryError.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}"
-                    else "এই বিষয়ে কোনো অধ্যায় পাওয়া যায়নি"
+                    else null
                 } else null
 
                 _uiState.update {
@@ -613,16 +573,24 @@ class CourseViewModel(
     }
 
     fun onSelectPhaseTab(phase: PhaseItem) {
+        val currentSubjectCode = _uiState.value.selectedSubjectCode
         _uiState.update {
             it.copy(
                 selectedPhase = phase,
                 activePhaseId = phase.id,
-                activePhaseTitle = phase.title ?: ""
+                activePhaseTitle = phase.title ?: "",
+                isChaptersLoading = true,
+                chapters = emptyList(),
+                chaptersErrorMessage = null
             )
         }
-        val currentSubjectCode = _uiState.value.selectedSubjectCode
         if (currentSubjectCode.isNotBlank()) {
-            loadChaptersForSubject(subjectCode = currentSubjectCode, phaseId = phase.id)
+            loadChaptersForSubject(
+                subjectCode = currentSubjectCode,
+                subjectTitle = _uiState.value.selectedSubjectTitle,
+                subjectColor = _uiState.value.selectedSubjectColor,
+                phaseId = phase.id
+            )
         }
     }
 
@@ -656,8 +624,41 @@ class CourseViewModel(
             matchingChapter?.chapter_id
         ).filter { it.isNotBlank() }.distinct()
 
-        val cachedFromManager = LessonCacheManager.findLessonsForChapter(candidateChapterIds, effChapterName, subjectTitle)
-        val initialCached = if (cachedFromManager.isNotEmpty()) cachedFromManager else lessonsCache[effChapterId]
+        // Chapters in this quarter other than the selected chapter
+        val otherChapters = _uiState.value.chapters.filter { ch ->
+            val cid1 = ch.id.trim()
+            val cid2 = (ch.chapter_id ?: "").trim()
+            !candidateChapterIds.contains(cid1) && !candidateChapterIds.contains(cid2)
+        }
+        val otherChapterIds = otherChapters.flatMap { 
+            listOfNotNull(it.id.takeIf { s -> s.isNotBlank() }, it.chapter_id?.takeIf { s -> s.isNotBlank() })
+        }.distinct()
+        val otherChapterNames = otherChapters.mapNotNull { it.effectiveName.takeIf { s -> s.isNotBlank() } }
+        val chapterNoStr = matchingChapter?.effectiveNo?.toString()
+
+        val cachedFromManager = LessonCacheManager.findLessonsForChapter(
+            candidateChapterIds = candidateChapterIds,
+            chapterName = effChapterName,
+            subjectTitle = subjectTitle,
+            otherChapterIds = otherChapterIds,
+            otherChapterNames = otherChapterNames,
+            chapterNo = chapterNoStr
+        )
+        val initialCached = if (cachedFromManager.isNotEmpty()) {
+            cachedFromManager
+        } else {
+            lessonsCache[effChapterId]?.let { rawList ->
+                LessonCacheManager.filterLessons(
+                    lessons = rawList,
+                    candidateChapterIds = candidateChapterIds,
+                    chapterName = effChapterName,
+                    subjectTitle = subjectTitle,
+                    otherChapterIds = otherChapterIds,
+                    otherChapterNames = otherChapterNames,
+                    chapterNo = chapterNoStr
+                )
+            }
+        }
 
         _uiState.update {
             it.copy(
@@ -665,7 +666,7 @@ class CourseViewModel(
                 selectedChapterName = effChapterName ?: it.selectedChapterName,
                 selectedChapterStatus = chapterStatus ?: matchingChapter?.status ?: it.selectedChapterStatus,
                 lessons = initialCached ?: emptyList(),
-                isLessonsLoading = initialCached == null,
+                isLessonsLoading = initialCached.isNullOrEmpty(),
                 lessonsErrorMessage = null,
                 lessonsDiagnosticInfo = null
             )
@@ -673,7 +674,6 @@ class CourseViewModel(
 
         viewModelScope.launch {
             try {
-                // Safety Guard: phaseId ফাঁকা থাকা ঠেকাতে সেফটি গার্ড
                 var phaseId = _uiState.value.activePhaseId.ifBlank {
                     _uiState.value.phases.firstOrNull { it.is_current == true }?.id
                         ?: _uiState.value.phases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }?.id
@@ -696,7 +696,7 @@ class CourseViewModel(
 
                 var lessonList = emptyList<StudentLessonItem>()
 
-                // ১. অফিশিয়াল কোয়েরি দিয়ে অধ্যায়ের সকল লেকচার ও ক্লাস ফেচ করা
+                // 1. Fetch upcoming lessons phase-wise for this program and phase
                 if (effChapterId.isNotBlank() && phaseId.isNotBlank() && progId.isNotBlank()) {
                     try {
                         val query = GraphQlQuery(
@@ -726,14 +726,29 @@ class CourseViewModel(
                         val res = apiService.getUpcomingLessonsPhaseWise(query)
                         val fetched = res.data?.upcomingLessonsPhaseWise?.data
                         if (!fetched.isNullOrEmpty()) {
-                            lessonList = fetched
+                            // Save to global cache so routine/calendar views have the lessons
+                            LessonCacheManager.saveLessons(fetched)
+
+                            // CRITICAL: Filter fetched lessons strictly to ONLY those belonging to this specific chapter!
+                            val matched = LessonCacheManager.filterLessons(
+                                lessons = fetched,
+                                candidateChapterIds = candidateChapterIds,
+                                chapterName = effChapterName,
+                                subjectTitle = subjectTitle,
+                                otherChapterIds = otherChapterIds,
+                                otherChapterNames = otherChapterNames,
+                                chapterNo = chapterNoStr
+                            )
+                            if (matched.isNotEmpty()) {
+                                lessonList = matched
+                            }
                         }
                     } catch (netErr: Exception) {
                         android.util.Log.e("CourseViewModel", "Error in upcomingLessonsPhaseWise: ${netErr.message}")
                     }
                 }
 
-                // Fallback to repository topics or cached lessons if empty
+                // 2. If empty, check repository
                 if (lessonList.isEmpty()) {
                     val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
                     val fallbackLessons = repository.fetchChapterLessons(
@@ -746,10 +761,22 @@ class CourseViewModel(
                         batchId = batchId
                     )
                     if (fallbackLessons.isNotEmpty()) {
-                        lessonList = fallbackLessons
+                        val filteredFallback = LessonCacheManager.filterLessons(
+                            lessons = fallbackLessons,
+                            candidateChapterIds = candidateChapterIds,
+                            chapterName = effChapterName,
+                            subjectTitle = subjectTitle,
+                            otherChapterIds = otherChapterIds,
+                            otherChapterNames = otherChapterNames,
+                            chapterNo = chapterNoStr
+                        )
+                        if (filteredFallback.isNotEmpty()) {
+                            lessonList = filteredFallback
+                        }
                     }
                 }
 
+                // 3. Fallback to initialCached if non-empty
                 if (lessonList.isEmpty() && initialCached != null && initialCached.isNotEmpty()) {
                     lessonList = initialCached
                 }
@@ -768,7 +795,14 @@ class CourseViewModel(
                     )
                 }
             } catch (e: Exception) {
-                val fallbackCached = LessonCacheManager.findLessonsForChapter(candidateChapterIds, effChapterName, subjectTitle)
+                val fallbackCached = LessonCacheManager.findLessonsForChapter(
+                    candidateChapterIds = candidateChapterIds,
+                    chapterName = effChapterName,
+                    subjectTitle = subjectTitle,
+                    otherChapterIds = otherChapterIds,
+                    otherChapterNames = otherChapterNames,
+                    chapterNo = chapterNoStr
+                )
                 val finalFallback = if (fallbackCached.isNotEmpty()) fallbackCached else initialCached ?: emptyList()
                 _uiState.update {
                     it.copy(
