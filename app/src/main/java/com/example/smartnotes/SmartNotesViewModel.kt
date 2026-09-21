@@ -351,7 +351,16 @@ class SmartNotesViewModel(
                 val chapterIds = if (isSubjectSpecific || chapterId.isNullOrBlank()) {
                     emptyList()
                 } else {
-                    listOf(chapterId)
+                    val candidateIds = mutableListOf<String>()
+                    if (chapterId.isNotBlank()) candidateIds.add(chapterId)
+                    val matchedChapter = _uiState.value.chapters.firstOrNull {
+                        it.id == chapterId || it.chapter_id == chapterId
+                    }
+                    val resolvedAltChapterId = matchedChapter?.let { if (it.id == chapterId) it.chapter_id else it.id }
+                    if (!resolvedAltChapterId.isNullOrBlank() && resolvedAltChapterId != chapterId) {
+                        candidateIds.add(resolvedAltChapterId)
+                    }
+                    candidateIds
                 }
 
                 val attachments = repository.getResourceAttachmentsOfChapter(

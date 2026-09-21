@@ -1015,6 +1015,7 @@ fun VideoPlayerScreen(
             VideoDownloadQualityDialog(
                 videoUrl = effectivePlaybackUrl,
                 title = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
+                downloadedItem = downloadedItem,
                 onDismiss = { showDownloadQualityDialog = false },
                 onConfirmDownload = { selectedQuality ->
                     showDownloadQualityDialog = false

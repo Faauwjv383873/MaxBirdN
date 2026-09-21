@@ -346,6 +346,7 @@ fun LessonDetailPlayerScreen(
         VideoDownloadQualityDialog(
             videoUrl = downloadSourceUrl,
             title = lesson?.title ?: "ক্লাস ভিডিও",
+            downloadedItem = videoDownloadedItem,
             onDismiss = { showDownloadQualityDialog = false },
             onConfirmDownload = { selectedQuality ->
                 showDownloadQualityDialog = false

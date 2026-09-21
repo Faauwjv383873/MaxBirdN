@@ -172,6 +172,223 @@ class AppFileDownloadManager private constructor(
     }
 
     /**
+     * Fetches and parses the master playlist to get the actual available resolutions.
+     */
+    suspend fun getRealAvailableDownloadQualities(inputUrl: String): List<DownloadQualityOption> = withContext(Dispatchers.IO) {
+        if (inputUrl.isBlank()) return@withContext emptyList()
+
+        try {
+            val request = Request.Builder()
+                .url(inputUrl)
+                .addHeader("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)")
+                .addHeader("referer", "https://shikho.com/")
+                .addHeader("Referer", "https://shikho.com/")
+                .addHeader("Origin", "https://shikho.com")
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful || response.body == null) {
+                return@withContext getAvailableDownloadQualities(inputUrl)
+            }
+
+            val playlistContent = response.body!!.string()
+            if (!playlistContent.contains("#EXT-X-STREAM-INF")) {
+                return@withContext listOf(
+                    DownloadQualityOption(
+                        id = "original",
+                        labelBangla = "মূল ভিডিও কোয়ালিটি",
+                        descriptionBangla = "ভিডিওটির মূল স্ট্রিম অনুযায়ী ডাউনলোড হবে",
+                        estimatedSizeBangla = "স্ট্রিম সাইজ অনুযায়ী",
+                        targetM3u8Url = inputUrl,
+                        isRecommended = true
+                    )
+                )
+            }
+
+            val lines = playlistContent.lines()
+            val detectedQualities = mutableSetOf<String>()
+
+            for (i in lines.indices) {
+                val line = lines[i].trim()
+                if (line.startsWith("#EXT-X-STREAM-INF")) {
+                    val resMatch = Regex("RESOLUTION=(\\d+)x(\\d+)").find(line)
+                    val nextLine = lines.getOrNull(i + 1)?.trim() ?: ""
+
+                    if (resMatch != null) {
+                        val width = resMatch.groupValues[1].toInt()
+                        val height = resMatch.groupValues[2].toInt()
+
+                        val qualityId = when {
+                            height >= 1080 || width >= 1920 -> "1080p"
+                            height >= 720 || width >= 1280 -> "720p"
+                            height >= 480 || width >= 840 -> "480p"
+                            height >= 360 || width >= 600 -> "360p"
+                            else -> "240p"
+                        }
+
+                        if (nextLine.isNotBlank() && !nextLine.startsWith("#")) {
+                            detectedQualities.add(qualityId)
+                        }
+                    } else {
+                        val nextLineLower = nextLine.lowercase()
+                        val qualityId = when {
+                            nextLineLower.contains("1080p") || nextLineLower.contains("stream_0") -> "1080p"
+                            nextLineLower.contains("720p") || nextLineLower.contains("stream_1") -> "720p"
+                            nextLineLower.contains("480p") || nextLineLower.contains("stream_2") -> "480p"
+                            nextLineLower.contains("360p") || nextLineLower.contains("stream_3") -> "360p"
+                            nextLineLower.contains("240p") || nextLineLower.contains("stream_4") -> "240p"
+                            else -> null
+                        }
+                        if (qualityId != null) {
+                            detectedQualities.add(qualityId)
+                        }
+                    }
+                }
+            }
+
+            if (detectedQualities.isEmpty()) {
+                return@withContext getAvailableDownloadQualities(inputUrl)
+            }
+
+            val allStandardOptions = getAvailableDownloadQualities(inputUrl)
+            val filteredOptions = allStandardOptions.filter { it.id in detectedQualities }
+
+            if (filteredOptions.isEmpty()) {
+                return@withContext allStandardOptions
+            }
+
+            val has480p = filteredOptions.any { it.id == "480p" }
+            val has360p = filteredOptions.any { it.id == "360p" }
+            val recommendedId = when {
+                has480p -> "480p"
+                has360p -> "360p"
+                else -> filteredOptions.first().id
+            }
+
+            return@withContext filteredOptions.map { option ->
+                option.copy(isRecommended = option.id == recommendedId)
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching available qualities dynamically: ${e.message}", e)
+            return@withContext getAvailableDownloadQualities(inputUrl)
+        }
+    }
+
+    /**
+     * Calculates the real file sizes based on the variant's total duration and bitrate.
+     */
+    suspend fun calculateRealQualitySizes(inputUrl: String, options: List<DownloadQualityOption>): List<DownloadQualityOption> = withContext(Dispatchers.IO) {
+        if (options.isEmpty()) return@withContext options
+
+        try {
+            val masterRequest = Request.Builder()
+                .url(inputUrl)
+                .addHeader("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)")
+                .addHeader("referer", "https://shikho.com/")
+                .addHeader("Referer", "https://shikho.com/")
+                .build()
+
+            val masterResponse = httpClient.newCall(masterRequest).execute()
+            if (!masterResponse.isSuccessful || masterResponse.body == null) {
+                return@withContext options
+            }
+
+            val masterContent = masterResponse.body!!.string()
+            val lines = masterContent.lines()
+
+            val qualityBandwidths = mutableMapOf<String, Long>()
+            for (i in lines.indices) {
+                val line = lines[i].trim()
+                if (line.startsWith("#EXT-X-STREAM-INF")) {
+                    val bandwidthMatch = Regex("BANDWIDTH=(\\d+)").find(line)
+                    val resMatch = Regex("RESOLUTION=(\\d+)x(\\d+)").find(line)
+                    val nextLine = lines.getOrNull(i + 1)?.trim() ?: ""
+
+                    val bandwidth = bandwidthMatch?.groupValues?.get(1)?.toLongOrNull()
+                    if (bandwidth != null) {
+                        val qualityId = if (resMatch != null) {
+                            val width = resMatch.groupValues[1].toInt()
+                            val height = resMatch.groupValues[2].toInt()
+                            when {
+                                height >= 1080 || width >= 1920 -> "1080p"
+                                height >= 720 || width >= 1280 -> "720p"
+                                height >= 480 || width >= 840 -> "480p"
+                                height >= 360 || width >= 600 -> "360p"
+                                else -> "240p"
+                            }
+                        } else {
+                            val nextLineLower = nextLine.lowercase()
+                            when {
+                                nextLineLower.contains("1080p") || nextLineLower.contains("stream_0") -> "1080p"
+                                nextLineLower.contains("720p") || nextLineLower.contains("stream_1") -> "720p"
+                                nextLineLower.contains("480p") || nextLineLower.contains("stream_2") -> "480p"
+                                nextLineLower.contains("360p") || nextLineLower.contains("stream_3") -> "360p"
+                                nextLineLower.contains("240p") || nextLineLower.contains("stream_4") -> "240p"
+                                else -> null
+                            }
+                        }
+                        if (qualityId != null) {
+                            qualityBandwidths[qualityId] = bandwidth
+                        }
+                    }
+                }
+            }
+
+            val representativeOption = options.firstOrNull { it.id == "360p" } ?: options.firstOrNull { it.id == "480p" } ?: options.firstOrNull()
+            if (representativeOption == null) return@withContext options
+
+            val variantRequest = Request.Builder()
+                .url(representativeOption.targetM3u8Url)
+                .addHeader("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)")
+                .addHeader("referer", "https://shikho.com/")
+                .addHeader("Referer", "https://shikho.com/")
+                .build()
+
+            val variantResponse = httpClient.newCall(variantRequest).execute()
+            if (!variantResponse.isSuccessful || variantResponse.body == null) {
+                return@withContext options
+            }
+
+            val variantContent = variantResponse.body!!.string()
+            var totalDurationSeconds = 0.0
+            val extinfRegex = Regex("#EXTINF:([\\d.]+)")
+            for (match in extinfRegex.findAll(variantContent)) {
+                val duration = match.groupValues[1].toDoubleOrNull()
+                if (duration != null) {
+                    totalDurationSeconds += duration
+                }
+            }
+
+            if (totalDurationSeconds <= 0) {
+                return@withContext options
+            }
+
+            return@withContext options.map { option ->
+                val bandwidth = qualityBandwidths[option.id] ?: when (option.id) {
+                    "1080p" -> 2500000L
+                    "720p" -> 1500000L
+                    "480p" -> 800000L
+                    "360p" -> 450000L
+                    "240p" -> 250000L
+                    else -> 500000L
+                }
+
+                val calculatedSizeBytes = (bandwidth * totalDurationSeconds) / 8
+                val formattedSize = formatFileSize(calculatedSizeBytes.toLong(), inBengali = true)
+
+                option.copy(
+                    estimatedSizeBangla = "~$formattedSize"
+                )
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating real quality sizes: ${e.message}", e)
+            return@withContext options
+        }
+    }
+
+    /**
      * Start downloading a file (HLS Video or PDF) into the secured internal vault directory.
      */
     fun downloadFile(
