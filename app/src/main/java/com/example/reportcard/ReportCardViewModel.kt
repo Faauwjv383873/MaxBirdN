@@ -584,7 +584,13 @@ class ReportCardViewModel(
                     id = "u_1",
                     name = "তানভীর মাহমুদ",
                     avatar = "https://cdn.shikho.com/avatars/male_1.png",
-                    school = "নটর ডেম কলেজ, ঢাকা"
+                    school = "নটর ডেম কলেজ, ঢাকা",
+                    college = "নটর ডেম কলেজ, ঢাকা",
+                    phone = "01712-849201",
+                    dob = "১২ মার্চ, ২০০৬",
+                    gender = "পুরুষ",
+                    district = "ঢাকা",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -594,7 +600,13 @@ class ReportCardViewModel(
                     id = "u_2",
                     name = "ফারিহা তাসনিম",
                     avatar = "https://cdn.shikho.com/avatars/female_1.png",
-                    school = "ভিকারুননিসা নূন স্কুল অ্যান্ড কলেজ"
+                    school = "ভিকারুননিসা নূন স্কুল অ্যান্ড কলেজ",
+                    college = "ভিকারুননিসা নূন স্কুল অ্যান্ড কলেজ",
+                    phone = "01823-910283",
+                    dob = "২৫ আগস্ট, ২০০৬",
+                    gender = "নারী",
+                    district = "ঢাকা",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -604,7 +616,13 @@ class ReportCardViewModel(
                     id = "u_3",
                     name = "আব্দুল্লাহ আল নোমান",
                     avatar = "https://cdn.shikho.com/avatars/male_2.png",
-                    school = "ঢাকা রেসিডেনসিয়াল মডেল কলেজ"
+                    school = "ঢাকা রেসিডেনসিয়াল মডেল কলেজ",
+                    college = "ঢাকা রেসিডেনসিয়াল মডেল কলেজ",
+                    phone = "01911-382910",
+                    dob = "০৪ নভেম্বর, ২০০৫",
+                    gender = "পুরুষ",
+                    district = "ঢাকা",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -614,7 +632,13 @@ class ReportCardViewModel(
                     id = "u_4",
                     name = "সাদিয়া ইসলাম",
                     avatar = "https://cdn.shikho.com/avatars/female_2.png",
-                    school = "রাজউক উত্তরা মডেল কলেজ"
+                    school = "রাজউক উত্তরা মডেল কলেজ",
+                    college = "রাজউক উত্তরা মডেল কলেজ",
+                    phone = "01521-492018",
+                    dob = "১৮ জানুয়ারি, ২০০৬",
+                    gender = "নারী",
+                    district = "ঢাকা",
+                    group = "মানবিক বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -624,7 +648,13 @@ class ReportCardViewModel(
                     id = "u_5",
                     name = "মাহিন আহমেদ",
                     avatar = "https://cdn.shikho.com/avatars/male_3.png",
-                    school = "চট্টগ্রাম কলেজ"
+                    school = "চট্টগ্রাম কলেজ",
+                    college = "চট্টগ্রাম কলেজ",
+                    phone = "01318-294821",
+                    dob = "৩০ সেপ্টেম্বর, ২০০৫",
+                    gender = "পুরুষ",
+                    district = "চট্টগ্রাম",
+                    group = "ব্যবসায় শিক্ষা"
                 )
             ),
             LeaderboardUserItem(
@@ -634,7 +664,13 @@ class ReportCardViewModel(
                     id = "u_6",
                     name = "সুমাইয়া জাহান",
                     avatar = "https://cdn.shikho.com/avatars/female_3.png",
-                    school = "আইডিয়াল স্কুল অ্যান্ড কলেজ, মতিঝিল"
+                    school = "আইডিয়াল স্কুল অ্যান্ড কলেজ, মতিঝিল",
+                    college = "আইডিয়াল স্কুল অ্যান্ড কলেজ, মতিঝিল",
+                    phone = "01682-104938",
+                    dob = "১৫ ফেব্রুয়ারি, ২০০৬",
+                    gender = "নারী",
+                    district = "ঢাকা",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -644,7 +680,13 @@ class ReportCardViewModel(
                     id = "u_7",
                     name = "রিফাতুল ইসলাম",
                     avatar = "https://cdn.shikho.com/avatars/male_4.png",
-                    school = "রাজশাহী কলেজ"
+                    school = "রাজশাহী কলেজ",
+                    college = "রাজশাহী কলেজ",
+                    phone = "01739-102938",
+                    dob = "০৯ জুলাই, ২০০৬",
+                    gender = "পুরুষ",
+                    district = "রাজশাহী",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -654,7 +696,13 @@ class ReportCardViewModel(
                     id = "u_8",
                     name = "নুসরাত শারমিন",
                     avatar = "https://cdn.shikho.com/avatars/female_4.png",
-                    school = "হলিক্রস কলেজ, ঢাকা"
+                    school = "হলিক্রস কলেজ, ঢাকা",
+                    college = "হলিক্রস কলেজ, ঢাকা",
+                    phone = "01819-203948",
+                    dob = "২২ ডিসেম্বর, ২০০৫",
+                    gender = "নারী",
+                    district = "ঢাকা",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -664,7 +712,13 @@ class ReportCardViewModel(
                     id = "u_9",
                     name = "তাহমিদ হাসান",
                     avatar = "https://cdn.shikho.com/avatars/male_5.png",
-                    school = "সেন্ট যোসেফ উচ্চ মাধ্যমিক বিদ্যালয়"
+                    school = "সেন্ট যোসেফ উচ্চ মাধ্যমিক বিদ্যালয়",
+                    college = "সেন্ট যোসেফ উচ্চ মাধ্যমিক বিদ্যালয়",
+                    phone = "01928-304958",
+                    dob = "০৩ মে, ২০০৬",
+                    gender = "পুরুষ",
+                    district = "ঢাকা",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             ),
             LeaderboardUserItem(
@@ -674,7 +728,13 @@ class ReportCardViewModel(
                     id = "u_10",
                     name = "আরিয়ান চৌধুরী",
                     avatar = "https://cdn.shikho.com/avatars/male_6.png",
-                    school = "সিলেট ক্যাডেট কলেজ"
+                    school = "সিলেট ক্যাডেট কলেজ",
+                    college = "সিলেট ক্যাডেট কলেজ",
+                    phone = "01711-203948",
+                    dob = "২৭ অক্টোবর, ২০০৫",
+                    gender = "পুরুষ",
+                    district = "সিলেট",
+                    group = "বিজ্ঞান বিভাগ"
                 )
             )
         )

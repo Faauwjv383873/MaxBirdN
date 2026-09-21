@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -25,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -74,6 +76,7 @@ fun ReportCardScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val pullRefreshState = rememberPullToRefreshState()
+    var selectedStudentForProfile by remember { mutableStateOf<LeaderboardUserItem?>(null) }
 
     Scaffold(
         topBar = {
@@ -239,7 +242,8 @@ fun ReportCardScreen(
                             // Top 3 Podium
                             item {
                                 LeaderboardPodiumView(
-                                    topUsers = users.take(3)
+                                    topUsers = users.take(3),
+                                    onUserClick = { selectedStudentForProfile = it }
                                 )
                             }
 
@@ -259,7 +263,8 @@ fun ReportCardScreen(
                                 itemsIndexed(restUsers) { _, userItem ->
                                     LeaderboardUserRowItem(
                                         userItem = userItem,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                        onClick = { selectedStudentForProfile = userItem }
                                     )
                                 }
                             }
@@ -283,6 +288,13 @@ fun ReportCardScreen(
                 }
             }
         }
+    }
+
+    selectedStudentForProfile?.let { userItem ->
+        StudentProfileDetailDialog(
+            userItem = userItem,
+            onDismiss = { selectedStudentForProfile = null }
+        )
     }
 }
 
@@ -1435,7 +1447,8 @@ fun SubjectPickerChips(
 
 @Composable
 fun LeaderboardPodiumView(
-    topUsers: List<LeaderboardUserItem>
+    topUsers: List<LeaderboardUserItem>,
+    onUserClick: (LeaderboardUserItem) -> Unit = {}
 ) {
     if (topUsers.isEmpty()) return
 
@@ -1479,6 +1492,7 @@ fun LeaderboardPodiumView(
                         pedestalHeight = 90.dp,
                         podiumColor = Color(0xFF94A3B8),
                         badgeText = "২য়",
+                        onClick = { onUserClick(second) },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1492,6 +1506,7 @@ fun LeaderboardPodiumView(
                         podiumColor = Color(0xFFF59E0B),
                         badgeText = "১ম",
                         isWinner = true,
+                        onClick = { onUserClick(first) },
                         modifier = Modifier.weight(1.15f)
                     )
                 }
@@ -1504,6 +1519,7 @@ fun LeaderboardPodiumView(
                         pedestalHeight = 75.dp,
                         podiumColor = Color(0xFFD97706),
                         badgeText = "৩য়",
+                        onClick = { onUserClick(third) },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1520,6 +1536,7 @@ fun PodiumColumn(
     podiumColor: Color,
     badgeText: String,
     isWinner: Boolean = false,
+    onClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val user = userItem.user
@@ -1529,7 +1546,11 @@ fun PodiumColumn(
     val school = user?.school ?: ""
 
     Column(
-        modifier = modifier.padding(horizontal = 4.dp),
+        modifier = modifier
+            .padding(horizontal = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() }
+            .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Crown for Winner
@@ -1637,6 +1658,7 @@ fun PodiumColumn(
 @Composable
 fun LeaderboardUserRowItem(
     userItem: LeaderboardUserItem,
+    onClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val rank = userItem.rank ?: 0
@@ -1647,7 +1669,9 @@ fun LeaderboardUserRowItem(
     val school = user?.school ?: ""
 
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         shape = RoundedCornerShape(14.dp),
         color = Color.White,
         border = BorderStroke(1.dp, Color(0xFFF1F5F9)),
@@ -1747,10 +1771,13 @@ fun StickyMyRankBar(
     userScore: Int?,
     userName: String,
     userAvatar: String?,
+    onClick: () -> Unit = {},
     onShare: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         color = Color(0xFF0F172A),
         shadowElevation = 12.dp
     ) {
@@ -1790,7 +1817,7 @@ fun StickyMyRankBar(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "তোমার র‍্যাঙ্ক: ${(userRank ?: 0).toBn()}তম",
+                    text = "তোমার র‍্যাঙ্ক: ${(userRank ?: 0).toBn()}তম (প্রোফাইল দেখুন)",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White
@@ -1825,6 +1852,379 @@ fun StickyMyRankBar(
                     color = Color.White
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StudentProfileDetailDialog(
+    userItem: LeaderboardUserItem,
+    onDismiss: () -> Unit
+) {
+    val user = userItem.user
+    val name = user?.name ?: "শিক্ষার্থী"
+    val avatar = user?.avatar
+    val college = user?.effectiveCollege ?: "কলেজের নাম পাওয়া যায়নি"
+    val phone = user?.effectivePhone ?: ""
+    val dob = user?.effectiveDob ?: ""
+    val gender = user?.effectiveGender ?: ""
+    val district = user?.effectiveDistrict ?: ""
+    val group = user?.effectiveGroup ?: ""
+    val rank = userItem.rank
+    val score = userItem.score
+
+    val context = LocalContext.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Color.White,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Drag Handle Bar
+            Box(
+                modifier = Modifier
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFCBD5E1))
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Title Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Badge,
+                        contentDescription = null,
+                        tint = Color(0xFF2563EB),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "শিক্ষার্থীর সম্পূর্ণ প্রোফাইল",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "বন্ধ করুন",
+                        tint = Color(0xFF64748B)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Profile Header Card (Avatar + Name + Rank Badge)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .border(3.dp, Color(0xFF3B82F6), CircleShape)
+                            .background(Color(0xFFE0F2FE)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!avatar.isNullOrBlank()) {
+                            AsyncImage(
+                                model = avatar,
+                                contentDescription = name,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = name.take(1),
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0284C7)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = name,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF0F172A),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Rank & Score Chips
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (rank != null) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFFFEF3C7),
+                                border = BorderStroke(1.dp, Color(0xFFFCD34D))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "🏆 র‍্যাংক: #${rank.toBn()}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB45309)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (score != null) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFFDCFCE7),
+                                border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                            ) {
+                                Text(
+                                    text = "📊 স্কোয়ার: ${score.toBn()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF15803D),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Profile Detailed Information List
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    ProfileInfoRow(
+                        icon = Icons.Default.School,
+                        iconTint = Color(0xFF2563EB),
+                        label = "কলেজের নাম",
+                        value = college
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                    ProfileInfoRow(
+                        icon = Icons.Default.Phone,
+                        iconTint = Color(0xFF16A34A),
+                        label = "মোবাইল নম্বর",
+                        value = phone,
+                        isClickable = true,
+                        onClick = {
+                            if (phone.isNotBlank()) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                                        data = android.net.Uri.parse("tel:${phone.replace("-", "").replace(" ", "")}")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                    ProfileInfoRow(
+                        icon = Icons.Default.Cake,
+                        iconTint = Color(0xFFEC4899),
+                        label = "জন্ম তারিখ",
+                        value = dob
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                    ProfileInfoRow(
+                        icon = Icons.Default.Wc,
+                        iconTint = Color(0xFF8B5CF6),
+                        label = "লিঙ্গ",
+                        value = gender
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                    ProfileInfoRow(
+                        icon = Icons.Default.LocationOn,
+                        iconTint = Color(0xFFE11D48),
+                        label = "জেলা / বিভাগ",
+                        value = district
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                    ProfileInfoRow(
+                        icon = Icons.Default.Class,
+                        iconTint = Color(0xFFD97706),
+                        label = "বিভাগ ও ব্যাচ",
+                        value = "$group | HSC '27"
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val shareText = "🏆 লিডারবোর্ড স্থান অর্জন করেছেন $name!\n" +
+                                "🏛️ কলেজ: $college\n" +
+                                "📊 স্কোর: ${score}% (র‍্যাংক #${rank})\n" +
+                                "📱 মোবাইল: $phone"
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, shareText)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "প্রোফাইল শেয়ার করুন"))
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF2563EB))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "শেয়ার",
+                        tint = Color(0xFF2563EB),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "শেয়ার করুন",
+                        color = Color(0xFF2563EB),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
+                ) {
+                    Text(
+                        text = "বন্ধ করুন",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileInfoRow(
+    icon: ImageVector,
+    iconTint: Color,
+    label: String,
+    value: String,
+    isClickable: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (isClickable && onClick != null) {
+                    Modifier.clickable { onClick() }
+                } else Modifier
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(iconTint.copy(alpha = 0.1f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF64748B)
+            )
+            Text(
+                text = value.ifBlank { "তথ্য পাওয়া যায়নি" },
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF0F172A),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        if (isClickable) {
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = Color(0xFF94A3B8),
+                modifier = Modifier.size(14.dp)
+            )
         }
     }
 }
