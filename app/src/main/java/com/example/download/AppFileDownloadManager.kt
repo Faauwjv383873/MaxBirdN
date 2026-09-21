@@ -74,14 +74,14 @@ class AppFileDownloadManager private constructor(
         fun resolveQualityUrl(baseUrl: String, quality: String): String {
             if (baseUrl.isBlank()) return baseUrl
 
-            // If URL is like https://shikho-stream2.tenbytecdn.com/{id}/playlist.m3u8
+            // If URL is like https://shikho-stream2.tenbytecdn.com/{id}/playlist.m3u8 or any domain /{id}/playlist.m3u8
             if (baseUrl.contains("/playlist.m3u8")) {
                 return baseUrl.replace("/playlist.m3u8", "/$quality/video.m3u8")
             }
 
-            // If URL is already like https://.../{id}/360p/video.m3u8 or 480p/video.m3u8 or 720p/video.m3u8
-            if (baseUrl.contains(Regex("/(360p|480p|720p|1080p)/video\\.m3u8"))) {
-                return baseUrl.replace(Regex("/(360p|480p|720p|1080p)/video\\.m3u8"), "/$quality/video.m3u8")
+            // If URL is already like https://.../{id}/360p/video.m3u8 or 480p/video.m3u8 or 720p/video.m3u8 or 1080p/video.m3u8
+            if (baseUrl.contains(Regex("/(1080p|720p|480p|360p|240p|144p)/video\\.m3u8"))) {
+                return baseUrl.replace(Regex("/(1080p|720p|480p|360p|240p|144p)/video\\.m3u8"), "/$quality/video.m3u8")
             }
 
             // If URL has stream_0, stream_1, stream_2, stream_3 pattern
@@ -91,6 +91,7 @@ class AppFileDownloadManager private constructor(
                     "720p" -> "stream_1"
                     "480p" -> "stream_2"
                     "360p" -> "stream_3"
+                    "240p" -> "stream_4"
                     else -> "stream_2"
                 }
                 return baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/$streamIndex/stream.m3u8")
@@ -100,14 +101,40 @@ class AppFileDownloadManager private constructor(
         }
 
         /**
-         * Returns download quality options available for the video URL.
+         * Returns download quality options available dynamically for the video URL.
          */
         fun getAvailableDownloadQualities(inputUrl: String): List<DownloadQualityOption> {
+            if (inputUrl.isBlank()) return emptyList()
+
+            val url1080 = resolveQualityUrl(inputUrl, "1080p")
             val url720 = resolveQualityUrl(inputUrl, "720p")
             val url480 = resolveQualityUrl(inputUrl, "480p")
             val url360 = resolveQualityUrl(inputUrl, "360p")
+            val url240 = resolveQualityUrl(inputUrl, "240p")
+
+            // If all resolutions yield the exact same URL (e.g. direct mp4 or non-HLS variant), return single native option
+            if (url1080 == url720 && url720 == url480 && url480 == url360 && url360 == inputUrl) {
+                return listOf(
+                    DownloadQualityOption(
+                        id = "original",
+                        labelBangla = "মূল ভিডিও কোয়ালিটি",
+                        descriptionBangla = "ভিডিওটির মূল স্ট্রিম অনুযায়ী ডাউনলোড হবে",
+                        estimatedSizeBangla = "স্ট্রিম সাইজ অনুযায়ী",
+                        targetM3u8Url = inputUrl,
+                        isRecommended = true
+                    )
+                )
+            }
 
             return listOf(
+                DownloadQualityOption(
+                    id = "1080p",
+                    labelBangla = "1080p (ফুল এইচডি)",
+                    descriptionBangla = "সর্বোচ্চ মান ও সেরা স্পষ্টতা",
+                    estimatedSizeBangla = "~২০০ - ৪০০ মেগাবাইট",
+                    targetM3u8Url = url1080,
+                    isRecommended = false
+                ),
                 DownloadQualityOption(
                     id = "720p",
                     labelBangla = "720p (এইচডি)",
@@ -130,6 +157,14 @@ class AppFileDownloadManager private constructor(
                     descriptionBangla = "দ্রুত ডাউনলোড ও কম ডাটা খরচ",
                     estimatedSizeBangla = "~৩০ - ৬০ মেগাবাইট",
                     targetM3u8Url = url360,
+                    isRecommended = false
+                ),
+                DownloadQualityOption(
+                    id = "240p",
+                    labelBangla = "240p (অতি কম ডাটা)",
+                    descriptionBangla = "দুর্বল ইন্টারনেটে দ্রুত ডাউনলোড",
+                    estimatedSizeBangla = "~১৫ - ৩০ মেগাবাইট",
+                    targetM3u8Url = url240,
                     isRecommended = false
                 )
             )

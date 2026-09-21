@@ -12,8 +12,10 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -114,7 +116,7 @@ fun VideoPlayerScreen(
         when {
             completedLocal != null -> completedLocal
             videoUrl.isNotBlank() && videoUrl != "null" -> videoUrl
-            else -> "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
+            else -> ""
         }
     }
 
@@ -467,200 +469,216 @@ fun VideoPlayerScreen(
                     )
             ) {
                 // TOP BAR: Back Button, Title, Subject Badge, Live Indicator, Resize Mode
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        IconButton(
-                            onClick = {
-                                if (isFullscreen) {
-                                    isFullscreen = false
-                                } else {
-                                    onBack()
-                                }
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.4f))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false)
                         ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            IconButton(
+                                onClick = {
+                                    if (isFullscreen) {
+                                        isFullscreen = false
+                                    } else {
+                                        onBack()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f))
                             ) {
-                                if (!subjectName.isNullOrBlank()) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = badgeColor.copy(alpha = 0.85f)
-                                    ) {
-                                        Text(
-                                            text = subjectName,
-                                            color = Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                if (isLive) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFFE53935)
-                                    ) {
-                                        Text(
-                                            text = "🔴 LIVE",
-                                            color = Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
 
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
-                            Text(
-                                text = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    if (!subjectName.isNullOrBlank()) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = badgeColor.copy(alpha = 0.85f)
+                                        ) {
+                                            Text(
+                                                text = subjectName,
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (isLive) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFE53935)
+                                        ) {
+                                            Text(
+                                                text = "🔴 LIVE",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    // Top Action Icons: Resize Mode Toggle & Quality
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Top Action Icons (Horizontal Scrollable Strip)
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Offline In-App Download Action
-                        when (downloadedItem?.status) {
-                            DownloadedItemEntity.STATUS_DOWNLOADING -> {
-                                val item = downloadedItem!!
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.4f))
-                                        .clickable {
-                                            downloadManager.cancelDownload(downloadId)
-                                            Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Offline In-App Download Action
+                            when (downloadedItem?.status) {
+                                DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                    val item = downloadedItem!!
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.4f))
+                                            .clickable {
+                                                downloadManager.cancelDownload(downloadId)
+                                                Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            progress = { item.progressFraction },
+                                            color = Color(0xFF38BDF8),
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = "${item.progressPercent}%",
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                                DownloadedItemEntity.STATUS_COMPLETED -> {
+                                    IconButton(
+                                        onClick = { showDeleteDownloadDialog = true },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DownloadDone,
+                                            contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    IconButton(
+                                        onClick = {
+                                            showDownloadQualityDialog = true
                                         },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        progress = { item.progressFraction },
-                                        color = Color(0xFF38BDF8),
-                                        strokeWidth = 2.5.dp,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Text(
-                                        text = "${item.progressPercent}%",
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.4f))
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Download,
+                                            contentDescription = "অফলাইন ডাউনলোড করুন",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
-                            DownloadedItemEntity.STATUS_COMPLETED -> {
-                                IconButton(
-                                    onClick = { showDeleteDownloadDialog = true },
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF10B981).copy(alpha = 0.2f))
-                                ) {
-                                    Icon(
-                                        Icons.Default.DownloadDone,
-                                        contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
-                                        tint = Color(0xFF10B981),
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                            }
-                            else -> {
-                                IconButton(
-                                    onClick = {
-                                        showDownloadQualityDialog = true
-                                    },
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.4f))
-                                ) {
-                                    Icon(
-                                        Icons.Default.Download,
-                                        contentDescription = "অফলাইন ডাউনলোড করুন",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                            }
-                        }
 
-                        // Aspect ratio resize toggle
-                        IconButton(
-                            onClick = {
-                                resizeMode = when (resizeMode) {
-                                    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                }
+                            // Aspect ratio resize toggle
+                            IconButton(
+                                onClick = {
+                                    resizeMode = when (resizeMode) {
+                                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.AspectRatio,
+                                    contentDescription = "Aspect Ratio",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
-                        ) {
-                            Icon(
-                                Icons.Default.AspectRatio,
-                                contentDescription = "Aspect Ratio",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
 
-                        // Quality selector
-                        IconButton(
-                            onClick = { showQualityDialog = true }
-                        ) {
-                            Icon(
-                                Icons.Default.HighQuality,
-                                contentDescription = "Quality",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                            // Quality selector
+                            IconButton(
+                                onClick = { showQualityDialog = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.HighQuality,
+                                    contentDescription = "Quality",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
 
-                        // Playback Speed
-                        TextButton(
-                            onClick = { showSpeedDialog = true },
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) {
-                            Text(
-                                text = "${playbackSpeed}x",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            // Playback Speed
+                            TextButton(
+                                onClick = { showSpeedDialog = true },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "${playbackSpeed}x",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
