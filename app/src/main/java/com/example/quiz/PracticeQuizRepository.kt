@@ -82,9 +82,40 @@ class PracticeQuizRepository(
                 val response = apiService.getSubjectHierarchyWithQuestionCounts(query)
                 val subjectList = response.data?.subjectHierarchyWithQuestionCounts?.data ?: emptyList()
 
+                fun normalizeBengali(s: String?): String {
+                    if (s.isNullOrBlank()) return ""
+                    return s.replace("য়", "y")
+                        .replace("য়", "y")
+                        .replace("১ম", "1")
+                        .replace("২য়", "2")
+                        .replace("৩য়", "3")
+                        .replace("৪র্থ", "4")
+                        .replace("৫ম", "5")
+                        .replace("৬ষ্ঠ", "6")
+                        .replace("৭ম", "7")
+                        .replace("৮ম", "8")
+                        .replace("৯ম", "9")
+                        .replace("১০ম", "10")
+                        .replace("পত্র", "")
+                        .replace("বিষয়", "")
+                        .replace("শ্রেণী", "")
+                        .replace("শ্রেণি", "")
+                        .replace(Regex("[^a-zA-Z0-9\\p{L}]"), "")
+                        .lowercase()
+                        .trim()
+                }
+
+                val normTitle = normalizeBengali(subjectTitle)
                 val matchedSubject = subjectList.find { it.code.equals(subjectCode, ignoreCase = true) }
-                    ?: subjectList.find { !subjectTitle.isNullOrBlank() && it.display_bn?.trim() == subjectTitle.trim() }
-                    ?: subjectList.find { !subjectTitle.isNullOrBlank() && it.display?.trim() == subjectTitle.trim() }
+                    ?: subjectList.find { !subjectTitle.isNullOrBlank() && normalizeBengali(it.display_bn) == normTitle }
+                    ?: subjectList.find { !subjectTitle.isNullOrBlank() && normalizeBengali(it.display) == normTitle }
+                    ?: subjectList.find { !subjectTitle.isNullOrBlank() && (normalizeBengali(it.display_bn).contains(normTitle) || normTitle.contains(normalizeBengali(it.display_bn))) }
+                    ?: subjectList.find { !subjectTitle.isNullOrBlank() && (normalizeBengali(it.display).contains(normTitle) || normTitle.contains(normalizeBengali(it.display))) }
+                    ?: subjectList.find { 
+                        val cleanCode = subjectCode.replace(Regex("[^a-zA-Z]"), "").lowercase()
+                        val itCode = it.code?.replace(Regex("[^a-zA-Z]"), "")?.lowercase() ?: ""
+                        cleanCode.isNotBlank() && itCode.isNotBlank() && (cleanCode.contains(itCode) || itCode.contains(cleanCode))
+                    }
 
                 if (matchedSubject != null) {
                     val validChapters = matchedSubject.chapters?.filter { ch ->

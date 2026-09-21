@@ -307,4 +307,33 @@ query ResourceAttachmentsOfChapter(
             emptyList()
         }
     }
+
+    suspend fun filterResourcesWithPdf(
+        subjectCode: String,
+        phaseId: String?,
+        programId: String,
+        chapterIds: List<String>?,
+        isSubjectSpecific: Boolean,
+        resources: List<TaggableResourceItem>
+    ): List<TaggableResourceItem> {
+        if (resources.isEmpty()) return emptyList()
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            resources.mapNotNull { res ->
+                val tagId = res.id ?: return@mapNotNull null
+                try {
+                    val attachments = getResourceAttachmentsOfChapter(
+                        subjectId = subjectCode,
+                        moduleId = programId,
+                        phaseId = phaseId,
+                        chapterIds = chapterIds ?: emptyList(),
+                        resourceTypeTagIds = listOf(tagId),
+                        isSubjectSpecific = isSubjectSpecific
+                    )
+                    if (attachments.any { !it.url.isNullOrBlank() }) res else null
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+    }
 }

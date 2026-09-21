@@ -79,10 +79,33 @@ class PracticeQuizViewModel(
                 val cleanTargetName = targetChapterName?.trim()?.ifBlank { null }
 
                 // Find matching chapter if targetChapterId or targetChapterName is specified
+                fun normalizeBengali(s: String?): String {
+                    if (s.isNullOrBlank()) return ""
+                    return s.replace("য়", "y")
+                        .replace("য়", "y")
+                        .replace("১ম", "1")
+                        .replace("২য়", "2")
+                        .replace("৩য়", "3")
+                        .replace("৪র্থ", "4")
+                        .replace("৫ম", "5")
+                        .replace("৬ষ্ঠ", "6")
+                        .replace("৭ম", "7")
+                        .replace("৮ম", "8")
+                        .replace("৯ম", "9")
+                        .replace("১০ম", "10")
+                        .replace("অধ্যায়", "")
+                        .replace("অধ্যায়", "")
+                        .replace(Regex("[^a-zA-Z0-9\\p{L}]"), "")
+                        .lowercase()
+                        .trim()
+                }
+
                 val matchedChapter = if (cleanTargetId != null || cleanTargetName != null) {
+                    val normTargetName = normalizeBengali(cleanTargetName)
                     chapters.find { ch ->
+                        val normChName = normalizeBengali(ch.name)
                         (cleanTargetId != null && (ch.id == cleanTargetId || ch.id.contains(cleanTargetId) || cleanTargetId.contains(ch.id))) ||
-                        (cleanTargetName != null && ch.name?.trim()?.equals(cleanTargetName, ignoreCase = true) == true)
+                        (cleanTargetName != null && normChName.isNotBlank() && normTargetName.isNotBlank() && (normChName.contains(normTargetName) || normTargetName.contains(normChName)))
                     } ?: if (cleanTargetId != null) {
                         HierarchyChapterItem(
                             id = cleanTargetId,

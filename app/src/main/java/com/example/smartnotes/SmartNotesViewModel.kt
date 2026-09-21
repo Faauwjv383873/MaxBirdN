@@ -106,11 +106,20 @@ class SmartNotesViewModel(
         loadSubjectJob = viewModelScope.launch {
             _uiState.update { it.copy(isSubjectResourcesLoading = true, errorMessage = null) }
             try {
-                val resources = repository.listSubjectTaggableResources(subjectCode, phaseId)
+                val rawResources = repository.listSubjectTaggableResources(subjectCode, phaseId)
+                val progId = _uiState.value.programId.ifBlank { sessionManager.getActiveProgramId() ?: "" }
+                val validResources = repository.filterResourcesWithPdf(
+                    subjectCode = subjectCode,
+                    phaseId = phaseId,
+                    programId = progId,
+                    chapterIds = emptyList(),
+                    isSubjectSpecific = true,
+                    resources = rawResources
+                )
                 _uiState.update {
                     it.copy(
                         isSubjectResourcesLoading = false,
-                        subjectResources = resources
+                        subjectResources = validResources
                     )
                 }
             } catch (e: Exception) {
@@ -167,10 +176,26 @@ class SmartNotesViewModel(
                 ?: _uiState.value.phaseId.ifBlank { null }
 
             // Find matching chapter from loaded chapters to discover altChapterId
-            val matchedChapter = _uiState.value.chapters.firstOrNull {
+            var matchedChapter = _uiState.value.chapters.firstOrNull {
                 it.id == chapterId || it.chapter_id == chapterId ||
                 (!chapterName.isNullOrBlank() && (it.effectiveName.equals(chapterName, ignoreCase = true) || it.chapter_name.equals(chapterName, ignoreCase = true) || it.name.equals(chapterName, ignoreCase = true)))
             }
+
+            if (matchedChapter == null && _uiState.value.chapters.isEmpty() && effectiveSubCode.isNotBlank()) {
+                try {
+                    val chaptersList = repository.getSubjectChapters(effectiveProgId, effectivePhaseId, effectiveSubCode)
+                    if (chaptersList.isNotEmpty()) {
+                        _uiState.update { it.copy(chapters = chaptersList) }
+                        matchedChapter = chaptersList.firstOrNull {
+                            it.id == chapterId || it.chapter_id == chapterId ||
+                            (!chapterName.isNullOrBlank() && (it.effectiveName.equals(chapterName, ignoreCase = true) || it.chapter_name.equals(chapterName, ignoreCase = true) || it.name.equals(chapterName, ignoreCase = true)))
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("SmartNotesVM", "Error loading fallback chapters: ${e.message}")
+                }
+            }
+
             val resolvedAltChapterId = altChapterId?.ifBlank { null }
                 ?: matchedChapter?.let { if (it.id == chapterId) it.chapter_id else it.id }
 
@@ -186,19 +211,34 @@ class SmartNotesViewModel(
             }
 
             try {
+                val candidateIds = listOfNotNull(chapterId.takeIf { it.isNotBlank() }, resolvedAltChapterId?.takeIf { it.isNotBlank() })
+
                 // 1. Try listing taggable resources
-                var resources = repository.listChapterTaggableResources(
+                val rawResources = repository.listChapterTaggableResources(
                     chapterId = chapterId,
                     phaseId = effectivePhaseId,
                     subjectId = effectiveSubCode,
                     altChapterId = resolvedAltChapterId
                 )
 
+                val validTagResources = if (rawResources.isNotEmpty()) {
+                    repository.filterResourcesWithPdf(
+                        subjectCode = effectiveSubCode,
+                        phaseId = effectivePhaseId,
+                        programId = effectiveProgId,
+                        chapterIds = candidateIds,
+                        isSubjectSpecific = false,
+                        resources = rawResources
+                    )
+                } else {
+                    emptyList()
+                }
+
+                var finalResources = validTagResources
                 val newDirectMap = mutableMapOf<String, AttachmentDataItem>()
 
-                // 2. If no taggable resources found, try fetching direct attachments
-                if (resources.isEmpty()) {
-                    val candidateIds = listOfNotNull(chapterId.takeIf { it.isNotBlank() }, resolvedAltChapterId?.takeIf { it.isNotBlank() })
+                // 2. If no valid taggable resources found, try fetching direct attachments
+                if (finalResources.isEmpty()) {
                     val directAttachments = repository.getResourceAttachmentsOfChapter(
                         subjectId = effectiveSubCode,
                         moduleId = effectiveProgId,
@@ -206,10 +246,10 @@ class SmartNotesViewModel(
                         chapterIds = candidateIds,
                         resourceTypeTagIds = null,
                         isSubjectSpecific = false
-                    )
+                    ).filter { !it.url.isNullOrBlank() }
 
                     if (directAttachments.isNotEmpty()) {
-                        resources = directAttachments.map { att ->
+                        finalResources = directAttachments.map { att ->
                             val attId = att.id ?: java.util.UUID.randomUUID().toString()
                             newDirectMap[attId] = att
                             TaggableResourceItem(
@@ -224,16 +264,16 @@ class SmartNotesViewModel(
                 }
 
                 // 3. If still empty, check chapter lessons for slide / PDF attachments
-                if (resources.isEmpty() && effectiveProgId.isNotBlank()) {
+                if (finalResources.isEmpty() && effectiveProgId.isNotBlank()) {
                     val lessonAttachments = repository.getChapterLessonAttachments(
                         programId = effectiveProgId,
                         phaseId = effectivePhaseId,
                         chapterId = chapterId,
                         altChapterId = resolvedAltChapterId
-                    )
+                    ).filter { !it.url.isNullOrBlank() }
 
                     if (lessonAttachments.isNotEmpty()) {
-                        resources = lessonAttachments.map { att ->
+                        finalResources = lessonAttachments.map { att ->
                             val attId = att.id ?: java.util.UUID.randomUUID().toString()
                             newDirectMap[attId] = att
                             TaggableResourceItem(
@@ -250,7 +290,7 @@ class SmartNotesViewModel(
                 _uiState.update {
                     it.copy(
                         isChapterResourcesLoading = false,
-                        chapterResources = resources,
+                        chapterResources = finalResources,
                         directAttachmentsMap = newDirectMap
                     )
                 }

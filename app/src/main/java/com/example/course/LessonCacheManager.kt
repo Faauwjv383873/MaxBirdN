@@ -115,12 +115,19 @@ object LessonCacheManager {
                 cleanCandidateIds.any { cid -> isSameId(id, cid) }
             }
 
-            // CRITICAL STRICT CHECK: If candidate IDs are specified AND lesson has explicit chapter IDs,
-            // then it MUST match the candidate chapter ID directly! Otherwise it belongs to another chapter.
+            // If we have explicit candidate IDs and the lesson has explicit chapter IDs,
+            // we MUST strictly match by ID. No fallbacks allowed.
             if (cleanCandidateIds.isNotEmpty() && lessonChapterIds.isNotEmpty()) {
-                if (!isDirectIdMatch) {
-                    return@filter false
-                }
+                return@filter isDirectIdMatch
+            }
+
+            // Subject relevance check is always required
+            val subjectMatch = cleanSubject.isBlank() || lSubject.isBlank() ||
+                lSubject.contains(cleanSubject, ignoreCase = true) ||
+                cleanSubject.contains(lSubject, ignoreCase = true)
+
+            if (!subjectMatch) {
+                return@filter false
             }
 
             // 2. Direct negative chapter ID check against other known chapter IDs
@@ -131,61 +138,50 @@ object LessonCacheManager {
                 return@filter false
             }
 
-            // 3. Negative chapter name check:
+            // 3. Exact or clean chapter name matching (when IDs are empty)
+            var matchesThisChapterName = false
+            if (lCleanChapterName.isNotBlank() && cleanName.isNotBlank()) {
+                matchesThisChapterName = lCleanChapterName.equals(cleanName, ignoreCase = true) ||
+                    (cleanName.length >= 4 && lCleanChapterName.contains(cleanName, ignoreCase = true)) ||
+                    (lCleanChapterName.length >= 4 && cleanName.contains(lCleanChapterName, ignoreCase = true))
+            } else if (lChapterName.isNotBlank() && rawName.isNotBlank()) {
+                matchesThisChapterName = lChapterName.equals(rawName, ignoreCase = true) ||
+                    (rawName.length >= 4 && lChapterName.contains(rawName, ignoreCase = true)) ||
+                    (lChapterName.length >= 4 && rawName.contains(lChapterName, ignoreCase = true))
+            }
+
+            // 4. Negative chapter name check:
             // If the lesson's chapter name matches another chapter, and DOES NOT match our chapter
             val matchesOtherChapterName = cleanOtherNames.any { otherName ->
-                otherName.length >= 3 && (
+                otherName.length >= 4 && (
                     lCleanChapterName.contains(otherName, ignoreCase = true) ||
                     otherName.contains(lCleanChapterName, ignoreCase = true)
                 )
             }
-            val matchesThisChapterName = cleanName.length >= 3 && (
-                lCleanChapterName.contains(cleanName, ignoreCase = true) ||
-                cleanName.contains(lCleanChapterName, ignoreCase = true)
-            )
-            if (matchesOtherChapterName && !matchesThisChapterName && !isDirectIdMatch) {
+            if (matchesOtherChapterName && !matchesThisChapterName) {
                 return@filter false
             }
 
-            // 4. Positive Chapter Name Match
-            val chapterNameMatch = matchesThisChapterName || (
-                rawName.isNotBlank() && (
-                    lChapterName.contains(rawName, ignoreCase = true) ||
-                    rawName.contains(lChapterName, ignoreCase = true)
-                )
-            )
+            if (matchesThisChapterName) {
+                return@filter true
+            }
 
-            // 5. Positive Lesson Title Match
-            val titleMatch = (cleanName.length >= 3 && lTitle.contains(cleanName, ignoreCase = true)) ||
-                (rawName.isNotBlank() && lTitle.contains(rawName, ignoreCase = true))
+            // Last resort: If the lesson has NO chapter ID and NO chapter name at all,
+            // we can check if the lesson title contains the clean chapter name,
+            // but ONLY if the clean chapter name is long enough (>= 5 chars) to avoid matching common noise like numbers or "Ch".
+            if (lessonChapterIds.isEmpty() && lCleanChapterName.isBlank() && lChapterName.isBlank()) {
+                if (cleanName.length >= 5 && lTitle.contains(cleanName, ignoreCase = true)) {
+                    // Prevent matching if it contains another chapter's name
+                    val matchesOtherTitle = cleanOtherNames.any { otherName ->
+                        otherName.length >= 5 && lTitle.contains(otherName, ignoreCase = true)
+                    }
+                    if (!matchesOtherTitle) {
+                        return@filter true
+                    }
+                }
+            }
 
-            // 6. Chapter number match in title
-            val noMatch = if (!cleanChapterNo.isNullOrBlank()) {
-                val bnNo = com.example.utils.toBengaliDigits(cleanChapterNo)
-                val enNo = cleanChapterNo.replace(Regex("[^0-9]"), "")
-                val regexNo = "(?:অধ্যায়|অধ্যায়|চ্যাপ্টার|Chapter|Ch)\\s*([০-৯0-9]+)"
-                val m = Regex(regexNo, RegexOption.IGNORE_CASE).find(lTitle)
-                if (m != null) {
-                    val foundNo = m.groupValues[1]
-                    foundNo == cleanChapterNo || foundNo == bnNo || (enNo.isNotBlank() && foundNo == enNo)
-                } else false
-            } else false
-
-            // Subject relevance check
-            val subjectMatch = cleanSubject.isBlank() || lSubject.isBlank() ||
-                lSubject.contains(cleanSubject, ignoreCase = true) ||
-                cleanSubject.contains(lSubject, ignoreCase = true)
-
-            // Prevent matching if lCleanChapterName is present and explicitly differs from cleanName
-            val doesNotContradictName = if (lCleanChapterName.isNotBlank() && cleanName.isNotBlank()) {
-                lCleanChapterName.contains(cleanName, ignoreCase = true) ||
-                cleanName.contains(lCleanChapterName, ignoreCase = true) ||
-                matchesThisChapterName
-            } else true
-
-            val isNameOrTitleMatch = (chapterNameMatch || titleMatch || noMatch) && subjectMatch
-
-            isDirectIdMatch || (isNameOrTitleMatch && doesNotContradictName)
+            false
         }
 
         return matched

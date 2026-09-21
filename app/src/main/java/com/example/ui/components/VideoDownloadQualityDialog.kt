@@ -26,6 +26,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.download.AppFileDownloadManager
 import com.example.download.DownloadQualityOption
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+
 @Composable
 fun VideoDownloadQualityDialog(
     videoUrl: String,
@@ -51,12 +54,13 @@ fun VideoDownloadQualityDialog(
             tonalElevation = 6.dp,
             modifier = Modifier
                 .fillMaxWidth(0.92f)
-                .padding(vertical = 20.dp)
+                .fillMaxHeight(0.85f)
+                .padding(vertical = 12.dp)
                 .testTag("video_download_quality_dialog")
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(20.dp)
             ) {
                 // Header
@@ -94,12 +98,15 @@ fun VideoDownloadQualityDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Options List
+                // Scrollable Options List
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
                 ) {
                     qualityOptions.forEach { option ->
                         val isSelected = selectedOption?.id == option.id

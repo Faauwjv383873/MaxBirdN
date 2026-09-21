@@ -201,291 +201,270 @@ fun PlayerControlsOverlay(
                         )
                     )
             ) {
-                // TOP BAR (Stacked Column with Title bar and Horizontal Scrollable Action Bar)
-                Column(
+                // TOP BAR (Single Compact Row with Title bar and Horizontal Action Bar)
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .then(if (isFullscreen) Modifier.statusBarsPadding() else Modifier)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Row 1: Back Button + Title + Badge
+                    // Left: Back Button + Title + Badges
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "ফিরে যান",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.weight(1f, fill = false)
                         ) {
-                            IconButton(
-                                onClick = onBack,
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
+                            when (effectiveClassType) {
+                                com.example.player.PlayerClassType.LIVE -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFFE11D48)
+                                    ) {
+                                        Text(
+                                            text = "🔴 LIVE",
+                                            color = Color.White,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                    if (viewerCount != null && viewerCount > 0) {
+                                        LiveViewerBadge(
+                                            viewerCount = viewerCount
+                                        )
+                                    }
+                                }
+                                com.example.player.PlayerClassType.ANIMATED -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFF8B5CF6)
+                                    ) {
+                                        Text(
+                                            text = "🎬 অ্যানিমেটেড",
+                                            color = Color.White,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                com.example.player.PlayerClassType.RECORDED_LECTURE -> {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFF2563EB)
+                                    ) {
+                                        Text(
+                                            text = "📖 লেকচার",
+                                            color = Color.White,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = title,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Right: Scrollable Action Buttons Row (PiP, Zoom, Quality, Download, Speed)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Picture in Picture (PiP) Button
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onPipClick() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "ফিরে যান",
+                                    imageVector = Icons.Default.PictureInPictureAlt,
+                                    contentDescription = "PiP",
                                     tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "PiP",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                        // Aspect Ratio / Zoom Toggle Button
+                        val resizeModeLabel = when (resizeMode) {
+                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT -> "ফিট"
+                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "জুম"
+                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> "ফুল"
+                            else -> "ফিট"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onToggleResizeMode() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AspectRatio,
+                                    contentDescription = "ভিডিও সাইজ / জুম",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = resizeModeLabel,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
 
-                            Column(modifier = Modifier.weight(1f, fill = false)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        // Quality Tag Button
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onQualityClick() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.HighQuality,
+                                    contentDescription = "কোয়ালিটি",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = selectedQualityLabel,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Download Button with Live Status Indicator
+                        when (downloadedItem?.status) {
+                            DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                val item = downloadedItem
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.35f),
+                                    modifier = Modifier.clickable { onDownloadClick() }
                                 ) {
-                                    when (effectiveClassType) {
-                                        com.example.player.PlayerClassType.LIVE -> {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFE11D48)
-                                            ) {
-                                                Text(
-                                                    text = "🔴 LIVE",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                            if (viewerCount != null && viewerCount > 0) {
-                                                LiveViewerBadge(
-                                                    viewerCount = viewerCount
-                                                )
-                                            }
-                                        }
-                                        com.example.player.PlayerClassType.ANIMATED -> {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFF8B5CF6)
-                                            ) {
-                                                Text(
-                                                    text = "🎬 অ্যানিমেটেড",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
-                                        com.example.player.PlayerClassType.RECORDED_LECTURE -> {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFF2563EB)
-                                            ) {
-                                                Text(
-                                                    text = "📖 লেকচার",
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            progress = { item.progressFraction },
+                                            color = Color(0xFF38BDF8),
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "${item.progressPercent}%",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
                                     }
-                                    Text(
-                                        text = title,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                }
+                            }
+                            DownloadedItemEntity.STATUS_COMPLETED -> {
+                                IconButton(
+                                    onClick = onDownloadClick,
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981).copy(alpha = 0.25f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DownloadDone,
+                                        contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(15.dp)
                                     )
                                 }
-                                if (subjectName.isNotBlank()) {
-                                    Text(
-                                        text = subjectName,
-                                        color = Color.White.copy(alpha = 0.75f),
-                                        fontSize = 10.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                            }
+                            else -> {
+                                IconButton(
+                                    onClick = onDownloadClick,
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "ডাউনলোড",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Row 2: Interactive Quality, Speed, Download and PiP Action Buttons (Scrollable horizontally)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Picture in Picture (PiP) Button
+                        // Playback Speed Tag Button
+                        if (!isLive) {
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(6.dp),
                                 color = Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.clickable { onPipClick() }
+                                modifier = Modifier.clickable { onSpeedClick() }
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PictureInPictureAlt,
-                                        contentDescription = "PiP",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "PiP",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            // Aspect Ratio / Zoom Toggle Button
-                            val resizeModeLabel = when (resizeMode) {
-                                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT -> "ফিট"
-                                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "জুম"
-                                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> "ফুল"
-                                else -> "ফিট"
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.clickable { onToggleResizeMode() }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AspectRatio,
-                                        contentDescription = "ভিডিও সাইজ / জুম",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = resizeModeLabel,
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            // Quality Tag Button
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.clickable { onQualityClick() }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.HighQuality,
-                                        contentDescription = "কোয়ালিটি",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = selectedQualityLabel,
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            // Download Button with Live Status Indicator
-                            when (downloadedItem?.status) {
-                                DownloadedItemEntity.STATUS_DOWNLOADING -> {
-                                    val item = downloadedItem
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFF0284C7).copy(alpha = 0.35f),
-                                        modifier = Modifier.clickable { onDownloadClick() }
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                                        ) {
-                                            CircularProgressIndicator(
-                                                progress = { item.progressFraction },
-                                                color = Color(0xFF38BDF8),
-                                                strokeWidth = 2.dp,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "${item.progressPercent}%",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                        }
-                                    }
-                                }
-                                DownloadedItemEntity.STATUS_COMPLETED -> {
-                                    IconButton(
-                                        onClick = onDownloadClick,
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF10B981).copy(alpha = 0.25f))
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.DownloadDone,
-                                            contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
-                                            tint = Color(0xFF34D399),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                                else -> {
-                                    IconButton(
-                                        onClick = onDownloadClick,
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Download,
-                                            contentDescription = "ডাউনলোড",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Playback Speed Tag Button
-                            if (!isLive) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color.White.copy(alpha = 0.2f),
-                                    modifier = Modifier.clickable { onSpeedClick() }
-                                ) {
-                                    val displaySpeed = String.format(Locale.US, "%.2f", playbackSpeed).removeSuffix(".00")
-                                    Text(
-                                        text = "${displaySpeed}x",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
+                                val displaySpeed = String.format(Locale.US, "%.2f", playbackSpeed).removeSuffix(".00")
+                                Text(
+                                    text = "${displaySpeed}x",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                )
                             }
                         }
                     }
