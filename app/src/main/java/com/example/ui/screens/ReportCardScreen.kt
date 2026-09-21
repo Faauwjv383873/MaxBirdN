@@ -322,8 +322,7 @@ fun ReportCardScreen(
                             rawUsers.filter { item ->
                                 val u = item.user
                                 val nameMatch = u?.name?.lowercase()?.contains(q) == true
-                                val phoneMatch = u?.effectivePhone?.replace("-", "")?.contains(q) == true ||
-                                        u?.phone?.replace("-", "")?.contains(q) == true
+                                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true
                                 val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
                                         u?.school?.lowercase()?.contains(q) == true
                                 nameMatch || phoneMatch || collegeMatch
@@ -2442,163 +2441,69 @@ fun StudentProfileDetailDialog(
         val fName = fullProfile?.first_name?.trim() ?: ""
         val lName = fullProfile?.last_name?.trim() ?: ""
         val combined = "$fName $lName".trim()
-        if (combined.isNotBlank()) combined else (user?.name?.takeIf { it.isNotBlank() } ?: "শিক্ষার্থী")
+        if (combined.isNotBlank()) combined else (user?.name?.trim()?.takeIf { it.isNotBlank() } ?: "শিক্ষার্থী")
     }
 
-    val rawAvatar = fullProfile?.avatar ?: user?.avatar
+    val rawAvatar = fullProfile?.avatar?.takeIf { it.isNotBlank() && it != "null" } ?: user?.avatar
     val formattedAvatar = AvatarUtils.formatAvatarUrl(rawAvatar, name)
 
-    val phone = run {
-        val p1 = fullProfile?.user?.phone?.trim()
-        if (!p1.isNullOrBlank() && p1 != "null") p1
-        else user?.effectivePhone ?: "01712345678"
-    }
-
-    val email = run {
-        val e1 = fullProfile?.user?.email?.trim()
-        if (!e1.isNullOrBlank() && e1 != "null") e1
-        else {
-            val clean = name.lowercase().replace(" ", "").filter { it.isLetterOrDigit() }
-            if (clean.isNotBlank()) "${clean.take(10)}@gmail.com" else "student@gmail.com"
-        }
-    }
+    val phone = (fullProfile?.user?.phone ?: user?.phone)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val gender = run {
-        val raw = fullProfile?.gender ?: user?.gender
+        val raw = (fullProfile?.gender ?: user?.gender)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
         when (raw?.lowercase()) {
-            "female", "নারী", "মহিলা" -> "মহিলা"
-            "male", "পুরুষ" -> "পুরুষ"
-            else -> user?.effectiveGender ?: "পুরুষ"
+            "female", "f", "নারী", "মহিলা" -> "মহিলা"
+            "male", "m", "পুরুষ" -> "পুরুষ"
+            else -> raw
         }
     }
 
     val dob = run {
-        val d1 = fullProfile?.dob?.trim()
-        if (!d1.isNullOrBlank() && d1 != "null") d1
-        else user?.effectiveDob ?: "১২ মার্চ, ২০০৬"
+        val raw = (fullProfile?.dob ?: user?.dob)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+        if (raw != null) {
+            try {
+                val parseFormat = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                val date = parseFormat.parse(raw)
+                if (date != null) {
+                    java.text.SimpleDateFormat("dd MMMM, yyyy", java.util.Locale.US).format(date)
+                } else raw
+            } catch (_: Exception) {
+                raw
+            }
+        } else null
     }
 
-    val hash = kotlin.math.abs((name + (user?.id ?: "student")).hashCode())
+    val guardianName = fullProfile?.guardian_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val guardianName = run {
-        val g1 = fullProfile?.guardian_name?.trim()
-        if (!g1.isNullOrBlank() && g1 != "null") g1
-        else {
-            val names = if (gender == "মহিলা") {
-                listOf("মো: আব্দুর রশীদ", "মো: রফিকুল ইসলাম", "মো: জহিরুল ইসলাম", "মো: আনোয়ার হোসেন", "মো: শফিকুল ইসলাম")
-            } else {
-                listOf("মো: নজরুল ইসলাম", "মো: মোস্তফা কামাল", "মো: জাহাঙ্গীর আলম", "মো: আব্দুল কুদ্দুস", "মো: খোরশেদ আলম")
-            }
-            names[hash % names.size]
+    val guardianPhone = fullProfile?.guardian_mobile?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+
+    val studyGroup = (fullProfile?.study_group ?: user?.group)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+
+    val className = (fullProfile?.`class`?.display ?: fullProfile?.`class`?.code ?: user?.batch)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+
+    val shift = fullProfile?.shift?.trim()?.takeIf { it.isNotBlank() && it != "null" }?.let {
+        when (it.lowercase()) {
+            "morning" -> "মর্নিং"
+            "day" -> "ডে"
+            else -> it
         }
     }
 
-    val guardianPhone = run {
-        val gPhone = fullProfile?.guardian_mobile?.trim()
-        if (!gPhone.isNullOrBlank() && gPhone != "null") gPhone
-        else {
-            val cleanPhone = phone.filter { it.isDigit() }
-            if (cleanPhone.length >= 10) {
-                val prefix = cleanPhone.take(3)
-                val suffix = String.format(java.util.Locale.US, "%08d", (hash + 12345) % 100000000)
-                "$prefix${suffix.take(8)}"
-            } else {
-                "01812345678"
-            }
-        }
-    }
+    val district = (fullProfile?.school?.address?.district?.display ?: user?.district)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val studyGroup = run {
-        val sg = fullProfile?.study_group?.trim()
-        if (!sg.isNullOrBlank() && sg != "null") sg
-        else user?.effectiveGroup ?: "বিজ্ঞান বিভাগ"
-    }
+    val division = fullProfile?.school?.address?.division?.display?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val className = run {
-        val c1 = fullProfile?.`class`?.display?.trim()
-        if (!c1.isNullOrBlank() && c1 != "null") c1
-        else "Class 11"
-    }
+    val college = (fullProfile?.school?.name ?: user?.college ?: user?.school)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val shift = run {
-        val s1 = fullProfile?.shift?.trim()
-        if (!s1.isNullOrBlank() && s1 != "null") {
-            when (s1.lowercase()) {
-                "morning" -> "মর্নিং"
-                "day" -> "ডে"
-                else -> s1
-            }
-        } else "মর্নিং"
-    }
+    val sscBoard = fullProfile?.ssc_board_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val district = run {
-        val d1 = fullProfile?.school?.address?.district?.display?.trim()
-        if (!d1.isNullOrBlank() && d1 != "null") d1
-        else user?.effectiveDistrict ?: "ঢাকা"
-    }
+    val hscBoard = fullProfile?.hsc_board_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val division = run {
-        val div = fullProfile?.school?.address?.division?.display?.trim()
-        if (!div.isNullOrBlank() && div != "null") div
-        else {
-            when {
-                district.contains("ঢাকা") -> "ঢাকা বিভাগ"
-                district.contains("চট্টগ্রাম") -> "চট্টগ্রাম বিভাগ"
-                district.contains("রাজশাহী") -> "রাজশাহী বিভাগ"
-                district.contains("সিলেট") -> "সিলেট বিভাগ"
-                district.contains("বরিশাল") -> "বরিশাল বিভাগ"
-                district.contains("রংপুর") -> "রংপুর বিভাগ"
-                district.contains("খুলনা") -> "খুলনা বিভাগ"
-                district.contains("ময়মনসিংহ") -> "ময়মনসিংহ বিভাগ"
-                else -> "ঢাকা বিভাগ"
-            }
-        }
-    }
+    val sscRoll = (fullProfile?.board_roll_number ?: user?.roll_no)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val college = run {
-        val col = fullProfile?.school?.name?.trim()
-        if (!col.isNullOrBlank() && col != "null") col
-        else user?.effectiveCollege ?: "ঢাকা কলেজ"
-    }
+    val hscRoll = fullProfile?.hsc_board_roll_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val boardName = when {
-        district.contains("ঢাকা") -> "ঢাকা"
-        district.contains("চট্টগ্রাম") -> "চট্টগ্রাম"
-        district.contains("রাজশাহী") -> "রাজশাহী"
-        district.contains("সিলেট") -> "সিলেট"
-        district.contains("বরিশাল") -> "বরিশাল"
-        district.contains("রংপুর") -> "রংপুর"
-        district.contains("খুলনা") -> "খুলনা"
-        district.contains("কুমিল্লা") -> "কুমিল্লা"
-        district.contains("যশোর") -> "যশোর"
-        district.contains("ময়মনসিংহ") -> "ময়মনসিংহ"
-        else -> "ঢাকা"
-    }
-
-    val sscBoard = run {
-        val sb = fullProfile?.ssc_board_name?.trim()
-        if (!sb.isNullOrBlank() && sb != "null") sb else boardName
-    }
-
-    val hscBoard = run {
-        val hb = fullProfile?.hsc_board_name?.trim()
-        if (!hb.isNullOrBlank() && hb != "null") hb else boardName
-    }
-
-    val sscRoll = run {
-        val sr = fullProfile?.board_roll_number?.trim()
-        if (!sr.isNullOrBlank() && sr != "null") sr else "${100000 + (hash % 899999)}"
-    }
-
-    val hscRoll = run {
-        val hr = fullProfile?.hsc_board_roll_number?.trim()
-        if (!hr.isNullOrBlank() && hr != "null") hr else "${200000 + (hash % 899999)}"
-    }
-
-    val regNo = run {
-        val rg = fullProfile?.board_reg_number?.trim()
-        if (!rg.isNullOrBlank() && rg != "null") rg else "${1910000000L + (hash % 89999999L)}"
-    }
+    val regNo = fullProfile?.board_reg_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val rank = userItem.rank
     val score = userItem.score
@@ -2690,7 +2595,7 @@ fun StudentProfileDetailDialog(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "রিয়েল ডাটাবেজ থেকে সম্পূর্ণ তথ্য লোড করা হচ্ছে...",
+                            text = "সার্ভার থেকে সম্পূর্ণ প্রোফাইল তথ্য লোড হচ্ছে...",
                             fontSize = 12.sp,
                             color = Color(0xFF1D4ED8),
                             fontWeight = FontWeight.Medium
@@ -2838,8 +2743,8 @@ fun StudentProfileDetailDialog(
                     }
                 }
 
-                // WhatsApp, Telegram, Direct Call Quick Connect
-                if (phone.isNotBlank()) {
+                // WhatsApp, Telegram, Direct Call Quick Connect (Only if real phone exists)
+                if (!phone.isNullOrBlank()) {
                     SocialContactSection(phone = phone, context = context)
                 }
 
@@ -2861,9 +2766,9 @@ fun StudentProfileDetailDialog(
                         iconTint = Color(0xFF16A34A),
                         label = "ফোন নম্বর",
                         value = phone,
-                        isClickable = phone.isNotBlank(),
+                        isClickable = !phone.isNullOrBlank(),
                         onClick = {
-                            if (phone.isNotBlank()) {
+                            if (!phone.isNullOrBlank()) {
                                 try {
                                     val intent = Intent(Intent.ACTION_DIAL).apply {
                                         data = android.net.Uri.parse("tel:${phone.replace("-", "").replace(" ", "")}")
@@ -2872,13 +2777,6 @@ fun StudentProfileDetailDialog(
                                 } catch (_: Exception) {}
                             }
                         }
-                    )
-                    HorizontalDivider(color = Color(0xFFF1F5F9))
-                    ProfileInfoRow(
-                        icon = Icons.Default.Email,
-                        iconTint = Color(0xFF0284C7),
-                        label = "ইমেইল",
-                        value = email
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
@@ -2914,9 +2812,9 @@ fun StudentProfileDetailDialog(
                         iconTint = Color(0xFF16A34A),
                         label = "অভিভাবকের মোবাইল নম্বর",
                         value = guardianPhone,
-                        isClickable = guardianPhone.isNotBlank(),
+                        isClickable = !guardianPhone.isNullOrBlank(),
                         onClick = {
-                            if (guardianPhone.isNotBlank()) {
+                            if (!guardianPhone.isNullOrBlank()) {
                                 try {
                                     val intent = Intent(Intent.ACTION_DIAL).apply {
                                         data = android.net.Uri.parse("tel:${guardianPhone.replace("-", "").replace(" ", "")}")
@@ -2934,11 +2832,14 @@ fun StudentProfileDetailDialog(
                     sectionIcon = Icons.Default.School,
                     sectionColor = Color(0xFFD97706)
                 ) {
+                    val classDisplay = if (!className.isNullOrBlank() && !studyGroup.isNullOrBlank()) {
+                        "$className | $studyGroup"
+                    } else className ?: studyGroup
                     ProfileInfoRow(
                         icon = Icons.Default.Class,
                         iconTint = Color(0xFFD97706),
                         label = "শ্রেণী ও বিভাগ",
-                        value = "$className | $studyGroup"
+                        value = classDisplay
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
@@ -3023,12 +2924,13 @@ fun StudentProfileDetailDialog(
                 OutlinedButton(
                     onClick = {
                         val shareText = "🏆 লিডারবোর্ড স্থান অর্জন করেছেন $name!\n" +
-                                "🏛️ কলেজ: $college\n" +
-                                "📊 স্কোর: ${score}% (র‍্যাংক #${rank})\n" +
-                                "📱 মোবাইল: $phone"
+                                (college?.let { "🏛️ কলেজ: $it\n" } ?: "") +
+                                (score?.let { "📊 স্কোর: ${it}% " } ?: "") +
+                                (rank?.let { "(র‍্যাংক #${it})\n" } ?: "\n") +
+                                (phone?.let { "📱 মোবাইল: $it" } ?: "")
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, shareText)
+                            putExtra(Intent.EXTRA_TEXT, shareText.trim())
                         }
                         context.startActivity(Intent.createChooser(intent, "প্রোফাইল শেয়ার করুন"))
                     },
@@ -3120,10 +3022,13 @@ private fun ProfileInfoRow(
     icon: ImageVector,
     iconTint: Color,
     label: String,
-    value: String,
+    value: String?,
     isClickable: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
+    val displayValue = if (!value.isNullOrBlank() && value != "null") value else "তথ্য দেয়া নেই"
+    val isMissing = value.isNullOrBlank() || value == "null"
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3159,10 +3064,10 @@ private fun ProfileInfoRow(
                 color = Color(0xFF64748B)
             )
             Text(
-                text = value.ifBlank { "তথ্য পাওয়া যায়নি" },
+                text = displayValue,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF0F172A),
+                fontWeight = if (isMissing) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (isMissing) Color(0xFF94A3B8) else Color(0xFF0F172A),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
