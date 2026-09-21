@@ -74,6 +74,13 @@ object LessonCacheManager {
         val cleanSubject = subjectTitle?.replace("পত্র", "")?.replace("১ম", "")?.replace("২য়", "")?.trim() ?: ""
         val cleanChapterNo = chapterNo?.trim()?.takeIf { it.isNotBlank() }
 
+        fun isSameId(id1: String, id2: String): Boolean {
+            if (id1.equals(id2, ignoreCase = true)) return true
+            val d1 = id1.replace(Regex("[^0-9]"), "")
+            val d2 = id2.replace(Regex("[^0-9]"), "")
+            return d1.isNotBlank() && d2.isNotBlank() && d1 == d2
+        }
+
         val matched = lessons.filter { item ->
             val lTitle = item.title ?: ""
             val lLiveClass = item.live_class
@@ -85,17 +92,24 @@ object LessonCacheManager {
             val lessonChapterIds = listOfNotNull(
                 item.chapter_id?.trim()?.takeIf { it.isNotBlank() },
                 lLiveClass?.chapter_id?.trim()?.takeIf { it.isNotBlank() }
-            )
+            ).distinct()
 
             // 1. Direct positive chapter ID match
             val isDirectIdMatch = lessonChapterIds.any { id ->
-                cleanCandidateIds.any { cid -> cid.equals(id, ignoreCase = true) }
+                cleanCandidateIds.any { cid -> isSameId(id, cid) }
             }
 
-            // 2. Direct negative chapter ID check:
-            // If the lesson explicitly has a chapter ID belonging to ANOTHER chapter, exclude it!
+            // CRITICAL STRICT CHECK: If candidate IDs are specified AND lesson has explicit chapter IDs,
+            // then it MUST match the candidate chapter ID directly! Otherwise it belongs to another chapter.
+            if (cleanCandidateIds.isNotEmpty() && lessonChapterIds.isNotEmpty()) {
+                if (!isDirectIdMatch) {
+                    return@filter false
+                }
+            }
+
+            // 2. Direct negative chapter ID check against other known chapter IDs
             val belongsToOtherChapter = lessonChapterIds.any { id ->
-                cleanOtherIds.any { otherId -> otherId.equals(id, ignoreCase = true) }
+                cleanOtherIds.any { otherId -> isSameId(id, otherId) }
             }
             if (belongsToOtherChapter && !isDirectIdMatch) {
                 return@filter false
@@ -146,7 +160,16 @@ object LessonCacheManager {
                 lSubject.contains(cleanSubject, ignoreCase = true) ||
                 cleanSubject.contains(lSubject, ignoreCase = true)
 
-            (isDirectIdMatch || ((chapterNameMatch || titleMatch || noMatch) && subjectMatch))
+            // Prevent matching if lCleanChapterName is present and explicitly differs from cleanName
+            val doesNotContradictName = if (lCleanChapterName.isNotBlank() && cleanName.isNotBlank()) {
+                lCleanChapterName.contains(cleanName, ignoreCase = true) ||
+                cleanName.contains(lCleanChapterName, ignoreCase = true) ||
+                matchesThisChapterName
+            } else true
+
+            val isNameOrTitleMatch = (chapterNameMatch || titleMatch || noMatch) && subjectMatch
+
+            isDirectIdMatch || (isNameOrTitleMatch && doesNotContradictName)
         }
 
         return matched

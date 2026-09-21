@@ -599,7 +599,11 @@ class CourseViewModel(
             it.copy(
                 selectedChapterId = chapterId,
                 selectedChapterName = chapterName,
-                selectedChapterStatus = chapterStatus
+                selectedChapterStatus = chapterStatus,
+                lessons = emptyList(),
+                isLessonsLoading = true,
+                lessonsErrorMessage = null,
+                lessonsDiagnosticInfo = null
             )
         }
     }
