@@ -46,13 +46,6 @@ enum class PlayerClassType(
                 return LIVE
             }
 
-            if (lowerContent.contains("animated") || lowerClass.contains("animated") ||
-                lowerTitle.contains("animated") || lowerTitle.contains("অ্যানিমেটেড") ||
-                lowerUrl.contains("animated")
-            ) {
-                return ANIMATED
-            }
-
             return RECORDED_LECTURE
         }
     }

@@ -47,13 +47,12 @@ fun SubjectChaptersScreen(
     onBack: () -> Unit,
     onChapterClick: (chapterId: String, chapterName: String, chapterStatus: String, initialTab: Int) -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
-    onNavigateToAnimatedChapters: ((subjectCode: String, subjectTitle: String) -> Unit)? = null,
     onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?) -> Unit)? = null,
     onNavigateToSmartNotes: ((subjectCode: String, subjectTitle: String, subjectColor: String?, phaseId: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedMode by remember { mutableStateOf(0) } // 0: All, 1: Animated, 2: Quiz, 3: E-Book
+    var selectedMode by remember { mutableStateOf(0) } // 0: All, 2: Quiz, 3: E-Book
 
     val subjectColor = remember(subjectColorHex) {
         try {
@@ -269,15 +268,13 @@ fun SubjectChaptersScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book
+                        // Top Shortcuts: Practice Quiz, E-Book
                         item {
                             CourseFeatureShortcuts(
                                 subjectColor = subjectColor,
                                 selectedMode = 0,
                                 onSelectMode = { mode ->
-                                    if (mode == 1) {
-                                        // DISABLED: Animated lessons navigation disabled per user request
-                                    } else if (mode == 2) {
+                                    if (mode == 2) {
                                         onNavigateToPracticeQuiz?.invoke(subjectCode, subjectTitle, subjectColorHex)
                                     } else if (mode == 3) {
                                         onNavigateToSmartNotes?.invoke(subjectCode, subjectTitle, subjectColorHex, uiState.activePhaseId)
@@ -389,14 +386,6 @@ fun CourseFeatureShortcuts(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ShortcutButton(
-            title = AcademicLocalizationUtils.translateContentType("Video"),
-            icon = Icons.Default.SlowMotionVideo,
-            color = Color(0xFF8B5CF6),
-            isSelected = selectedMode == 1,
-            modifier = Modifier.weight(1f),
-            onClick = { onSelectMode(1) }
-        )
         ShortcutButton(
             title = AcademicLocalizationUtils.translateContentType("Exam"),
             icon = Icons.Default.FactCheck,
@@ -630,35 +619,15 @@ fun ChapterCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Counters: Class & Exam & Topic count
+                // Counters: Class & Exam count
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    val topicCount = chapter.topicCount
                     val classCount = chapter.class_counter ?: 0
                     val examCount = chapter.exam_counter ?: 0
 
-                    if (topicCount != null && topicCount > 0) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Topic,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = "টপিক: ${toBengaliDigits(topicCount)}টি",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    if (classCount > 0 || (topicCount == null && examCount == 0)) {
+                    if (classCount > 0 || examCount == 0) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp)

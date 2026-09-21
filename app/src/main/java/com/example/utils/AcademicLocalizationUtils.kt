@@ -63,7 +63,7 @@ object AcademicLocalizationUtils {
         val lower = type.trim().lowercase()
         return when {
             lower == "live" || lower == "liveclass" || lower.contains("live") -> "লাইভ ক্লাস"
-            lower == "video" || lower == "animated" || lower.contains("video") -> "এনিমেটেড ভিডিও"
+            lower == "video" || lower.contains("video") -> "ভিডিও লেকচার"
             lower == "smartnotes" || lower == "smart_notes" || lower == "ebook" || lower.contains("note") -> "স্মার্ট নোট"
             lower == "exam" || lower == "liveexam" || lower == "quiz" || lower == "modeltest" || lower.contains("exam") || lower.contains("quiz") -> "কুইজ এবং এক্সাম"
             else -> "লাইভ ক্লাস"

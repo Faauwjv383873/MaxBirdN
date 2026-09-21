@@ -83,7 +83,6 @@ fun ChapterLessonsScreen(
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
-    onNavigateToAnimatedTopics: ((chapterId: String, chapterName: String, subjectCode: String) -> Unit)? = null,
     onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?, chapterId: String, chapterName: String) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapterName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -278,14 +277,12 @@ fun ChapterLessonsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book
+                        // Top Shortcuts: Practice Quiz, E-Book
                         item {
                             ChapterFeatureShortcuts(
                                 selectedTab = 0,
                                 onTabSelected = { tab ->
-                                    if (tab == 1) {
-                                        // DISABLED: Animated lessons navigation disabled per user request
-                                    } else if (tab == 2) {
+                                    if (tab == 2) {
                                         onNavigateToPracticeQuiz?.invoke(
                                             effectiveSubjectCode,
                                             effectiveSubjectTitle,
@@ -651,14 +648,6 @@ fun ChapterFeatureShortcuts(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ChapterShortcutButton(
-            title = AcademicLocalizationUtils.translateContentType("Video"),
-            icon = Icons.Default.SlowMotionVideo,
-            color = Color(0xFF8B5CF6),
-            isSelected = selectedTab == 1,
-            modifier = Modifier.weight(1f),
-            onClick = { onTabSelected(1) }
-        )
         ChapterShortcutButton(
             title = AcademicLocalizationUtils.translateContentType("Exam"),
             icon = Icons.Default.FactCheck,

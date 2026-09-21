@@ -56,11 +56,5 @@ data class CourseUiState(
     val lessonsDiagnosticInfo: String? = null,
 
     // Tier 4: Selected Lesson Detail
-    val selectedLesson: StudentLessonItem? = null,
-
-    // Animated Lessons
-    val chapterAnimatedLessons: List<TopicFullItem> = emptyList(),
-    val isChapterAnimationsLoading: Boolean = false,
-    val subjectAnimatedLessons: List<TopicFullItem> = emptyList(),
-    val isSubjectAnimationsLoading: Boolean = false
+    val selectedLesson: StudentLessonItem? = null
 )

@@ -580,74 +580,27 @@ class CourseRepository(
     ): List<StudentLessonItem> {
         val collectedLessons = mutableListOf<StudentLessonItem>()
 
-        // 1. Fetch Topics for chapter (the primary recorded classes / lectures)
+        // 1. Fetch scheduled or live lessons for this program / phase
         val chapterIdsToTry = listOfNotNull(chapterId.ifBlank { null }, altChapterId?.ifBlank { null }).distinct()
-        for (chId in chapterIdsToTry) {
-            try {
-                val topics = getTopics(chId)
-                if (topics.isNotEmpty()) {
-                    topics.forEachIndexed { tIdx, topic ->
-                        val topicName = topic.name ?: "লেকচার ${tIdx + 1}"
-                        val videoList = topic.videos?.data ?: emptyList()
-                        if (videoList.isNotEmpty()) {
-                            videoList.forEachIndexed { vIdx, vid ->
-                                val title = if (videoList.size > 1) "$topicName (পার্ট ${vIdx + 1})" else topicName
-                                collectedLessons.add(
-                                    StudentLessonItem(
-                                        id = vid.id?.ifBlank { null } ?: "${topic.id}_v$vIdx",
-                                        title = title,
-                                        content_id = vid.id ?: topic.id,
-                                        content_type = "RecordedClass",
-                                        access_level = topic.subscription_type ?: "FREE",
-                                        chapter_id = chId,
-                                        subject_name = subjectTitle,
-                                        video_url = vid.playback_url,
-                                        stream_url = vid.playback_url,
-                                        recording_url = vid.playback_url,
-                                        icon = vid.video_thumbnail_url?.firstOrNull(),
-                                        is_free = true,
-                                        is_locked = false
-                                    )
-                                )
-                            }
-                        } else {
-                            collectedLessons.add(
-                                StudentLessonItem(
-                                    id = topic.id ?: "${chId}_topic_$tIdx",
-                                    title = topicName,
-                                    content_id = topic.id,
-                                    content_type = "RecordedClass",
-                                    access_level = topic.subscription_type ?: "FREE",
-                                    chapter_id = chId,
-                                    subject_name = subjectTitle,
-                                    is_free = true,
-                                    is_locked = false
-                                )
-                            )
-                        }
-                    }
-                }
-                if (collectedLessons.isNotEmpty()) break
-            } catch (e: Exception) {
-                android.util.Log.e("CourseRepository", "Error fetching topics for chapter $chId: ${e.message}")
-            }
-        }
-
-        // 2. Also fetch any scheduled or live lessons for this program / phase
         if (!programId.isNullOrBlank()) {
-            try {
-                val programLessons = if (!phaseId.isNullOrBlank()) {
-                    fetchLessonsWithPhase(chapterId, programId, phaseId, chapterName, batchId, subjectTitle)
-                } else {
-                    fetchLessonsStandard(chapterId, programId, chapterName, batchId, subjectTitle)
+            for (chId in chapterIdsToTry) {
+                try {
+                    val programLessons = if (!phaseId.isNullOrBlank()) {
+                        fetchLessonsWithPhase(chId, programId, phaseId, chapterName, batchId, subjectTitle)
+                    } else {
+                        fetchLessonsStandard(chId, programId, chapterName, batchId, subjectTitle)
+                    }
+                    if (programLessons.isNotEmpty()) {
+                        collectedLessons.addAll(programLessons)
+                        break
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("CourseRepository", "Error fetching program lessons for chapter $chId: ${e.message}")
                 }
-                collectedLessons.addAll(programLessons)
-            } catch (e: Exception) {
-                android.util.Log.e("CourseRepository", "Error fetching program lessons for chapter $chapterId: ${e.message}")
             }
         }
 
-        // 3. Deduplicate
+        // 2. Deduplicate
         val distinct = collectedLessons.distinctBy { it.id.ifBlank { "${it.content_id}_${it.title}" } }
         if (distinct.isNotEmpty()) {
             LessonCacheManager.saveLessons(distinct)

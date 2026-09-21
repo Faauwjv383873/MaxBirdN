@@ -170,32 +170,11 @@ class CourseViewModel(
                             } catch (_: Exception) {}
                         }
 
-                        // 2. Fetch Topic Videos via GetTopics if playback_url is blank
-                        val chapterIdForTopics = lesson.chapter_id ?: liveClassData.chapter?.id
-                        val topicIds = liveClassData.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() }
-                        if (currentLessonState.resolvedVideoUrl.isNullOrBlank() && !chapterIdForTopics.isNullOrBlank() && !topicIds.isNullOrEmpty()) {
-                            try {
-                                val topicsList = repository.getTopics(chapterIdForTopics, topicIds)
-                                val topicVideos = topicsList.flatMap { it.videos?.data ?: emptyList() }
-                                val fallbackTopicUrl = topicVideos.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
-                                if (!fallbackTopicUrl.isNullOrBlank()) {
-                                    val withTopicPb = currentLessonState.live_class?.copy(
-                                        playback_url = fallbackTopicUrl,
-                                        recording_url = fallbackTopicUrl
-                                    )
-                                    currentLessonState = currentLessonState.copy(
-                                        recording_url = fallbackTopicUrl,
-                                        live_class = withTopicPb
-                                    )
-                                }
-                            } catch (_: Exception) {}
-                        }
-
                         if (_uiState.value.selectedLesson?.id == lesson.id) {
                             _uiState.update { it.copy(selectedLesson = currentLessonState) }
                         }
 
-                        // 3. Attempt to fetch live room & meeting link via JoinLiveClass mutation
+                        // 2. Attempt to fetch live room & meeting link via JoinLiveClass mutation
                         joinLiveClass(currentLessonState)
                     }
                 } catch (_: Exception) {}
@@ -728,7 +707,10 @@ class CourseViewModel(
                                     data {
                                       id title content_id content_type access_level start_time end_time is_free is_locked user_activity_state
                                       live_class {
-                                        id chapter_id chapter_name start_time end_time is_on_going subject_id subject_name type class_type
+                                        id chapter_id chapter_name start_time end_time is_on_going subject_id subject_name type class_type playback_url recording_url session_id
+                                      }
+                                      model_test {
+                                        type exam_category
                                       }
                                     }
                                   }
@@ -798,103 +780,6 @@ class CourseViewModel(
                 }
             }
         }
-    }
-
-    fun loadAnimatedLessonsForChapter(
-        chapterId: String,
-        altChapterId: String? = null,
-        chapterName: String? = null
-    ) {
-        // DISABLED: Animated lessons kept inactive per user request
-        _uiState.update {
-            it.copy(
-                isChapterAnimationsLoading = false,
-                chapterAnimatedLessons = emptyList()
-            )
-        }
-        /*
-        viewModelScope.launch {
-            try {
-                val matching = _uiState.value.chapters.firstOrNull {
-                    it.id == chapterId || it.chapter_id == chapterId ||
-                    (!chapterName.isNullOrBlank() && it.effectiveName.equals(chapterName, ignoreCase = true))
-                }
-                val candidates = listOfNotNull(
-                    matching?.chapter_id,
-                    altChapterId,
-                    chapterId,
-                    matching?.id
-                ).filter { it.isNotBlank() }.distinct()
-
-                var topicsList = emptyList<TopicFullItem>()
-                for (candId in candidates) {
-                    try {
-                        val fetched = repository.getTopics(candId)
-                        if (fetched.isNotEmpty()) {
-                            topicsList = fetched
-                            break
-                        }
-                    } catch (_: Exception) {}
-                }
-                _uiState.update {
-                    it.copy(
-                        chapterAnimatedLessons = topicsList,
-                        isChapterAnimationsLoading = false
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        chapterAnimatedLessons = emptyList(),
-                        isChapterAnimationsLoading = false
-                    )
-                }
-            }
-        }
-        */
-    }
-
-    fun loadAnimatedLessonsForSubject() {
-        // DISABLED: Animated lessons kept inactive per user request
-        _uiState.update {
-            it.copy(
-                isSubjectAnimationsLoading = false,
-                subjectAnimatedLessons = emptyList()
-            )
-        }
-        /*
-        val subjectCode = _uiState.value.selectedSubjectCode
-        viewModelScope.launch {
-            try {
-                val subjectChapters = if (subjectCode.isNotBlank()) {
-                    try { repository.getChaptersBySubjectCode(subjectCode) } catch (_: Exception) { emptyList() }
-                } else emptyList()
-                val chaptersToUse = if (subjectChapters.isNotEmpty()) subjectChapters else _uiState.value.chapters
-                val deferreds = chaptersToUse.map { chapter ->
-                    val chId = chapter.chapter_id?.takeIf { it.isNotBlank() } ?: chapter.id.takeIf { it.isNotBlank() } ?: ""
-                    async {
-                        if (chId.isBlank()) return@async emptyList<TopicFullItem>()
-                        try { repository.getTopics(chId) } catch (e: Exception) { emptyList<TopicFullItem>() }
-                    }
-                }
-                val results = deferreds.awaitAll().flatten()
-                val finalAnimated = results.distinctBy { it.id }
-                _uiState.update {
-                    it.copy(
-                        subjectAnimatedLessons = finalAnimated,
-                        isSubjectAnimationsLoading = false
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        subjectAnimatedLessons = emptyList(),
-                        isSubjectAnimationsLoading = false
-                    )
-                }
-            }
-        }
-        */
     }
 }
 
