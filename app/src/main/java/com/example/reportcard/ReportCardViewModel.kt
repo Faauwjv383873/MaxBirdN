@@ -8,6 +8,7 @@ import com.example.auth.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class ReportTab {
@@ -29,6 +30,12 @@ data class ReportCardUiState(
     val leaderboardData: LeaderboardRankingResponse? = null,
     val isLoading: Boolean = false,
     val isLeaderboardLoading: Boolean = false,
+    val isPaginationLoading: Boolean = false,
+    val hasMoreLeaderboardPages: Boolean = true,
+    val searchQuery: String = "",
+    val selectedStudentFullProfile: UserProfile? = null,
+    val isFetchingStudentProfile: Boolean = false,
+    val profileFetchError: String? = null,
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
     val userName: String = "",
@@ -306,9 +313,17 @@ class ReportCardViewModel(
         }
     }
 
-    fun loadLeaderboard(programId: String, phaseId: String, subjectId: String) {
+    fun loadLeaderboard(programId: String, phaseId: String, subjectId: String, reset: Boolean = true) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLeaderboardLoading = true)
+            if (reset) {
+                _uiState.update {
+                    it.copy(
+                        isLeaderboardLoading = true,
+                        hasMoreLeaderboardPages = true,
+                        leaderboardData = null
+                    )
+                }
+            }
             try {
                 val req = LeaderboardRankingRequest(
                     program_id = programId,
@@ -319,25 +334,168 @@ class ReportCardViewModel(
                     metric = "total_score",
                     pagination = RankingPagination(limit = 20, offset = 0)
                 )
-                var resp: LeaderboardRankingResponse? = null
-                try {
-                    resp = apiService.getLeaderboardRankings(req)
-                } catch (_: Exception) {}
+                val resp = try {
+                    apiService.getLeaderboardRankings(req)
+                } catch (_: Exception) { null }
 
-                if (resp == null || resp.data.isNullOrEmpty()) {
-                    resp = generateFallbackLeaderboard(subjectId)
+                val items = resp?.data ?: emptyList()
+                val hasMore = items.size >= 20
+
+                _uiState.update {
+                    it.copy(
+                        leaderboardData = resp ?: LeaderboardRankingResponse(data = emptyList()),
+                        isLeaderboardLoading = false,
+                        hasMoreLeaderboardPages = hasMore
+                    )
                 }
-
-                _uiState.value = _uiState.value.copy(
-                    leaderboardData = resp,
-                    isLeaderboardLoading = false
-                )
             } catch (_: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    leaderboardData = generateFallbackLeaderboard(subjectId),
-                    isLeaderboardLoading = false
+                _uiState.update {
+                    it.copy(
+                        leaderboardData = LeaderboardRankingResponse(data = emptyList()),
+                        isLeaderboardLoading = false,
+                        hasMoreLeaderboardPages = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadNextLeaderboardPage() {
+        val currentState = _uiState.value
+        if (currentState.isPaginationLoading || !currentState.hasMoreLeaderboardPages || currentState.isLeaderboardLoading) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isPaginationLoading = true) }
+            try {
+                val currentList = currentState.leaderboardData?.data ?: emptyList()
+                val nextOffset = currentList.size
+                val progId = currentState.programId
+                val phaseId = currentState.selectedPhase?.id ?: ""
+                val subjectId = currentState.selectedLeaderboardSubject?.code ?: "ALL"
+
+                val req = LeaderboardRankingRequest(
+                    program_id = progId,
+                    result_type = "phase",
+                    identifier = phaseId,
+                    scope = "national",
+                    subject_id = if (subjectId == "ALL") "all" else subjectId,
+                    metric = "total_score",
+                    pagination = RankingPagination(limit = 20, offset = nextOffset)
+                )
+                val resp = try {
+                    apiService.getLeaderboardRankings(req)
+                } catch (_: Exception) { null }
+
+                val newItems = resp?.data ?: emptyList()
+                val hasMore = newItems.size >= 20
+
+                val combinedItems = currentList + newItems
+                val updatedResponse = LeaderboardRankingResponse(
+                    user_rank = resp?.user_rank ?: currentState.leaderboardData?.user_rank,
+                    user_marks = resp?.user_marks ?: currentState.leaderboardData?.user_marks,
+                    data = combinedItems,
+                    meta = resp?.meta ?: currentState.leaderboardData?.meta
+                )
+
+                _uiState.update {
+                    it.copy(
+                        leaderboardData = updatedResponse,
+                        isPaginationLoading = false,
+                        hasMoreLeaderboardPages = hasMore
+                    )
+                }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isPaginationLoading = false, hasMoreLeaderboardPages = false) }
+            }
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun fetchStudentFullProfile(userId: String) {
+        if (userId.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isFetchingStudentProfile = true,
+                    selectedStudentFullProfile = null,
+                    profileFetchError = null
                 )
             }
+            try {
+                val profileQuery = GraphQlQuery(
+                    query = """
+                        query GetProfile(${'$'}user_id: String, ${'$'}type: String!) {
+                          profile(user_id: ${'$'}user_id, type: ${'$'}type) {
+                            id
+                            first_name
+                            last_name
+                            avatar
+                            gender
+                            dob
+                            shift
+                            guardian_name
+                            guardian_mobile
+                            ssc_board_name
+                            hsc_board_name
+                            board_roll_number
+                            hsc_board_roll_number
+                            board_reg_number
+                            study_group
+                            passing_year
+                            class {
+                              code
+                              display
+                            }
+                            school {
+                              id
+                              name
+                              address {
+                                district { code display }
+                                division { code display }
+                              }
+                            }
+                            user {
+                              email
+                              phone
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    operationName = "GetProfile",
+                    variables = mapOf("user_id" to userId, "type" to "student")
+                )
+
+                val res = apiService.getProfile(profileQuery)
+                val profile = res.data?.profile
+
+                _uiState.update {
+                    it.copy(
+                        selectedStudentFullProfile = profile,
+                        isFetchingStudentProfile = false,
+                        profileFetchError = if (profile == null) "শিক্ষার্থীর প্রোফাইল তথ্য পাওয়া যায়নি" else null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isFetchingStudentProfile = false,
+                        profileFetchError = "প্রোফাইল তথ্য লোড করা সম্ভব হয়নি"
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearSelectedStudentProfile() {
+        _uiState.update {
+            it.copy(
+                selectedStudentFullProfile = null,
+                isFetchingStudentProfile = false,
+                profileFetchError = null
+            )
         }
     }
 
@@ -561,189 +719,6 @@ class ReportCardViewModel(
                 current_average = dataPoints.average().toInt(),
                 compare_average = 52
             )
-        )
-    }
-
-    private fun generateFallbackLeaderboard(subjectId: String): LeaderboardRankingResponse {
-        val subjectName = when (subjectId.uppercase()) {
-            "PHY" -> "পদার্থবিজ্ঞান"
-            "CHE" -> "রসায়ন"
-            "MAT" -> "উচ্চতর গণিত"
-            "BIO" -> "জীববিজ্ঞান"
-            "ICT" -> "আইসিটি"
-            "BAN" -> "বাংলা"
-            "ENG" -> "ইংরেজি"
-            else -> "সকল বিষয়"
-        }
-
-        val toppers = listOf(
-            LeaderboardUserItem(
-                rank = 1,
-                score = 98,
-                user = LeaderboardUserInfo(
-                    id = "u_1",
-                    name = "তানভীর মাহমুদ",
-                    avatar = "https://cdn.shikho.com/avatars/male_1.png",
-                    school = "নটর ডেম কলেজ, ঢাকা",
-                    college = "নটর ডেম কলেজ, ঢাকা",
-                    phone = "01712-849201",
-                    dob = "১২ মার্চ, ২০০৬",
-                    gender = "পুরুষ",
-                    district = "ঢাকা",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 2,
-                score = 96,
-                user = LeaderboardUserInfo(
-                    id = "u_2",
-                    name = "ফারিহা তাসনিম",
-                    avatar = "https://cdn.shikho.com/avatars/female_1.png",
-                    school = "ভিকারুননিসা নূন স্কুল অ্যান্ড কলেজ",
-                    college = "ভিকারুননিসা নূন স্কুল অ্যান্ড কলেজ",
-                    phone = "01823-910283",
-                    dob = "২৫ আগস্ট, ২০০৬",
-                    gender = "নারী",
-                    district = "ঢাকা",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 3,
-                score = 94,
-                user = LeaderboardUserInfo(
-                    id = "u_3",
-                    name = "আব্দুল্লাহ আল নোমান",
-                    avatar = "https://cdn.shikho.com/avatars/male_2.png",
-                    school = "ঢাকা রেসিডেনসিয়াল মডেল কলেজ",
-                    college = "ঢাকা রেসিডেনসিয়াল মডেল কলেজ",
-                    phone = "01911-382910",
-                    dob = "০৪ নভেম্বর, ২০০৫",
-                    gender = "পুরুষ",
-                    district = "ঢাকা",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 4,
-                score = 91,
-                user = LeaderboardUserInfo(
-                    id = "u_4",
-                    name = "সাদিয়া ইসলাম",
-                    avatar = "https://cdn.shikho.com/avatars/female_2.png",
-                    school = "রাজউক উত্তরা মডেল কলেজ",
-                    college = "রাজউক উত্তরা মডেল কলেজ",
-                    phone = "01521-492018",
-                    dob = "১৮ জানুয়ারি, ২০০৬",
-                    gender = "নারী",
-                    district = "ঢাকা",
-                    group = "মানবিক বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 5,
-                score = 89,
-                user = LeaderboardUserInfo(
-                    id = "u_5",
-                    name = "মাহিন আহমেদ",
-                    avatar = "https://cdn.shikho.com/avatars/male_3.png",
-                    school = "চট্টগ্রাম কলেজ",
-                    college = "চট্টগ্রাম কলেজ",
-                    phone = "01318-294821",
-                    dob = "৩০ সেপ্টেম্বর, ২০০৫",
-                    gender = "পুরুষ",
-                    district = "চট্টগ্রাম",
-                    group = "ব্যবসায় শিক্ষা"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 6,
-                score = 87,
-                user = LeaderboardUserInfo(
-                    id = "u_6",
-                    name = "সুমাইয়া জাহান",
-                    avatar = "https://cdn.shikho.com/avatars/female_3.png",
-                    school = "আইডিয়াল স্কুল অ্যান্ড কলেজ, মতিঝিল",
-                    college = "আইডিয়াল স্কুল অ্যান্ড কলেজ, মতিঝিল",
-                    phone = "01682-104938",
-                    dob = "১৫ ফেব্রুয়ারি, ২০০৬",
-                    gender = "নারী",
-                    district = "ঢাকা",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 7,
-                score = 86,
-                user = LeaderboardUserInfo(
-                    id = "u_7",
-                    name = "রিফাতুল ইসলাম",
-                    avatar = "https://cdn.shikho.com/avatars/male_4.png",
-                    school = "রাজশাহী কলেজ",
-                    college = "রাজশাহী কলেজ",
-                    phone = "01739-102938",
-                    dob = "০৯ জুলাই, ২০০৬",
-                    gender = "পুরুষ",
-                    district = "রাজশাহী",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 8,
-                score = 84,
-                user = LeaderboardUserInfo(
-                    id = "u_8",
-                    name = "নুসরাত শারমিন",
-                    avatar = "https://cdn.shikho.com/avatars/female_4.png",
-                    school = "হলিক্রস কলেজ, ঢাকা",
-                    college = "হলিক্রস কলেজ, ঢাকা",
-                    phone = "01819-203948",
-                    dob = "২২ ডিসেম্বর, ২০০৫",
-                    gender = "নারী",
-                    district = "ঢাকা",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 9,
-                score = 82,
-                user = LeaderboardUserInfo(
-                    id = "u_9",
-                    name = "তাহমিদ হাসান",
-                    avatar = "https://cdn.shikho.com/avatars/male_5.png",
-                    school = "সেন্ট যোসেফ উচ্চ মাধ্যমিক বিদ্যালয়",
-                    college = "সেন্ট যোসেফ উচ্চ মাধ্যমিক বিদ্যালয়",
-                    phone = "01928-304958",
-                    dob = "০৩ মে, ২০০৬",
-                    gender = "পুরুষ",
-                    district = "ঢাকা",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            ),
-            LeaderboardUserItem(
-                rank = 10,
-                score = 80,
-                user = LeaderboardUserInfo(
-                    id = "u_10",
-                    name = "আরিয়ান চৌধুরী",
-                    avatar = "https://cdn.shikho.com/avatars/male_6.png",
-                    school = "সিলেট ক্যাডেট কলেজ",
-                    college = "সিলেট ক্যাডেট কলেজ",
-                    phone = "01711-203948",
-                    dob = "২৭ অক্টোবর, ২০০৫",
-                    gender = "পুরুষ",
-                    district = "সিলেট",
-                    group = "বিজ্ঞান বিভাগ"
-                )
-            )
-        )
-
-        return LeaderboardRankingResponse(
-            user_rank = 309,
-            user_marks = 38,
-            data = toppers,
-            meta = LeaderboardMeta(total = 4850)
         )
     }
 }

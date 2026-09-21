@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -76,7 +77,28 @@ fun ReportCardScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val pullRefreshState = rememberPullToRefreshState()
+    val listState = rememberLazyListState()
     var selectedStudentForProfile by remember { mutableStateOf<LeaderboardUserItem?>(null) }
+
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisible >= totalItems - 4
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value &&
+            uiState.selectedTab == ReportTab.LEADERBOARD &&
+            uiState.hasMoreLeaderboardPages &&
+            !uiState.isPaginationLoading &&
+            !uiState.isLeaderboardLoading &&
+            uiState.searchQuery.isBlank()
+        ) {
+            viewModel.loadNextLeaderboardPage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -140,6 +162,7 @@ fun ReportCardScreen(
                 .padding(innerPadding)
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = if (uiState.selectedTab == ReportTab.LEADERBOARD) 90.dp else 24.dp)
             ) {
@@ -220,6 +243,50 @@ fun ReportCardScreen(
                         )
                     }
 
+                    // Mobile Number & Name Search Bar
+                    item {
+                        OutlinedTextField(
+                            value = uiState.searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            placeholder = {
+                                Text(
+                                    text = "মোবাইল নম্বর বা নাম দিয়ে খুঁজুন...",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = Color(0xFF64748B)
+                                )
+                            },
+                            trailingIcon = {
+                                if (uiState.searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear",
+                                            tint = Color(0xFF64748B)
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedBorderColor = Color(0xFF2563EB),
+                                unfocusedBorderColor = Color(0xFFCBD5E1)
+                            )
+                        )
+                    }
+
                     if (uiState.isLeaderboardLoading && uiState.leaderboardData == null) {
                         item {
                             Box(
@@ -236,36 +303,108 @@ fun ReportCardScreen(
                         }
                     } else {
                         val leaderboard = uiState.leaderboardData
-                        val users = leaderboard?.data ?: emptyList()
+                        val rawUsers = leaderboard?.data ?: emptyList()
 
-                        if (users.isNotEmpty()) {
-                            // Top 3 Podium
-                            item {
-                                LeaderboardPodiumView(
-                                    topUsers = users.take(3),
-                                    onUserClick = { selectedStudentForProfile = it }
-                                )
+                        // Filter by Mobile Number, Name, or College
+                        val filteredUsers = if (uiState.searchQuery.isBlank()) {
+                            rawUsers
+                        } else {
+                            val q = uiState.searchQuery.trim().lowercase()
+                            rawUsers.filter { item ->
+                                val u = item.user
+                                val nameMatch = u?.name?.lowercase()?.contains(q) == true
+                                val phoneMatch = u?.effectivePhone?.replace("-", "")?.contains(q) == true ||
+                                        u?.phone?.replace("-", "")?.contains(q) == true
+                                val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
+                                        u?.school?.lowercase()?.contains(q) == true
+                                nameMatch || phoneMatch || collegeMatch
                             }
+                        }
 
-                            // 4th to 10th+ list
-                            val restUsers = if (users.size > 3) users.drop(3) else emptyList()
-                            if (restUsers.isNotEmpty()) {
+                        if (filteredUsers.isNotEmpty()) {
+                            if (uiState.searchQuery.isBlank()) {
+                                // Top 3 Podium
+                                item {
+                                    LeaderboardPodiumView(
+                                        topUsers = filteredUsers.take(3),
+                                        onUserClick = { userItem ->
+                                            selectedStudentForProfile = userItem
+                                            viewModel.fetchStudentFullProfile(userItem.user?.id ?: "")
+                                        }
+                                    )
+                                }
+
+                                // 4th to 10th+ list
+                                val restUsers = if (filteredUsers.size > 3) filteredUsers.drop(3) else emptyList()
+                                if (restUsers.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            text = "অন্যান্য শীর্ষ মেধাবী শিক্ষার্থী (${filteredUsers.size.toBn()} জন)",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF1E293B),
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+                                    }
+
+                                    itemsIndexed(restUsers) { _, userItem ->
+                                        LeaderboardUserRowItem(
+                                            userItem = userItem,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                            onClick = {
+                                                selectedStudentForProfile = userItem
+                                                viewModel.fetchStudentFullProfile(userItem.user?.id ?: "")
+                                            }
+                                        )
+                                    }
+                                }
+                            } else {
+                                // Direct search results list
                                 item {
                                     Text(
-                                        text = "অন্যান্য শীর্ষ মেধাবী শিক্ষার্থী",
+                                        text = "অনুসন্ধানের ফলাফল (${filteredUsers.size.toBn()} জন)",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF1E293B),
+                                        color = Color(0xFF2563EB),
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                     )
                                 }
 
-                                itemsIndexed(restUsers) { _, userItem ->
+                                itemsIndexed(filteredUsers) { _, userItem ->
                                     LeaderboardUserRowItem(
                                         userItem = userItem,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                        onClick = { selectedStudentForProfile = userItem }
+                                        onClick = {
+                                            selectedStudentForProfile = userItem
+                                            viewModel.fetchStudentFullProfile(userItem.user?.id ?: "")
+                                        }
                                     )
+                                }
+                            }
+
+                            // Pagination Loading Footer Indicator
+                            if (uiState.isPaginationLoading && uiState.searchQuery.isBlank()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                color = Color(0xFF2563EB),
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(
+                                                text = "আরও অ্যাকাউন্ট লোড করা হচ্ছে...",
+                                                fontSize = 13.sp,
+                                                color = Color(0xFF64748B)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -276,11 +415,24 @@ fun ReportCardScreen(
                                         .padding(32.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = "এই বিষয়ের জন্য এখনো লিডারবোর্ড ডেটা পাওয়া যায়নি",
-                                        color = Color(0xFF64748B),
-                                        fontSize = 14.sp
-                                    )
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            imageVector = Icons.Default.SearchOff,
+                                            contentDescription = null,
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = if (uiState.searchQuery.isNotBlank())
+                                                "\"${uiState.searchQuery}\" দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি"
+                                            else
+                                                "এই বিষয়ের জন্য এখনো লিডারবোর্ড ডেটা পাওয়া যায়নি",
+                                            color = Color(0xFF64748B),
+                                            fontSize = 14.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -293,7 +445,12 @@ fun ReportCardScreen(
     selectedStudentForProfile?.let { userItem ->
         StudentProfileDetailDialog(
             userItem = userItem,
-            onDismiss = { selectedStudentForProfile = null }
+            fullProfile = uiState.selectedStudentFullProfile,
+            isLoadingProfile = uiState.isFetchingStudentProfile,
+            onDismiss = {
+                selectedStudentForProfile = null
+                viewModel.clearSelectedStudentProfile()
+            }
         )
     }
 }
@@ -1860,17 +2017,55 @@ fun StickyMyRankBar(
 @Composable
 fun StudentProfileDetailDialog(
     userItem: LeaderboardUserItem,
+    fullProfile: UserProfile?,
+    isLoadingProfile: Boolean,
     onDismiss: () -> Unit
 ) {
     val user = userItem.user
-    val name = user?.name ?: "শিক্ষার্থী"
-    val avatar = user?.avatar
-    val college = user?.effectiveCollege ?: "কলেজের নাম পাওয়া যায়নি"
-    val phone = user?.effectivePhone ?: ""
-    val dob = user?.effectiveDob ?: ""
-    val gender = user?.effectiveGender ?: ""
-    val district = user?.effectiveDistrict ?: ""
-    val group = user?.effectiveGroup ?: ""
+
+    val name = run {
+        val fName = fullProfile?.first_name ?: ""
+        val lName = fullProfile?.last_name ?: ""
+        val combined = "$fName $lName".trim()
+        if (combined.isNotBlank()) combined else (user?.name ?: "শিক্ষার্থী")
+    }
+
+    val avatar = fullProfile?.avatar ?: user?.avatar
+    val phone = fullProfile?.user?.phone ?: user?.effectivePhone ?: ""
+    val email = fullProfile?.user?.email ?: ""
+
+    val gender = run {
+        val raw = fullProfile?.gender ?: user?.gender
+        when (raw?.lowercase()) {
+            "male", "পুরুষ" -> "পুরুষ"
+            "female", "নারী", "মহিলা" -> "মহিলা"
+            else -> raw ?: "তথ্য দেয়া নেই"
+        }
+    }
+
+    val dob = fullProfile?.dob ?: user?.dob ?: "তথ্য দেয়া নেই"
+
+    val guardianName = fullProfile?.guardian_name ?: "তথ্য দেয়া নেই"
+    val guardianPhone = fullProfile?.guardian_mobile ?: "তথ্য দেয়া নেই"
+
+    val studyGroup = fullProfile?.study_group ?: user?.group ?: "বিজ্ঞান বিভাগ"
+    val className = fullProfile?.`class`?.display ?: "Class 11"
+    val shift = when (fullProfile?.shift?.lowercase()) {
+        "morning" -> "মর্নিং"
+        "day" -> "ডে"
+        else -> fullProfile?.shift ?: "প্রযোজ্য নয়"
+    }
+
+    val division = fullProfile?.school?.address?.division?.display ?: "তথ্য দেয়া নেই"
+    val district = fullProfile?.school?.address?.district?.display ?: user?.district ?: "তথ্য দেয়া নেই"
+    val college = fullProfile?.school?.name ?: user?.effectiveCollege ?: "তথ্য দেয়া নেই"
+
+    val sscBoard = fullProfile?.ssc_board_name ?: "তথ্য দেয়া নেই"
+    val sscRoll = fullProfile?.board_roll_number ?: "তথ্য দেয়া নেই"
+    val regNo = fullProfile?.board_reg_number ?: "তথ্য দেয়া নেই"
+    val hscBoard = fullProfile?.hsc_board_name ?: "তথ্য দেয়া নেই"
+    val hscRoll = fullProfile?.hsc_board_roll_number ?: "তথ্য দেয়া নেই"
+
     val rank = userItem.rank
     val score = userItem.score
 
@@ -1932,129 +2127,156 @@ fun StudentProfileDetailDialog(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Profile Header Card (Avatar + Name + Rank Badge)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-            ) {
-                Column(
+            if (isLoadingProfile) {
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(vertical = 4.dp),
+                    color = Color(0xFFEFF6FF),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .border(3.dp, Color(0xFF3B82F6), CircleShape)
-                            .background(Color(0xFFE0F2FE)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!avatar.isNullOrBlank()) {
-                            AsyncImage(
-                                model = avatar,
-                                contentDescription = name,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Text(
-                                text = name.take(1),
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0284C7)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF0F172A),
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Rank & Score Chips
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (rank != null) {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFFFEF3C7),
-                                border = BorderStroke(1.dp, Color(0xFFFCD34D))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color(0xFF2563EB),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "রিয়েল ডাটাবেজ থেকে সম্পূর্ণ তথ্য লোড করা হচ্ছে...",
+                            fontSize = 12.sp,
+                            color = Color(0xFF1D4ED8),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Scrollable Content
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Profile Header Card (Avatar + Name + Rank Badge)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .border(3.dp, Color(0xFF3B82F6), CircleShape)
+                                .background(Color(0xFFE0F2FE)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!avatar.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = avatar,
+                                    contentDescription = name,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Text(
+                                    text = name.take(1),
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0284C7)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = name,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF0F172A),
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Rank & Score Chips
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (rank != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color(0xFFFEF3C7),
+                                    border = BorderStroke(1.dp, Color(0xFFFCD34D))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "🏆 র‍্যাংক: #${rank.toBn()}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFB45309)
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (score != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color(0xFFDCFCE7),
+                                    border = BorderStroke(1.dp, Color(0xFF86EFAC))
                                 ) {
                                     Text(
-                                        text = "🏆 র‍্যাংক: #${rank.toBn()}",
+                                        text = "📊 স্কোয়ার: ${score.toBn()}%",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFB45309)
+                                        color = Color(0xFF15803D),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
                                 }
                             }
                         }
-
-                        if (score != null) {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFFDCFCE7),
-                                border = BorderStroke(1.dp, Color(0xFF86EFAC))
-                            ) {
-                                Text(
-                                    text = "📊 স্কোয়ার: ${score.toBn()}%",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF15803D),
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Profile Detailed Information List
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                // Section 1: 👤 ব্যক্তিগত তথ্য (Personal Information)
+                ProfileSectionCard(
+                    sectionTitle = "ব্যক্তিগত তথ্য",
+                    sectionIcon = Icons.Default.Person,
+                    sectionColor = Color(0xFF2563EB)
                 ) {
                     ProfileInfoRow(
-                        icon = Icons.Default.School,
+                        icon = Icons.Default.Badge,
                         iconTint = Color(0xFF2563EB),
-                        label = "কলেজের নাম",
-                        value = college
+                        label = "পূর্ণ নাম",
+                        value = name
                     )
-
                     HorizontalDivider(color = Color(0xFFF1F5F9))
-
                     ProfileInfoRow(
                         icon = Icons.Default.Phone,
                         iconTint = Color(0xFF16A34A),
-                        label = "মোবাইল নম্বর",
+                        label = "ফোন নম্বর",
                         value = phone,
-                        isClickable = true,
+                        isClickable = phone.isNotBlank(),
                         onClick = {
                             if (phone.isNotBlank()) {
                                 try {
@@ -2066,46 +2288,147 @@ fun StudentProfileDetailDialog(
                             }
                         }
                     )
-
                     HorizontalDivider(color = Color(0xFFF1F5F9))
-
                     ProfileInfoRow(
-                        icon = Icons.Default.Cake,
-                        iconTint = Color(0xFFEC4899),
-                        label = "জন্ম তারিখ",
-                        value = dob
+                        icon = Icons.Default.Email,
+                        iconTint = Color(0xFF0284C7),
+                        label = "ইমেইল",
+                        value = email
                     )
-
                     HorizontalDivider(color = Color(0xFFF1F5F9))
-
                     ProfileInfoRow(
                         icon = Icons.Default.Wc,
                         iconTint = Color(0xFF8B5CF6),
                         label = "লিঙ্গ",
                         value = gender
                     )
-
                     HorizontalDivider(color = Color(0xFFF1F5F9))
-
                     ProfileInfoRow(
-                        icon = Icons.Default.LocationOn,
-                        iconTint = Color(0xFFE11D48),
-                        label = "জেলা / বিভাগ",
-                        value = district
+                        icon = Icons.Default.Cake,
+                        iconTint = Color(0xFFEC4899),
+                        label = "জন্ম তারিখ",
+                        value = dob
                     )
+                }
 
+                // Section 2: 👪 অভিভাবকের তথ্য (Guardian Information)
+                ProfileSectionCard(
+                    sectionTitle = "অভিভাবকের তথ্য",
+                    sectionIcon = Icons.Default.FamilyRestroom,
+                    sectionColor = Color(0xFF7C3AED)
+                ) {
+                    ProfileInfoRow(
+                        icon = Icons.Default.Person,
+                        iconTint = Color(0xFF7C3AED),
+                        label = "অভিভাবকের নাম",
+                        value = guardianName
+                    )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.Phone,
+                        iconTint = Color(0xFF16A34A),
+                        label = "অভিভাবকের মোবাইল নম্বর",
+                        value = guardianPhone,
+                        isClickable = guardianPhone.isNotBlank() && guardianPhone != "তথ্য দেয়া নেই",
+                        onClick = {
+                            if (guardianPhone.isNotBlank() && guardianPhone != "তথ্য দেয়া নেই") {
+                                try {
+                                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                                        data = android.net.Uri.parse("tel:${guardianPhone.replace("-", "").replace(" ", "")}")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    )
+                }
 
+                // Section 3: 🎓 শিক্ষা প্রতিষ্ঠান (Educational Institution)
+                ProfileSectionCard(
+                    sectionTitle = "শিক্ষা প্রতিষ্ঠান",
+                    sectionIcon = Icons.Default.School,
+                    sectionColor = Color(0xFFD97706)
+                ) {
                     ProfileInfoRow(
                         icon = Icons.Default.Class,
                         iconTint = Color(0xFFD97706),
-                        label = "বিভাগ ও ব্যাচ",
-                        value = "$group | HSC '27"
+                        label = "শ্রেণী ও বিভাগ",
+                        value = "$className | $studyGroup"
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.Schedule,
+                        iconTint = Color(0xFF0284C7),
+                        label = "শিফট (Shift)",
+                        value = shift
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.Map,
+                        iconTint = Color(0xFF059669),
+                        label = "বিভাগ (Division)",
+                        value = division
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.LocationOn,
+                        iconTint = Color(0xFFE11D48),
+                        label = "জেলা (District)",
+                        value = district
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.School,
+                        iconTint = Color(0xFF2563EB),
+                        label = "প্রতিষ্ঠান (স্কুল / কলেজ)",
+                        value = college
+                    )
+                }
+
+                // Section 4: 📋 বোর্ড পরীক্ষার তথ্য (Board Exam Information)
+                ProfileSectionCard(
+                    sectionTitle = "বোর্ড পরীক্ষার তথ্য",
+                    sectionIcon = Icons.Default.Assignment,
+                    sectionColor = Color(0xFF059669)
+                ) {
+                    ProfileInfoRow(
+                        icon = Icons.Default.AccountBalance,
+                        iconTint = Color(0xFF059669),
+                        label = "এসএসসি বোর্ড",
+                        value = sscBoard
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.Numbers,
+                        iconTint = Color(0xFF6366F1),
+                        label = "এসএসসি রোল নম্বর",
+                        value = sscRoll
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.Pin,
+                        iconTint = Color(0xFF8B5CF6),
+                        label = "বোর্ড রেজিস্ট্রেশন নম্বর",
+                        value = regNo
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.AccountBalance,
+                        iconTint = Color(0xFF0284C7),
+                        label = "এইচএসসি বোর্ড",
+                        value = hscBoard
+                    )
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    ProfileInfoRow(
+                        icon = Icons.Default.Numbers,
+                        iconTint = Color(0xFFD97706),
+                        label = "এইচএসসি রোল নম্বর",
+                        value = hscRoll
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Action Buttons
             Row(
@@ -2161,6 +2484,48 @@ fun StudentProfileDetailDialog(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSectionCard(
+    sectionTitle: String,
+    sectionIcon: ImageVector,
+    sectionColor: Color,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = sectionIcon,
+                    contentDescription = null,
+                    tint = sectionColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = sectionTitle,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A)
+                )
+            }
+
+            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+
+            content()
         }
     }
 }
