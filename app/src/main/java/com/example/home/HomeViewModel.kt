@@ -528,7 +528,7 @@ class HomeViewModel(
                 val routineResponse = apiService.getStudentLessons(routineQuery)
                 val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
 
-                com.example.course.LessonCacheManager.saveLessons(routineLessons)
+                com.example.course.LessonCacheManager.saveLessons(routineLessons, programId = programId)
 
                 // ৫. খালি আসলে খালিই থাকবে (যেমন Think AI তে খালি আসে), স্প্যাম কুয়েরি হবে না
                 _uiState.value = _uiState.value.copy(
@@ -627,7 +627,7 @@ class HomeViewModel(
 
                 val routineResponse = apiService.getStudentLessons(routineQuery)
                 val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
-                com.example.course.LessonCacheManager.saveLessons(routineLessons)
+                com.example.course.LessonCacheManager.saveLessons(routineLessons, programId = programId)
                 _uiState.value = _uiState.value.copy(
                     weeklyRoutine = routineLessons.sortedBy { it.start_time ?: "" },
                     isRoutineLoading = false

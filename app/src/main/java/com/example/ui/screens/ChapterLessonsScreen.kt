@@ -121,7 +121,7 @@ fun ChapterLessonsScreen(
         }
     }
 
-    LaunchedEffect(chapterId) {
+    LaunchedEffect(chapterId, uiState.programId, uiState.activePhaseId) {
         val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
         val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
         viewModel.loadLessonsForChapter(

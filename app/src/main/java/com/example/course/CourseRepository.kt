@@ -539,7 +539,7 @@ class CourseRepository(
 
         val distinct = collected.distinctBy { it.id.ifBlank { "${it.content_id}_${it.start_time}_${it.title}" } }
         if (distinct.isNotEmpty()) {
-            LessonCacheManager.saveLessons(distinct)
+            LessonCacheManager.saveLessons(distinct, programId = programId)
         }
         return distinct
     }
@@ -554,7 +554,7 @@ class CourseRepository(
     ): List<StudentLessonItem> {
         val allLessons = fetchAllLessonsForProgram(programId, phaseId, batchId)
         if (chapterId.isBlank() && chapterName.isNullOrBlank()) return allLessons
-        return LessonCacheManager.filterLessons(allLessons, listOf(chapterId), chapterName, subjectTitle)
+        return LessonCacheManager.filterLessons(allLessons, listOf(chapterId), chapterName, subjectTitle, programId = programId)
     }
 
     suspend fun fetchLessonsStandard(
@@ -566,7 +566,7 @@ class CourseRepository(
     ): List<StudentLessonItem> {
         val allLessons = fetchAllLessonsForProgram(programId, null, batchId)
         if (chapterId.isBlank() && chapterName.isNullOrBlank()) return allLessons
-        return LessonCacheManager.filterLessons(allLessons, listOf(chapterId), chapterName, subjectTitle)
+        return LessonCacheManager.filterLessons(allLessons, listOf(chapterId), chapterName, subjectTitle, programId = programId)
     }
 
     suspend fun fetchChapterLessons(
@@ -603,12 +603,12 @@ class CourseRepository(
         // 2. Deduplicate
         val distinct = collectedLessons.distinctBy { it.id.ifBlank { "${it.content_id}_${it.title}" } }
         if (distinct.isNotEmpty()) {
-            LessonCacheManager.saveLessons(distinct)
+            LessonCacheManager.saveLessons(distinct, programId = programId)
             return distinct
         }
 
         // 4. Try from local cache
-        val cached = LessonCacheManager.findLessonsForChapter(listOfNotNull(chapterId, altChapterId), chapterName, subjectTitle)
+        val cached = LessonCacheManager.findLessonsForChapter(listOfNotNull(chapterId, altChapterId), chapterName, subjectTitle, programId = programId)
         if (cached.isNotEmpty()) return cached
 
         return emptyList()

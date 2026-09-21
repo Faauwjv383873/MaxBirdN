@@ -67,7 +67,7 @@ fun SubjectChaptersScreen(
     }
 
     // Load chapters on start
-    LaunchedEffect(subjectCode) {
+    LaunchedEffect(subjectCode, uiState.programId, uiState.activePhaseId) {
         viewModel.loadChaptersForSubject(
             subjectCode = subjectCode,
             subjectTitle = subjectTitle,

@@ -435,6 +435,7 @@ data class StudentLessonItem(
     val subject_name: String? = null,
     val chapter_id: String? = null,
     val batch_id: String? = null,
+    val program_id: String? = null,
     val color_code: String? = null,
     val icon: String? = null,
     val user_activity_state: String? = null, // "UPCOMING", "ATTENDED", "MISSED", "COMPLETED"

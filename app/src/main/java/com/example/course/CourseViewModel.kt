@@ -275,6 +275,8 @@ class CourseViewModel(
         classCode: String? = null,
         targetPhaseId: String? = null
     ) {
+        chaptersCache.clear()
+        lessonsCache.clear()
         val title = if (!newProgramTitle.isNullOrBlank()) newProgramTitle else "এইচএসসি কোর্স"
         sessionManager.saveActiveProgram(
             programId = newProgramId,
@@ -646,12 +648,13 @@ class CourseViewModel(
             subjectTitle = subjectTitle,
             otherChapterIds = otherChapterIds,
             otherChapterNames = otherChapterNames,
-            chapterNo = chapterNoStr
+            chapterNo = chapterNoStr,
+            programId = progId
         )
         val initialCached = if (cachedFromManager.isNotEmpty()) {
             cachedFromManager
         } else {
-            lessonsCache[effChapterId]?.let { rawList ->
+            lessonsCache["${progId}_${effChapterId}"]?.let { rawList ->
                 LessonCacheManager.filterLessons(
                     lessons = rawList,
                     candidateChapterIds = candidateChapterIds,
@@ -659,7 +662,8 @@ class CourseViewModel(
                     subjectTitle = subjectTitle,
                     otherChapterIds = otherChapterIds,
                     otherChapterNames = otherChapterNames,
-                    chapterNo = chapterNoStr
+                    chapterNo = chapterNoStr,
+                    programId = progId
                 )
             }
         }
@@ -731,7 +735,7 @@ class CourseViewModel(
                         val fetched = res.data?.upcomingLessonsPhaseWise?.data
                         if (!fetched.isNullOrEmpty()) {
                             // Save to global cache so routine/calendar views have the lessons
-                            LessonCacheManager.saveLessons(fetched)
+                            LessonCacheManager.saveLessons(fetched, programId = progId)
 
                             // CRITICAL: Filter fetched lessons strictly to ONLY those belonging to this specific chapter!
                             val matched = LessonCacheManager.filterLessons(
@@ -741,7 +745,8 @@ class CourseViewModel(
                                 subjectTitle = subjectTitle,
                                 otherChapterIds = otherChapterIds,
                                 otherChapterNames = otherChapterNames,
-                                chapterNo = chapterNoStr
+                                chapterNo = chapterNoStr,
+                                programId = progId
                             )
                             if (matched.isNotEmpty()) {
                                 lessonList = matched
@@ -772,7 +777,8 @@ class CourseViewModel(
                             subjectTitle = subjectTitle,
                             otherChapterIds = otherChapterIds,
                             otherChapterNames = otherChapterNames,
-                            chapterNo = chapterNoStr
+                            chapterNo = chapterNoStr,
+                            programId = progId
                         )
                         if (filteredFallback.isNotEmpty()) {
                             lessonList = filteredFallback
@@ -786,8 +792,8 @@ class CourseViewModel(
                 }
 
                 if (lessonList.isNotEmpty()) {
-                    lessonsCache[effChapterId] = lessonList
-                    LessonCacheManager.saveLessons(lessonList)
+                    lessonsCache["${progId}_${effChapterId}"] = lessonList
+                    LessonCacheManager.saveLessons(lessonList, programId = progId)
                 }
 
                 _uiState.update {
@@ -805,7 +811,8 @@ class CourseViewModel(
                     subjectTitle = subjectTitle,
                     otherChapterIds = otherChapterIds,
                     otherChapterNames = otherChapterNames,
-                    chapterNo = chapterNoStr
+                    chapterNo = chapterNoStr,
+                    programId = progId
                 )
                 val finalFallback = if (fallbackCached.isNotEmpty()) fallbackCached else initialCached ?: emptyList()
                 _uiState.update {

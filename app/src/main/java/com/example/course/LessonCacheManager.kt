@@ -10,12 +10,16 @@ import java.util.concurrent.ConcurrentHashMap
 object LessonCacheManager {
     private val allLessons = ConcurrentHashMap<String, StudentLessonItem>()
 
-    fun saveLessons(lessons: List<StudentLessonItem>) {
+    fun saveLessons(lessons: List<StudentLessonItem>, programId: String? = null) {
         if (lessons.isEmpty()) return
+        val cleanProg = programId?.trim()?.takeIf { it.isNotBlank() }
         lessons.forEach { item ->
-            val key = item.id.ifBlank { "${item.content_id}_${item.start_time}_${item.title}" }
+            val updatedItem = if (cleanProg != null && item.program_id.isNullOrBlank()) {
+                item.copy(program_id = cleanProg)
+            } else item
+            val key = updatedItem.id.ifBlank { "${updatedItem.content_id}_${updatedItem.start_time}_${updatedItem.title}" }
             if (key.isNotBlank()) {
-                allLessons[key] = item
+                allLessons[key] = updatedItem
             }
         }
     }
@@ -30,7 +34,8 @@ object LessonCacheManager {
         subjectTitle: String? = null,
         otherChapterIds: List<String> = emptyList(),
         otherChapterNames: List<String> = emptyList(),
-        chapterNo: String? = null
+        chapterNo: String? = null,
+        programId: String? = null
     ): List<StudentLessonItem> {
         return filterLessons(
             lessons = allLessons.values.toList(),
@@ -39,7 +44,8 @@ object LessonCacheManager {
             subjectTitle = subjectTitle,
             otherChapterIds = otherChapterIds,
             otherChapterNames = otherChapterNames,
-            chapterNo = chapterNo
+            chapterNo = chapterNo,
+            programId = programId
         )
     }
 
@@ -59,7 +65,8 @@ object LessonCacheManager {
         subjectTitle: String? = null,
         otherChapterIds: List<String> = emptyList(),
         otherChapterNames: List<String> = emptyList(),
-        chapterNo: String? = null
+        chapterNo: String? = null,
+        programId: String? = null
     ): List<StudentLessonItem> {
         val cleanCandidateIds = candidateChapterIds.map { it.trim() }.filter { it.isNotBlank() }
         val cleanOtherIds = otherChapterIds.map { it.trim() }.filter { it.isNotBlank() && !cleanCandidateIds.contains(it) }
@@ -73,6 +80,7 @@ object LessonCacheManager {
 
         val cleanSubject = subjectTitle?.replace("পত্র", "")?.replace("১ম", "")?.replace("২য়", "")?.trim() ?: ""
         val cleanChapterNo = chapterNo?.trim()?.takeIf { it.isNotBlank() }
+        val cleanProgramId = programId?.trim()?.takeIf { it.isNotBlank() }
 
         fun isSameId(id1: String, id2: String): Boolean {
             if (id1.equals(id2, ignoreCase = true)) return true
@@ -82,6 +90,14 @@ object LessonCacheManager {
         }
 
         val matched = lessons.filter { item ->
+            // CRITICAL PROGRAM/COURSE ISOLATION CHECK:
+            // If programId is specified and the item has a program_id set, they MUST match!
+            val itemProgId = item.program_id?.trim()?.takeIf { it.isNotBlank() }
+            if (cleanProgramId != null && itemProgId != null) {
+                if (!isSameId(itemProgId, cleanProgramId)) {
+                    return@filter false
+                }
+            }
             val lTitle = item.title ?: ""
             val lLiveClass = item.live_class
             val lChapterName = (lLiveClass?.chapter_name ?: "").trim()
