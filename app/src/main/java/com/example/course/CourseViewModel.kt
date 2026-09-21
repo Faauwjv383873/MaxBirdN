@@ -579,6 +579,16 @@ class CourseViewModel(
                         chaptersErrorMessage = finalError
                     )
                 }
+
+                // Eagerly prefetch all lessons for this phase in background so chapter opening is instant (0ms)
+                if (currentEffectivePhaseId.isNotBlank()) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+                            repository.fetchAllLessonsForProgram(progId, currentEffectivePhaseId, batchId)
+                        } catch (_: Exception) {}
+                    }
+                }
             } catch (e: Exception) {
                 Log.e("CourseViewModel", "Fatal error in loadChaptersForSubject: ${e.message}", e)
                 _uiState.update {
@@ -614,13 +624,49 @@ class CourseViewModel(
     }
 
     fun selectChapter(chapterId: String, chapterName: String, chapterStatus: String = "") {
+        val progId = _uiState.value.programId.ifBlank { sessionManager.getActiveProgramId() ?: "" }
+        val matchingChapter = _uiState.value.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+        val effChapterId = chapterId.ifBlank { matchingChapter?.chapter_id ?: matchingChapter?.id ?: "" }
+        val effChapterName = chapterName.ifBlank { matchingChapter?.effectiveName ?: "" }
+        val subjectTitle = _uiState.value.selectedSubjectTitle
+
+        val candidateChapterIds = listOfNotNull(
+            effChapterId,
+            chapterId,
+            matchingChapter?.id,
+            matchingChapter?.chapter_id
+        ).filter { it.isNotBlank() }.distinct()
+
+        val otherChapters = _uiState.value.chapters.filter { ch ->
+            val cid1 = ch.id.trim()
+            val cid2 = (ch.chapter_id ?: "").trim()
+            !candidateChapterIds.contains(cid1) && !candidateChapterIds.contains(cid2)
+        }
+        val otherChapterIds = otherChapters.flatMap { 
+            listOfNotNull(it.id.takeIf { s -> s.isNotBlank() }, it.chapter_id?.takeIf { s -> s.isNotBlank() })
+        }.distinct()
+        val otherChapterNames = otherChapters.mapNotNull { it.effectiveName.takeIf { s -> s.isNotBlank() } }
+        val chapterNoStr = matchingChapter?.effectiveNo?.toString()
+
+        val cachedLessons = LessonCacheManager.findLessonsForChapter(
+            candidateChapterIds = candidateChapterIds,
+            chapterName = effChapterName,
+            subjectTitle = subjectTitle,
+            otherChapterIds = otherChapterIds,
+            otherChapterNames = otherChapterNames,
+            chapterNo = chapterNoStr,
+            programId = progId
+        ).ifEmpty {
+            lessonsCache["${progId}_${effChapterId}"] ?: emptyList()
+        }
+
         _uiState.update {
             it.copy(
-                selectedChapterId = chapterId,
-                selectedChapterName = chapterName,
+                selectedChapterId = effChapterId,
+                selectedChapterName = effChapterName,
                 selectedChapterStatus = chapterStatus,
-                lessons = emptyList(),
-                isLessonsLoading = true,
+                lessons = cachedLessons,
+                isLessonsLoading = cachedLessons.isEmpty(),
                 lessonsErrorMessage = null,
                 lessonsDiagnosticInfo = null
             )
@@ -685,13 +731,16 @@ class CourseViewModel(
             }
         }
 
+        val hasCurrentLessons = _uiState.value.selectedChapterId == effChapterId && _uiState.value.lessons.isNotEmpty()
+        val effectiveInitial = initialCached ?: (if (hasCurrentLessons) _uiState.value.lessons else emptyList())
+
         _uiState.update {
             it.copy(
                 selectedChapterId = effChapterId,
                 selectedChapterName = effChapterName ?: it.selectedChapterName,
                 selectedChapterStatus = chapterStatus ?: matchingChapter?.status ?: it.selectedChapterStatus,
-                lessons = initialCached ?: emptyList(),
-                isLessonsLoading = initialCached.isNullOrEmpty(),
+                lessons = effectiveInitial,
+                isLessonsLoading = effectiveInitial.isEmpty(),
                 lessonsErrorMessage = null,
                 lessonsDiagnosticInfo = null
             )
@@ -699,130 +748,18 @@ class CourseViewModel(
 
         viewModelScope.launch {
             try {
-                var phaseId = _uiState.value.activePhaseId.ifBlank {
+                val phaseId = _uiState.value.activePhaseId.ifBlank {
                     _uiState.value.phases.firstOrNull { it.is_current == true }?.id
                         ?: _uiState.value.phases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }?.id
                         ?: _uiState.value.phases.firstOrNull()?.id
                         ?: ""
                 }
 
-                if (phaseId.isBlank() && progId.isNotBlank()) {
-                    try {
-                        val phases = repository.getProgramPhases(progId)
-                        if (phases.isNotEmpty()) {
-                            _uiState.update { it.copy(phases = phases) }
-                            phaseId = phases.firstOrNull { it.is_current == true }?.id
-                                ?: phases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }?.id
-                                ?: phases.firstOrNull()?.id
-                                ?: ""
-                        }
-                    } catch (_: Exception) {}
-                }
-
-                var lessonList = emptyList<StudentLessonItem>()
-
-                // 1. Fetch upcoming lessons phase-wise for this program and phase
-                if (effChapterId.isNotBlank() && phaseId.isNotBlank() && progId.isNotBlank()) {
-                    try {
-                        val query = GraphQlQuery(
-                            operationName = "GetUpcomingLessonsPhaseWise",
-                            query = """
-                                query GetUpcomingLessonsPhaseWise(${'$'}chapter_id: String!, ${'$'}phase_id: String!, ${'$'}program_id: String!) {
-                                  upcomingLessonsPhaseWise(chapter_id: ${'$'}chapter_id, phase_id: ${'$'}phase_id, program_id: ${'$'}program_id) {
-                                    data {
-                                      id title content_id content_type access_level start_time end_time is_free is_locked user_activity_state
-                                      live_class {
-                                        id chapter_id chapter_name start_time end_time is_on_going subject_id subject_name type class_type playback_url recording_url session_id
-                                      }
-                                      model_test {
-                                        type exam_category
-                                      }
-                                    }
-                                  }
-                                }
-                            """.trimIndent(),
-                            variables = mapOf(
-                                "chapter_id" to effChapterId,
-                                "phase_id" to phaseId,
-                                "program_id" to progId
-                            )
-                        )
-
-                        val res = apiService.getUpcomingLessonsPhaseWise(query)
-                        val fetched = res.data?.upcomingLessonsPhaseWise?.data
-                        if (!fetched.isNullOrEmpty()) {
-                            // Save to global cache so routine/calendar views have the lessons
-                            LessonCacheManager.saveLessons(fetched, programId = progId)
-
-                            // CRITICAL: Filter fetched lessons strictly to ONLY those belonging to this specific chapter!
-                            val matched = LessonCacheManager.filterLessons(
-                                lessons = fetched,
-                                candidateChapterIds = candidateChapterIds,
-                                chapterName = effChapterName,
-                                subjectTitle = subjectTitle,
-                                otherChapterIds = otherChapterIds,
-                                otherChapterNames = otherChapterNames,
-                                chapterNo = chapterNoStr,
-                                programId = progId
-                            )
-                            if (matched.isNotEmpty()) {
-                                lessonList = matched
-                            }
-                        }
-                    } catch (netErr: Exception) {
-                        android.util.Log.e("CourseViewModel", "Error in upcomingLessonsPhaseWise: ${netErr.message}")
-                    }
-                }
-
-                // 2. If empty, check repository
-                if (lessonList.isEmpty()) {
-                    val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
-                    val fallbackLessons = repository.fetchChapterLessons(
-                        chapterId = effChapterId,
-                        altChapterId = altChapterId,
-                        chapterName = effChapterName,
-                        subjectTitle = subjectTitle,
-                        programId = progId.ifBlank { null },
-                        phaseId = phaseId.ifBlank { null },
-                        batchId = batchId
-                    )
-                    if (fallbackLessons.isNotEmpty()) {
-                        val filteredFallback = LessonCacheManager.filterLessons(
-                            lessons = fallbackLessons,
-                            candidateChapterIds = candidateChapterIds,
-                            chapterName = effChapterName,
-                            subjectTitle = subjectTitle,
-                            otherChapterIds = otherChapterIds,
-                            otherChapterNames = otherChapterNames,
-                            chapterNo = chapterNoStr,
-                            programId = progId
-                        )
-                        if (filteredFallback.isNotEmpty()) {
-                            lessonList = filteredFallback
-                        }
-                    }
-                }
-
-                // 3. Fallback to initialCached if non-empty
-                if (lessonList.isEmpty() && initialCached != null && initialCached.isNotEmpty()) {
-                    lessonList = initialCached
-                }
-
-                if (lessonList.isNotEmpty()) {
-                    lessonsCache["${progId}_${effChapterId}"] = lessonList
-                    LessonCacheManager.saveLessons(lessonList, programId = progId)
-                }
-
-                _uiState.update {
-                    it.copy(
-                        lessons = lessonList,
-                        isLessonsLoading = false,
-                        lessonsErrorMessage = if (lessonList.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস পাওয়া যায়নি" else null,
-                        lessonsDiagnosticInfo = null
-                    )
-                }
-            } catch (e: Exception) {
-                val fallbackCached = LessonCacheManager.findLessonsForChapter(
+                val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+                val allProgramLessons = repository.fetchAllLessonsForProgram(progId, phaseId.ifBlank { null }, batchId)
+                
+                var matched = LessonCacheManager.filterLessons(
+                    lessons = allProgramLessons,
                     candidateChapterIds = candidateChapterIds,
                     chapterName = effChapterName,
                     subjectTitle = subjectTitle,
@@ -831,13 +768,30 @@ class CourseViewModel(
                     chapterNo = chapterNoStr,
                     programId = progId
                 )
-                val finalFallback = if (fallbackCached.isNotEmpty()) fallbackCached else initialCached ?: emptyList()
+
+                if (matched.isEmpty() && effectiveInitial.isNotEmpty()) {
+                    matched = effectiveInitial
+                }
+
+                if (matched.isNotEmpty()) {
+                    lessonsCache["${progId}_${effChapterId}"] = matched
+                    LessonCacheManager.saveLessons(matched, programId = progId)
+                }
+
                 _uiState.update {
                     it.copy(
-                        lessons = finalFallback,
+                        lessons = matched,
                         isLessonsLoading = false,
-                        lessonsErrorMessage = if (finalFallback.isEmpty()) "ক্লাস লোড করতে ব্যর্থ হয়েছে: ${e.localizedMessage}" else null,
-                        lessonsDiagnosticInfo = "এরর: ${e.javaClass.simpleName} - ${e.localizedMessage}"
+                        lessonsErrorMessage = if (matched.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস পাওয়া যায়নি" else null,
+                        lessonsDiagnosticInfo = null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        lessons = effectiveInitial,
+                        isLessonsLoading = false,
+                        lessonsErrorMessage = if (effectiveInitial.isEmpty()) "ক্লাস লোড করতে সমস্যা হয়েছে: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}" else null
                     )
                 }
             }

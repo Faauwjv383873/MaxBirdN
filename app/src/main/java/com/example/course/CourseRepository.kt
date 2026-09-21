@@ -329,7 +329,6 @@ class CourseRepository(
         phaseId: String? = null,
         batchId: String? = null
     ): List<StudentLessonItem> {
-        val collected = mutableListOf<StudentLessonItem>()
         val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka"))
         val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
@@ -400,7 +399,7 @@ class CourseRepository(
                 if (!data.isNullOrEmpty()) return data
             } catch (e: Exception) {
                 val errBody = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
-                android.util.Log.e("CourseRepository", "$opName (rich) failed: ${e.message}, body: $errBody")
+                android.util.Log.w("CourseRepository", "$opName (rich) failed: ${e.message}, body: $errBody")
             }
 
             // Fallback to minimal fields
@@ -414,14 +413,75 @@ class CourseRepository(
                 return res.data?.studentSpecificLessons?.data ?: emptyList()
             } catch (e: Exception) {
                 val errBody = (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
-                android.util.Log.e("CourseRepository", "$opName (minimal) failed: ${e.message}, body: $errBody")
+                android.util.Log.w("CourseRepository", "$opName (minimal) failed: ${e.message}, body: $errBody")
             }
             return emptyList()
         }
 
-        // 1. If phaseId is provided, try with phase_id and date range
+        // 1. Primary fast query: Phase-wise (most programs in Shikho)
         if (!phaseId.isNullOrBlank()) {
-            val list = runQuery(
+            val listPhase = runQuery(
+                opName = "GetUpcomingLessonsPhaseWise",
+                queryStr = { f ->
+                    """
+                        query GetUpcomingLessonsPhaseWise(${'$'}program_id: String!, ${'$'}phase_id: String!) {
+                          studentSpecificLessons(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id) {
+                            data { $f }
+                          }
+                        }
+                    """.trimIndent()
+                },
+                variables = mapOf("program_id" to programId, "phase_id" to phaseId)
+            )
+            if (listPhase.isNotEmpty()) {
+                LessonCacheManager.saveLessons(listPhase, programId = programId)
+                return listPhase
+            }
+        }
+
+        // 2. Batch-wise query if batchId available
+        if (!batchId.isNullOrBlank()) {
+            val listBatch = runQuery(
+                opName = "GetStudentSpecificLessonsWithBatch",
+                queryStr = { f ->
+                    """
+                        query GetStudentSpecificLessonsWithBatch(${'$'}program_id: String!, ${'$'}batch_id: String!) {
+                          studentSpecificLessons(program_id: ${'$'}program_id, batch_id: ${'$'}batch_id) {
+                            data { $f }
+                          }
+                        }
+                    """.trimIndent()
+                },
+                variables = mapOf("program_id" to programId, "batch_id" to batchId)
+            )
+            if (listBatch.isNotEmpty()) {
+                LessonCacheManager.saveLessons(listBatch, programId = programId)
+                return listBatch
+            }
+        }
+
+        // 3. Program-level general query
+        val listAll = runQuery(
+            opName = "GetUpcomingLessons",
+            queryStr = { f ->
+                """
+                    query GetUpcomingLessons(${'$'}program_id: String!) {
+                      studentSpecificLessons(program_id: ${'$'}program_id) {
+                        data { $f }
+                      }
+                    }
+                """.trimIndent()
+            },
+            variables = mapOf("program_id" to programId)
+        )
+        if (listAll.isNotEmpty()) {
+            LessonCacheManager.saveLessons(listAll, programId = programId)
+            return listAll
+        }
+
+        // 4. Date-range fallback query if earlier queries returned empty
+        if (!phaseId.isNullOrBlank()) {
+            val listPhaseDate = runQuery(
                 opName = "GetStudentLessonsPhaseDate",
                 queryStr = { f ->
                     """
@@ -439,33 +499,12 @@ class CourseRepository(
                     "end_date" to endDate
                 )
             )
-            collected.addAll(list)
+            if (listPhaseDate.isNotEmpty()) {
+                LessonCacheManager.saveLessons(listPhaseDate, programId = programId)
+                return listPhaseDate
+            }
         }
 
-        // 2. If batchId is provided, try with batch_id and date range
-        if (!batchId.isNullOrBlank()) {
-            val list = runQuery(
-                opName = "GetStudentLessonsBatchDate",
-                queryStr = { f ->
-                    """
-                        query GetStudentLessonsBatchDate(${'$'}program_id: String!, ${'$'}batch_id: String!, ${'$'}start_date: String!, ${'$'}end_date: String!) {
-                          studentSpecificLessons(program_id: ${'$'}program_id, batch_id: ${'$'}batch_id, start_date: ${'$'}start_date, end_date: ${'$'}end_date) {
-                            data { $f }
-                          }
-                        }
-                    """.trimIndent()
-                },
-                variables = mapOf(
-                    "program_id" to programId,
-                    "batch_id" to batchId,
-                    "start_date" to startDate,
-                    "end_date" to endDate
-                )
-            )
-            collected.addAll(list)
-        }
-
-        // 3. Try with program_id and date range (without phase or batch)
         val listDateOnly = runQuery(
             opName = "GetStudentLessonsDateOnly",
             queryStr = { f ->
@@ -483,65 +522,12 @@ class CourseRepository(
                 "end_date" to endDate
             )
         )
-        collected.addAll(listDateOnly)
-
-        // 4. Try without dates (phase-wise)
-        if (!phaseId.isNullOrBlank()) {
-            val listPhase = runQuery(
-                opName = "GetUpcomingLessonsPhaseWise",
-                queryStr = { f ->
-                    """
-                        query GetUpcomingLessonsPhaseWise(${'$'}program_id: String!, ${'$'}phase_id: String!) {
-                          studentSpecificLessons(program_id: ${'$'}program_id, phase_id: ${'$'}phase_id) {
-                            data { $f }
-                          }
-                        }
-                    """.trimIndent()
-                },
-                variables = mapOf("program_id" to programId, "phase_id" to phaseId)
-            )
-            collected.addAll(listPhase)
+        if (listDateOnly.isNotEmpty()) {
+            LessonCacheManager.saveLessons(listDateOnly, programId = programId)
+            return listDateOnly
         }
 
-        // 5. Try without dates (batch-wise)
-        if (!batchId.isNullOrBlank()) {
-            val listBatch = runQuery(
-                opName = "GetStudentSpecificLessonsWithBatch",
-                queryStr = { f ->
-                    """
-                        query GetStudentSpecificLessonsWithBatch(${'$'}program_id: String!, ${'$'}batch_id: String!) {
-                          studentSpecificLessons(program_id: ${'$'}program_id, batch_id: ${'$'}batch_id) {
-                            data { $f }
-                          }
-                        }
-                    """.trimIndent()
-                },
-                variables = mapOf("program_id" to programId, "batch_id" to batchId)
-            )
-            collected.addAll(listBatch)
-        }
-
-        // 6. Try bare program_id
-        val listAll = runQuery(
-            opName = "GetUpcomingLessons",
-            queryStr = { f ->
-                """
-                    query GetUpcomingLessons(${'$'}program_id: String!) {
-                      studentSpecificLessons(program_id: ${'$'}program_id) {
-                        data { $f }
-                      }
-                    }
-                """.trimIndent()
-            },
-            variables = mapOf("program_id" to programId)
-        )
-        collected.addAll(listAll)
-
-        val distinct = collected.distinctBy { it.id.ifBlank { "${it.content_id}_${it.start_time}_${it.title}" } }
-        if (distinct.isNotEmpty()) {
-            LessonCacheManager.saveLessons(distinct, programId = programId)
-        }
-        return distinct
+        return emptyList()
     }
 
     suspend fun fetchLessonsWithPhase(
