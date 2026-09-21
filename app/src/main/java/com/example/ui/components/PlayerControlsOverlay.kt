@@ -1,10 +1,9 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -13,18 +12,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.database.DownloadedItemEntity
 import com.example.player.ShikhoPlayerManager
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 @Composable
@@ -43,6 +45,7 @@ fun PlayerControlsOverlay(
     viewerCount: Int? = null,
     classType: com.example.player.PlayerClassType? = null,
     hasMeeting: Boolean = false,
+    downloadedItem: DownloadedItemEntity? = null,
     onSwitchToMeeting: (() -> Unit)? = null,
     onTogglePlayPause: () -> Unit,
     onSeekBack: () -> Unit,
@@ -62,18 +65,119 @@ fun PlayerControlsOverlay(
     val effectiveClassType = remember(classType, isLive) {
         classType ?: if (isLive) com.example.player.PlayerClassType.LIVE else com.example.player.PlayerClassType.RECORDED_LECTURE
     }
-    val interactionSource = remember { MutableInteractionSource() }
+
+    // Double tap feedback state
+    var doubleTapFeedbackSide by remember { mutableStateOf<String?>(null) }
+    var doubleTapTriggerKey by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(doubleTapTriggerKey) {
+        if (doubleTapFeedbackSide != null) {
+            delay(650)
+            doubleTapFeedbackSide = null
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) {
-                onToggleControls()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = {
+                        onToggleControls()
+                    },
+                    onDoubleTap = { offset ->
+                        if (!isLive) {
+                            val screenWidth = size.width
+                            if (offset.x < screenWidth * 0.45f) {
+                                // Left side double tap -> Rewind 10s
+                                onSeekBack()
+                                doubleTapFeedbackSide = "LEFT"
+                                doubleTapTriggerKey++
+                            } else if (offset.x > screenWidth * 0.55f) {
+                                // Right side double tap -> Fast Forward 10s
+                                onSeekForward()
+                                doubleTapFeedbackSide = "RIGHT"
+                                doubleTapTriggerKey++
+                            } else {
+                                // Center double tap -> Toggle play/pause
+                                onTogglePlayPause()
+                            }
+                        }
+                    }
+                )
             }
     ) {
+        // Double Tap Visual Ripple Feedback Overlays
+        AnimatedVisibility(
+            visible = doubleTapFeedbackSide == "LEFT",
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 24.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color.Black.copy(alpha = 0.65f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Replay10,
+                        contentDescription = "১০ সেকেন্ড পেছনে",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "-১০ সেকেন্ড",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = doubleTapFeedbackSide == "RIGHT",
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 24.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = Color.Black.copy(alpha = 0.65f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Forward10,
+                        contentDescription = "১০ সেকেন্ড সামনে",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "+১০ সেকেন্ড",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         AnimatedVisibility(
             visible = areControlsVisible || isBuffering,
             enter = fadeIn(),
@@ -255,14 +359,61 @@ fun PlayerControlsOverlay(
                             }
                         }
 
-                        // Download Button
-                        IconButton(onClick = onDownloadClick) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "ডাউনলোড",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        // Download Button with Live Status Indicator
+                        when (downloadedItem?.status) {
+                            DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                val item = downloadedItem
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.35f),
+                                    modifier = Modifier.clickable { onDownloadClick() }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            progress = { item.progressFraction },
+                                            color = Color(0xFF38BDF8),
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${item.progressPercent}%",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                            DownloadedItemEntity.STATUS_COMPLETED -> {
+                                IconButton(
+                                    onClick = onDownloadClick,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981).copy(alpha = 0.25f))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DownloadDone,
+                                        contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            else -> {
+                                IconButton(onClick = onDownloadClick) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "ডাউনলোড",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
 
                         // Playback Speed Tag Button (only for recorded / if applicable)
@@ -285,9 +436,11 @@ fun PlayerControlsOverlay(
                     }
                 }
 
-                // CENTER CONTROLS (Only Play/Pause Button)
-                Box(
-                    modifier = Modifier.align(Alignment.Center)
+                // CENTER CONTROLS (-10s Rewind, Play/Pause, +10s Forward)
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (isBuffering) {
                         CircularProgressIndicator(
@@ -296,6 +449,24 @@ fun PlayerControlsOverlay(
                             modifier = Modifier.size(48.dp)
                         )
                     } else {
+                        // Rewind 10s Button
+                        if (!isLive) {
+                            IconButton(
+                                onClick = onSeekBack,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Replay10,
+                                    contentDescription = "১০ সেকেন্ড পেছনে যান",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+
                         // Play / Pause Button
                         IconButton(
                             onClick = onTogglePlayPause,
@@ -310,6 +481,24 @@ fun PlayerControlsOverlay(
                                 tint = Color.Black,
                                 modifier = Modifier.size(34.dp)
                             )
+                        }
+
+                        // Forward 10s Button
+                        if (!isLive) {
+                            IconButton(
+                                onClick = onSeekForward,
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Forward10,
+                                    contentDescription = "১০ সেকেন্ড সামনে যান",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -392,7 +581,7 @@ fun PlayerControlsOverlay(
                                         .size(8.dp)
                                         .clip(CircleShape)
                                         .background(Color(0xFFE11D48))
-                                 )
+                                )
                                 Text(
                                     text = "🔴 সরাসরি লাইভ সম্প্রচার চলছে (Live)",
                                     color = Color.White,

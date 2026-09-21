@@ -56,5 +56,6 @@ data class CourseUiState(
     val lessonsDiagnosticInfo: String? = null,
 
     // Tier 4: Selected Lesson Detail
-    val selectedLesson: StudentLessonItem? = null
+    val selectedLesson: StudentLessonItem? = null,
+    val isLessonDetailLoading: Boolean = false
 )

@@ -122,11 +122,17 @@ class CourseViewModel(
     }
 
     fun selectLesson(lesson: StudentLessonItem) {
+        val hasDirectStream = lesson.candidateStreamUrls.any { it.isNotBlank() && it != "null" }
+        val liveClassId = lesson.live_class?.id ?: lesson.content_id ?: lesson.id
+        val needsFetch = liveClassId.isNotBlank() && (!hasDirectStream || lesson.attachments.isNullOrEmpty())
+
         _uiState.update {
-            it.copy(selectedLesson = lesson)
+            it.copy(
+                selectedLesson = lesson,
+                isLessonDetailLoading = needsFetch
+            )
         }
 
-        val liveClassId = lesson.live_class?.id ?: lesson.content_id ?: lesson.id
         if (liveClassId.isNotBlank()) {
             viewModelScope.launch {
                 try {
@@ -171,14 +177,25 @@ class CourseViewModel(
                         }
 
                         if (_uiState.value.selectedLesson?.id == lesson.id) {
-                            _uiState.update { it.copy(selectedLesson = currentLessonState) }
+                            _uiState.update { 
+                                it.copy(
+                                    selectedLesson = currentLessonState,
+                                    isLessonDetailLoading = false
+                                ) 
+                            }
                         }
 
                         // 2. Attempt to fetch live room & meeting link via JoinLiveClass mutation
                         joinLiveClass(currentLessonState)
+                    } else {
+                        _uiState.update { it.copy(isLessonDetailLoading = false) }
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    _uiState.update { it.copy(isLessonDetailLoading = false) }
+                }
             }
+        } else {
+            _uiState.update { it.copy(isLessonDetailLoading = false) }
         }
     }
 

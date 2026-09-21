@@ -86,6 +86,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.api.LessonAttachmentItem
 import com.example.api.StudentLessonItem
+import com.example.database.DownloadedItemEntity
+import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
 import com.example.player.HmsLiveSocketManager
 import com.example.player.PlayerClassType
@@ -94,6 +96,7 @@ import com.example.ui.components.*
 import com.example.utils.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
@@ -106,6 +109,7 @@ fun LessonDetailPlayerScreen(
     lesson: StudentLessonItem?,
     subjectName: String,
     subjectColorHex: String?,
+    isLessonLoading: Boolean = false,
     socketManager: HmsLiveSocketManager? = null,
     onRefreshLesson: (() -> Unit)? = null,
     onJoinLiveClass: ((StudentLessonItem) -> Unit)? = null,
@@ -284,6 +288,44 @@ fun LessonDetailPlayerScreen(
 
     // Expandable Accordion State for Topics
     var isTopicsExpanded by remember { mutableStateOf(true) }
+
+    // Download Manager & Video Offline Caching
+    val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
+    val videoDownloadId = remember(lesson?.id, activeStreamUrl) {
+        "vid_" + ((lesson?.id ?: activeStreamUrl.ifBlank { "lesson" }).hashCode().toString() + "_" + (lesson?.title ?: "").hashCode().toString()).replace("-", "n")
+    }
+    val videoDownloadedItem by downloadManager.getDownloadedItemById(videoDownloadId).collectAsState(initial = null)
+
+    val handleDownloadVideo: () -> Unit = {
+        when (videoDownloadedItem?.status) {
+            DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                downloadManager.cancelDownload(videoDownloadId)
+                Toast.makeText(context, "ভিডিও ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+            }
+            DownloadedItemEntity.STATUS_COMPLETED -> {
+                Toast.makeText(context, "এই ভিডিওটি ইতিমধ্যে অফলাইনে ডাউনলোড করা আছে। 'ডাউনলোড' ট্যাবে দেখতে পাবেন।", Toast.LENGTH_LONG).show()
+            }
+            else -> {
+                val downloadUrl = activeStreamUrl.ifBlank {
+                    lesson?.resolvedVideoUrl
+                        ?: candidateStreams.firstOrNull()
+                        ?: ""
+                }
+                if (downloadUrl.isNotBlank() && downloadUrl != "null") {
+                    downloadManager.downloadFile(
+                        id = videoDownloadId,
+                        title = lesson?.title ?: "ক্লাস ভিডিও লেকচার",
+                        subtitle = subjectName,
+                        fileType = DownloadedItemEntity.FILE_TYPE_VIDEO,
+                        remoteUrl = downloadUrl
+                    )
+                    Toast.makeText(context, "ভিডিও অফলাইন ডাউনলোড শুরু হয়েছে। 'ডাউনলোড' ট্যাবে দেখতে পাবেন।", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "ভিডিও ডাউনলোড লিংক পাওয়া যায়নি বা লাইভ ক্লাস এখনও চলছে।", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
     val trackSelector = remember { DefaultTrackSelector(context) }
@@ -691,9 +733,34 @@ fun LessonDetailPlayerScreen(
                     onSpeedClick = { showSpeedDialog = true },
                     onQualityClick = { showQualityDialog = true },
                     selectedQualityLabel = selectedQualityLabel,
+                    downloadedItem = videoDownloadedItem,
+                    onDownloadClick = handleDownloadVideo,
                     onPipClick = { enterPipMode() },
                     onBack = { toggleFullscreen() }
                 )
+            } else if (isLessonLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(48.dp),
+                            strokeWidth = 4.dp,
+                            color = Color(0xFF38BDF8)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "ক্লাস লোড হচ্ছে...",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
     } else {
@@ -831,13 +898,49 @@ fun LessonDetailPlayerScreen(
                                 onSpeedClick = { showSpeedDialog = true },
                                 onQualityClick = { showQualityDialog = true },
                                 selectedQualityLabel = selectedQualityLabel,
+                                downloadedItem = videoDownloadedItem,
+                                onDownloadClick = handleDownloadVideo,
                                 onPipClick = { enterPipMode() },
-                                onDownloadClick = { {} },
                                 onBack = {
                                     exoPlayer.stop()
                                     onBack()
                                 }
                             )
+                        }
+                    } else if (isLessonLoading) {
+                        // Actively fetching stream and materials from server/database
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF0F172A)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(20.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(40.dp),
+                                    strokeWidth = 3.5.dp,
+                                    color = Color(0xFF38BDF8)
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = "ভিডিও ও স্টাডি মেটেরিয়াল লোড করা হচ্ছে...",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন",
+                                    color = Color.White.copy(alpha = 0.65f),
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     } else if (!isLive) {
                         // Empty / No Direct Stream State Placeholder with Diagnostics
@@ -903,6 +1006,7 @@ fun LessonDetailPlayerScreen(
                     lesson = lesson,
                     context = context,
                     coroutineScope = coroutineScope,
+                    isLoading = isLessonLoading,
                     onRefreshLesson = onRefreshLesson,
                     onViewAttachment = { attachment ->
                         viewingSlideItem = attachment

@@ -578,6 +578,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             val courseUiState by courseViewModel.uiState.collectAsState()
             LessonDetailPlayerScreen(
                 lesson = courseUiState.selectedLesson,
+                isLessonLoading = courseUiState.isLessonDetailLoading,
                 subjectName = courseUiState.selectedSubjectTitle,
                 subjectColorHex = courseUiState.selectedSubjectColor,
                 socketManager = courseViewModel.liveSocketManager,

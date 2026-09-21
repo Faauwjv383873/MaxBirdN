@@ -188,6 +188,7 @@ fun LessonDocumentsSection(
     lesson: StudentLessonItem?,
     context: Context,
     coroutineScope: CoroutineScope,
+    isLoading: Boolean = false,
     onRefreshLesson: (() -> Unit)?,
     onViewAttachment: (LessonAttachmentItem) -> Unit,
     modifier: Modifier = Modifier
@@ -211,7 +212,47 @@ fun LessonDocumentsSection(
         val allAttachments = lesson?.allAttachments ?: emptyList()
         val fallbackSlideUrl = lesson?.resolvedSlideUrl ?: lesson?.live_class?.lectureSlideUrl
 
-        if (allAttachments.isNotEmpty()) {
+        if (isLoading) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Column {
+                        Text(
+                            text = "লেকচার স্লাইড ও ডকুমেন্টস খোঁজা হচ্ছে...",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "সার্ভার থেকে ডেটা লোড করা হচ্ছে",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else if (allAttachments.isNotEmpty()) {
             allAttachments.forEach { attachment ->
                 val downloadUrl = attachment.downloadUrl
                 Card(

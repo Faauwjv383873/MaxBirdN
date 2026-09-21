@@ -11,6 +11,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +55,7 @@ import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
 import com.example.player.VideoTrackQuality
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 
@@ -287,10 +290,52 @@ fun VideoPlayerScreen(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+    var doubleTapSide by remember { mutableStateOf<String?>(null) } // "LEFT" or "RIGHT"
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(totalDuration, isLive) {
+                detectTapGestures(
+                    onTap = {
+                        areControlsVisible = !areControlsVisible
+                    },
+                    onDoubleTap = { offset ->
+                        val screenWidth = size.width
+                        if (!isLive) {
+                            if (offset.x < screenWidth * 0.35f) {
+                                // Double tapped LEFT side: seek -10s
+                                val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                                exoPlayer.seekTo(target)
+                                doubleTapSide = "LEFT"
+                                coroutineScope.launch {
+                                    delay(700)
+                                    if (doubleTapSide == "LEFT") doubleTapSide = null
+                                }
+                            } else if (offset.x > screenWidth * 0.65f) {
+                                // Double tapped RIGHT side: seek +10s
+                                val maxDur = if (totalDuration > 0) totalDuration else exoPlayer.duration.coerceAtLeast(0L)
+                                val target = (exoPlayer.currentPosition + 10000L).let {
+                                    if (maxDur > 0) it.coerceAtMost(maxDur) else it
+                                }
+                                exoPlayer.seekTo(target)
+                                doubleTapSide = "RIGHT"
+                                coroutineScope.launch {
+                                    delay(700)
+                                    if (doubleTapSide == "RIGHT") doubleTapSide = null
+                                }
+                            } else {
+                                // Double tapped CENTER: Play / Pause toggle
+                                if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            }
+                        } else {
+                            if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        }
+                    }
+                )
+            }
     ) {
         // 1. ExoPlayer Surface
         AndroidView(
@@ -308,15 +353,81 @@ fun VideoPlayerScreen(
             update = { playerView ->
                 playerView.resizeMode = resizeMode
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    areControlsVisible = !areControlsVisible
-                }
+            modifier = Modifier.fillMaxSize()
         )
+
+        // 1.1 Double-Tap Animated Seek Visual Indicators
+        AnimatedVisibility(
+            visible = doubleTapSide == "LEFT",
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 32.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(90.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Replay10,
+                        contentDescription = "১০ সেকেন্ড পেছনে",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "-10 সে.",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = doubleTapSide == "RIGHT",
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 32.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(90.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Forward10,
+                        contentDescription = "১০ সেকেন্ড সামনে",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "+10 সে.",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
 
         // 2. Buffering Spinner
         if (isBuffering) {
