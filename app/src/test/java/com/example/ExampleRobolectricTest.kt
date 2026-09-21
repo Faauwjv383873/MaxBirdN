@@ -3,10 +3,12 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.example.auth.SessionManager
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -17,5 +19,12 @@ class ExampleRobolectricTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
     assertEquals("MaxBird", appName)
+  }
+
+  @Test
+  fun `session manager initialization works reliably`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val sessionManager = SessionManager(context)
+    assertNotNull(sessionManager.getDeviceId())
   }
 }
