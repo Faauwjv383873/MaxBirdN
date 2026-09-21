@@ -396,7 +396,7 @@ fun CourseFeatureShortcuts(
             onClick = { onSelectMode(2) }
         )
         ShortcutButton(
-            title = AcademicLocalizationUtils.translateContentType("SmartNotes"),
+            title = "ই-বুক",
             icon = Icons.Default.MenuBook,
             color = Color(0xFFF59E0B),
             isSelected = selectedMode == 3,

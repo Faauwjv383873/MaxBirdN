@@ -60,6 +60,8 @@ fun PlayerControlsOverlay(
     selectedQualityLabel: String = "অটো",
     onPipClick: () -> Unit = {},
     onDownloadClick: () -> Unit = {},
+    resizeMode: Int = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
+    onToggleResizeMode: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val effectiveClassType = remember(classType, isLive) {
@@ -333,6 +335,38 @@ fun PlayerControlsOverlay(
                             }
                         }
 
+                        // Aspect Ratio / Zoom Toggle Button (Fit / Zoom / Stretch)
+                        val resizeModeLabel = when (resizeMode) {
+                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT -> "ফিট"
+                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "জুম"
+                            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL -> "ফুল"
+                            else -> "ফিট"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.clickable { onToggleResizeMode() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AspectRatio,
+                                    contentDescription = "ভিডিও সাইজ / জুম",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = resizeModeLabel,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         // Quality Tag Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -511,21 +545,34 @@ fun PlayerControlsOverlay(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     if (!isLive) {
-                        // Slider / Progress Bar
-                        val sliderValue = if (totalDuration > 0) {
+                        var isDraggingSlider by remember { mutableStateOf(false) }
+                        var dragProgressFraction by remember { mutableFloatStateOf(0f) }
+
+                        val displayPosition = if (isDraggingSlider) {
+                            (dragProgressFraction * totalDuration).toLong().coerceIn(0L, totalDuration)
+                        } else {
+                            currentPosition
+                        }
+
+                        val sliderValue = if (isDraggingSlider) {
+                            dragProgressFraction
+                        } else if (totalDuration > 0) {
                             (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
                         } else 0f
 
                         Slider(
                             value = sliderValue,
                             onValueChange = { fraction ->
-                                val target = (fraction * totalDuration).toLong()
+                                isDraggingSlider = true
+                                dragProgressFraction = fraction
+                                val target = (fraction * totalDuration).toLong().coerceIn(0L, totalDuration)
                                 onSeekStarted(target)
                                 onSeekChanged(target)
                             },
                             onValueChangeFinished = {
-                                val target = (sliderValue * totalDuration).toLong()
+                                val target = (dragProgressFraction * totalDuration).toLong().coerceIn(0L, totalDuration)
                                 onSeekFinished(target)
+                                isDraggingSlider = false
                             },
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -543,7 +590,7 @@ fun PlayerControlsOverlay(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             // Time string in Bengali digits
-                            val timeString = "${ShikhoPlayerManager.formatTime(currentPosition, true)} / ${ShikhoPlayerManager.formatTime(totalDuration, true)}"
+                            val timeString = "${ShikhoPlayerManager.formatTime(displayPosition, true)} / ${ShikhoPlayerManager.formatTime(totalDuration, true)}"
                             Text(
                                 text = timeString,
                                 color = Color.White,

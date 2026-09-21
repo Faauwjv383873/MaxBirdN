@@ -43,6 +43,7 @@ data class SmartNotesUiState(
     val selectedChapterName: String = "",
     val isChapterResourcesLoading: Boolean = false,
     val chapterResources: List<TaggableResourceItem> = emptyList(),
+    val directAttachmentsMap: Map<String, AttachmentDataItem> = emptyMap(),
     
     // PDF Opening state
     val isOpeningPdf: Boolean = false,
@@ -148,23 +149,109 @@ class SmartNotesViewModel(
         }
     }
 
-    fun loadChapterResources(chapterId: String, phaseId: String?, chapterName: String? = null) {
+    fun loadChapterResources(
+        chapterId: String,
+        phaseId: String?,
+        chapterName: String? = null,
+        subjectCode: String? = null,
+        altChapterId: String? = null
+    ) {
         loadChapterResourcesJob?.cancel()
         loadChapterResourcesJob = viewModelScope.launch {
+            val effectiveSubCode = subjectCode?.ifBlank { null }
+                ?: _uiState.value.subjectCode.ifBlank { null }
+                ?: ""
+            val effectiveProgId = _uiState.value.programId.ifBlank { null }
+                ?: sessionManager.getActiveProgramId() ?: ""
+            val effectivePhaseId = phaseId?.ifBlank { null }
+                ?: _uiState.value.phaseId.ifBlank { null }
+
+            // Find matching chapter from loaded chapters to discover altChapterId
+            val matchedChapter = _uiState.value.chapters.firstOrNull {
+                it.id == chapterId || it.chapter_id == chapterId ||
+                (!chapterName.isNullOrBlank() && (it.effectiveName.equals(chapterName, ignoreCase = true) || it.chapter_name.equals(chapterName, ignoreCase = true) || it.name.equals(chapterName, ignoreCase = true)))
+            }
+            val resolvedAltChapterId = altChapterId?.ifBlank { null }
+                ?: matchedChapter?.let { if (it.id == chapterId) it.chapter_id else it.id }
+
             _uiState.update {
                 it.copy(
                     selectedChapterId = chapterId,
-                    selectedChapterName = chapterName ?: it.selectedChapterName,
+                    selectedChapterName = chapterName ?: matchedChapter?.effectiveName ?: it.selectedChapterName,
                     isChapterResourcesLoading = true,
-                    chapterResources = emptyList()
+                    chapterResources = emptyList(),
+                    directAttachmentsMap = emptyMap(),
+                    errorMessage = null
                 )
             }
+
             try {
-                val resources = repository.listChapterTaggableResources(chapterId, phaseId)
+                // 1. Try listing taggable resources
+                var resources = repository.listChapterTaggableResources(
+                    chapterId = chapterId,
+                    phaseId = effectivePhaseId,
+                    subjectId = effectiveSubCode,
+                    altChapterId = resolvedAltChapterId
+                )
+
+                val newDirectMap = mutableMapOf<String, AttachmentDataItem>()
+
+                // 2. If no taggable resources found, try fetching direct attachments
+                if (resources.isEmpty()) {
+                    val candidateIds = listOfNotNull(chapterId.takeIf { it.isNotBlank() }, resolvedAltChapterId?.takeIf { it.isNotBlank() })
+                    val directAttachments = repository.getResourceAttachmentsOfChapter(
+                        subjectId = effectiveSubCode,
+                        moduleId = effectiveProgId,
+                        phaseId = effectivePhaseId,
+                        chapterIds = candidateIds,
+                        resourceTypeTagIds = null,
+                        isSubjectSpecific = false
+                    )
+
+                    if (directAttachments.isNotEmpty()) {
+                        resources = directAttachments.map { att ->
+                            val attId = att.id ?: java.util.UUID.randomUUID().toString()
+                            newDirectMap[attId] = att
+                            TaggableResourceItem(
+                                id = attId,
+                                title = att.title ?: "অধ্যায় ই-বুক / নোট",
+                                icon_url = "https://cdn.shikho.com/resources/icons/ebook.svg",
+                                is_chapter_resource = true,
+                                is_subject_resource = false
+                            )
+                        }
+                    }
+                }
+
+                // 3. If still empty, check chapter lessons for slide / PDF attachments
+                if (resources.isEmpty() && effectiveProgId.isNotBlank()) {
+                    val lessonAttachments = repository.getChapterLessonAttachments(
+                        programId = effectiveProgId,
+                        phaseId = effectivePhaseId,
+                        chapterId = chapterId,
+                        altChapterId = resolvedAltChapterId
+                    )
+
+                    if (lessonAttachments.isNotEmpty()) {
+                        resources = lessonAttachments.map { att ->
+                            val attId = att.id ?: java.util.UUID.randomUUID().toString()
+                            newDirectMap[attId] = att
+                            TaggableResourceItem(
+                                id = attId,
+                                title = att.title ?: "লেকচার শিট ও স্লাইড",
+                                icon_url = "https://cdn.shikho.com/resources/icons/ebook.svg",
+                                is_chapter_resource = true,
+                                is_subject_resource = false
+                            )
+                        }
+                    }
+                }
+
                 _uiState.update {
                     it.copy(
                         isChapterResourcesLoading = false,
-                        chapterResources = resources
+                        chapterResources = resources,
+                        directAttachmentsMap = newDirectMap
                     )
                 }
             } catch (e: Exception) {
@@ -190,6 +277,21 @@ class SmartNotesViewModel(
         onUrlReady: ((String) -> Unit)? = null
     ) {
         viewModelScope.launch {
+            // Check if we have this attachment directly cached in directAttachmentsMap
+            val cachedDirect = _uiState.value.directAttachmentsMap[tagId]
+            if (cachedDirect?.url != null) {
+                _uiState.update {
+                    it.copy(
+                        isOpeningPdf = false,
+                        openingTagId = null,
+                        activeAttachment = cachedDirect
+                    )
+                }
+                onUrlReady?.invoke(cachedDirect.url)
+                _events.emit(SmartNotesUiEvent.OpenPdfUrl(cachedDirect.url, cachedDirect.title ?: resourceTitle))
+                return@launch
+            }
+
             val effectiveProgId = programId?.ifBlank { null }
                 ?: _uiState.value.programId.ifBlank { null }
                 ?: sessionManager.getActiveProgramId() ?: ""

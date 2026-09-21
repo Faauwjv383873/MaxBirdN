@@ -277,10 +277,26 @@ fun LessonDetailPlayerScreen(
     var areControlsVisible by remember { mutableStateOf(true) }
     var isSeeking by remember { mutableStateOf(false) }
     var seekPosition by remember { mutableLongStateOf(0L) }
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }
     var availableQualities by remember { mutableStateOf<List<VideoTrackQuality>>(emptyList()) }
     var selectedQualityLabel by remember { mutableStateOf("অটো") }
+
+    val toggleResizeMode: () -> Unit = {
+        resizeMode = when (resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        val modeName = when (resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> "ভিডিও সাইজ: ফিট স্ক্রিন (১৬:৯)"
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "ভিডিও সাইজ: জুম ও ফিল স্ক্রিন"
+            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "ভিডিও সাইজ: ফুল স্ক্রিন স্ট্রেচ"
+            else -> "ফিট স্ক্রিন"
+        }
+        Toast.makeText(context, modeName, Toast.LENGTH_SHORT).show()
+    }
 
     // Slide viewing state
     var viewingSlideItem by remember { mutableStateOf<LessonAttachmentItem?>(null) }
@@ -291,6 +307,7 @@ fun LessonDetailPlayerScreen(
 
     // Download Manager & Video Offline Caching
     val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
+    var showDownloadQualityDialog by remember { mutableStateOf(false) }
     val videoDownloadId = remember(lesson?.id, activeStreamUrl) {
         "vid_" + ((lesson?.id ?: activeStreamUrl.ifBlank { "lesson" }).hashCode().toString() + "_" + (lesson?.title ?: "").hashCode().toString()).replace("-", "n")
     }
@@ -312,19 +329,40 @@ fun LessonDetailPlayerScreen(
                         ?: ""
                 }
                 if (downloadUrl.isNotBlank() && downloadUrl != "null") {
-                    downloadManager.downloadFile(
-                        id = videoDownloadId,
-                        title = lesson?.title ?: "ক্লাস ভিডিও লেকচার",
-                        subtitle = subjectName,
-                        fileType = DownloadedItemEntity.FILE_TYPE_VIDEO,
-                        remoteUrl = downloadUrl
-                    )
-                    Toast.makeText(context, "ভিডিও অফলাইন ডাউনলোড শুরু হয়েছে। 'ডাউনলোড' ট্যাবে দেখতে পাবেন।", Toast.LENGTH_LONG).show()
+                    showDownloadQualityDialog = true
                 } else {
                     Toast.makeText(context, "ভিডিও ডাউনলোড লিংক পাওয়া যায়নি বা লাইভ ক্লাস এখনও চলছে।", Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
+
+    if (showDownloadQualityDialog) {
+        val downloadSourceUrl = activeStreamUrl.ifBlank {
+            lesson?.resolvedVideoUrl
+                ?: candidateStreams.firstOrNull()
+                ?: ""
+        }
+        VideoDownloadQualityDialog(
+            videoUrl = downloadSourceUrl,
+            title = lesson?.title ?: "ক্লাস ভিডিও",
+            onDismiss = { showDownloadQualityDialog = false },
+            onConfirmDownload = { selectedQuality ->
+                showDownloadQualityDialog = false
+                downloadManager.downloadFile(
+                    id = videoDownloadId,
+                    title = lesson?.title ?: "ক্লাস ভিডিও লেকচার",
+                    subtitle = subjectName,
+                    fileType = DownloadedItemEntity.FILE_TYPE_VIDEO,
+                    remoteUrl = selectedQuality.targetM3u8Url
+                )
+                Toast.makeText(
+                    context,
+                    "ভিডিও ডাউনলোড শুরু হয়েছে (${selectedQuality.labelBangla})। 'ডাউনলোড' ট্যাবে দেখতে পাবেন।",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
     }
 
     // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
@@ -675,12 +713,16 @@ fun LessonDetailPlayerScreen(
                         PlayerView(ctx).apply {
                             player = exoPlayer
                             useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            this.resizeMode = resizeMode
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                         }
+                    },
+                    update = { pv ->
+                        pv.player = exoPlayer
+                        pv.resizeMode = resizeMode
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -724,9 +766,14 @@ fun LessonDetailPlayerScreen(
                     onSeekChanged = {
                         seekPosition = it
                     },
-                    onSeekFinished = {
-                        isSeeking = false
-                        exoPlayer.seekTo(it)
+                    onSeekFinished = { targetPos ->
+                        currentPosition = targetPos
+                        seekPosition = targetPos
+                        exoPlayer.seekTo(targetPos)
+                        coroutineScope.launch {
+                            delay(350)
+                            isSeeking = false
+                        }
                     },
                     onToggleFullscreen = { toggleFullscreen() },
                     onToggleControls = { areControlsVisible = !areControlsVisible },
@@ -735,6 +782,8 @@ fun LessonDetailPlayerScreen(
                     selectedQualityLabel = selectedQualityLabel,
                     downloadedItem = videoDownloadedItem,
                     onDownloadClick = handleDownloadVideo,
+                    resizeMode = resizeMode,
+                    onToggleResizeMode = toggleResizeMode,
                     onPipClick = { enterPipMode() },
                     onBack = { toggleFullscreen() }
                 )
@@ -817,12 +866,16 @@ fun LessonDetailPlayerScreen(
                                 PlayerView(ctx).apply {
                                     player = exoPlayer
                                     useController = false
-                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    this.resizeMode = resizeMode
                                     layoutParams = FrameLayout.LayoutParams(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
                                 }
+                            },
+                            update = { pv ->
+                                pv.player = exoPlayer
+                                pv.resizeMode = resizeMode
                             },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -889,9 +942,14 @@ fun LessonDetailPlayerScreen(
                                 onSeekChanged = {
                                     seekPosition = it
                                 },
-                                onSeekFinished = {
-                                    isSeeking = false
-                                    exoPlayer.seekTo(it)
+                                onSeekFinished = { targetPos ->
+                                    currentPosition = targetPos
+                                    seekPosition = targetPos
+                                    exoPlayer.seekTo(targetPos)
+                                    coroutineScope.launch {
+                                        delay(350)
+                                        isSeeking = false
+                                    }
                                 },
                                 onToggleFullscreen = { toggleFullscreen() },
                                 onToggleControls = { areControlsVisible = !areControlsVisible },
@@ -900,6 +958,8 @@ fun LessonDetailPlayerScreen(
                                 selectedQualityLabel = selectedQualityLabel,
                                 downloadedItem = videoDownloadedItem,
                                 onDownloadClick = handleDownloadVideo,
+                                resizeMode = resizeMode,
+                                onToggleResizeMode = toggleResizeMode,
                                 onPipClick = { enterPipMode() },
                                 onBack = {
                                     exoPlayer.stop()

@@ -85,6 +85,7 @@ fun ChapterLessonsScreen(
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?, chapterId: String, chapterName: String) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapterName: String) -> Unit)? = null,
+    onNavigateToChapterResources: ((chapterId: String, chapterName: String, subjectCode: String, phaseId: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -289,6 +290,15 @@ fun ChapterLessonsScreen(
                                             effectiveSubjectColor,
                                             chapterId,
                                             chapterName
+                                        )
+                                    } else if (tab == 3) {
+                                        val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+                                        val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
+                                        onNavigateToChapterResources?.invoke(
+                                            chapterId,
+                                            chapterName,
+                                            effectiveSubjectCode,
+                                            uiState.activePhaseId ?: ""
                                         )
                                     }
                                 }
@@ -657,7 +667,7 @@ fun ChapterFeatureShortcuts(
             onClick = { onTabSelected(2) }
         )
         ChapterShortcutButton(
-            title = AcademicLocalizationUtils.translateContentType("SmartNotes"),
+            title = "ই-বুক",
             icon = Icons.Default.MenuBook,
             color = Color(0xFFF59E0B),
             isSelected = selectedTab == 3,

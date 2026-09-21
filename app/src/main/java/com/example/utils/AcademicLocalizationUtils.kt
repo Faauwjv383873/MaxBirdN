@@ -64,7 +64,7 @@ object AcademicLocalizationUtils {
         return when {
             lower == "live" || lower == "liveclass" || lower.contains("live") -> "লাইভ ক্লাস"
             lower == "video" || lower.contains("video") -> "ভিডিও লেকচার"
-            lower == "smartnotes" || lower == "smart_notes" || lower == "ebook" || lower.contains("note") -> "স্মার্ট নোট"
+            lower == "smartnotes" || lower == "smart_notes" || lower == "ebook" || lower.contains("note") -> "ই-বুক"
             lower == "exam" || lower == "liveexam" || lower == "quiz" || lower == "modeltest" || lower.contains("exam") || lower.contains("quiz") -> "কুইজ এবং এক্সাম"
             else -> "লাইভ ক্লাস"
         }

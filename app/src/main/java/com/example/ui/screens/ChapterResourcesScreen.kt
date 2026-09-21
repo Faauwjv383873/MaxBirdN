@@ -60,8 +60,13 @@ fun ChapterResourcesScreen(
         }
     }
 
-    LaunchedEffect(chapterId) {
-        viewModel.loadChapterResources(chapterId, phaseId, chapterName)
+    LaunchedEffect(chapterId, subjectCode, phaseId) {
+        viewModel.loadChapterResources(
+            chapterId = chapterId,
+            phaseId = phaseId,
+            chapterName = chapterName,
+            subjectCode = subjectCode
+        )
     }
 
     LaunchedEffect(viewModel) {
@@ -181,7 +186,12 @@ fun ChapterResourcesScreen(
                     EmptyResourceView(
                         message = "এই অধ্যায়ের জন্য কোনো রিসোর্স পাওয়া যায়নি",
                         onRetry = {
-                            viewModel.loadChapterResources(chapterId, phaseId, chapterName)
+                            viewModel.loadChapterResources(
+                                chapterId = chapterId,
+                                phaseId = phaseId,
+                                chapterName = chapterName,
+                                subjectCode = subjectCode
+                            )
                         }
                     )
                 }

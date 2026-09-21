@@ -54,6 +54,7 @@ import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
 import com.example.player.VideoTrackQuality
+import com.example.ui.components.VideoDownloadQualityDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -86,6 +87,7 @@ fun VideoPlayerScreen(
     // Dialog state
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }
+    var showDownloadQualityDialog by remember { mutableStateOf(false) }
     var availableQualities by remember { mutableStateOf<List<VideoTrackQuality>>(emptyList()) }
     var selectedQualityLabel by remember { mutableStateOf("Auto") }
 
@@ -601,14 +603,7 @@ fun VideoPlayerScreen(
                             else -> {
                                 IconButton(
                                     onClick = {
-                                        downloadManager.downloadFile(
-                                            id = downloadId,
-                                            title = title,
-                                            subtitle = subjectName,
-                                            fileType = DownloadedItemEntity.FILE_TYPE_VIDEO,
-                                            remoteUrl = effectivePlaybackUrl
-                                        )
-                                        Toast.makeText(context, "ভিডিও অফলাইন ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
+                                        showDownloadQualityDialog = true
                                     },
                                     modifier = Modifier
                                         .size(38.dp)
@@ -753,13 +748,17 @@ fun VideoPlayerScreen(
                             seekPosition = value.toLong()
                         },
                         onValueChangeFinished = {
+                            currentPosition = seekPosition
                             exoPlayer.seekTo(seekPosition)
-                            isSeeking = false
+                            coroutineScope.launch {
+                                delay(350)
+                                isSeeking = false
+                            }
                         },
                         valueRange = 0f..(if (totalDuration > 0) totalDuration.toFloat() else 1f),
                         colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            thumbColor = Color.White,
+                            activeTrackColor = Color(0xFFE11D48),
                             inactiveTrackColor = Color.White.copy(alpha = 0.3f)
                         ),
                         modifier = Modifier
@@ -989,6 +988,30 @@ fun VideoPlayerScreen(
                     TextButton(onClick = { showQualityDialog = false }) {
                         Text("বন্ধ করো")
                     }
+                }
+            )
+        }
+
+        // Download Quality Selection Dialog
+        if (showDownloadQualityDialog) {
+            VideoDownloadQualityDialog(
+                videoUrl = effectivePlaybackUrl,
+                title = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
+                onDismiss = { showDownloadQualityDialog = false },
+                onConfirmDownload = { selectedQuality ->
+                    showDownloadQualityDialog = false
+                    downloadManager.downloadFile(
+                        id = downloadId,
+                        title = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
+                        subtitle = subjectName,
+                        fileType = DownloadedItemEntity.FILE_TYPE_VIDEO,
+                        remoteUrl = selectedQuality.targetM3u8Url
+                    )
+                    Toast.makeText(
+                        context,
+                        "ভিডিও ডাউনলোড শুরু হয়েছে (${selectedQuality.labelBangla})। 'ডাউনলোড' ট্যাবে দেখতে পাবেন।",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             )
         }
