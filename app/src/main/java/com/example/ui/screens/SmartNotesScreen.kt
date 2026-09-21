@@ -46,6 +46,7 @@ import com.example.api.AcademicChapterItem
 import com.example.api.TaggableResourceItem
 import com.example.smartnotes.SmartNotesUiEvent
 import com.example.smartnotes.SmartNotesViewModel
+import com.example.ui.components.AttachmentListDialog
 import com.example.ui.components.SlideViewerDialog
 
 private fun toBengaliDigits(number: Any): String {
@@ -112,6 +113,21 @@ fun SmartNotesScreen(
             title = attachment.title ?: "ই-বুক / স্মার্ট নোট",
             onDismiss = {
                 viewModel.dismissActiveAttachment()
+            }
+        )
+    }
+
+    // Attachment List Dialog
+    if (uiState.selectedTagAttachments != null) {
+        AttachmentListDialog(
+            attachments = uiState.selectedTagAttachments!!,
+            title = uiState.selectedTagTitle ?: "ডকুমেন্ট লিস্ট",
+            accentColor = parsedSubjectColor,
+            onAttachmentClick = { attachment ->
+                viewModel.selectAttachment(attachment)
+            },
+            onDismiss = {
+                viewModel.dismissTagAttachments()
             }
         )
     }

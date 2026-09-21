@@ -49,6 +49,8 @@ data class SmartNotesUiState(
     val isOpeningPdf: Boolean = false,
     val openingTagId: String? = null,
     val activeAttachment: AttachmentDataItem? = null,
+    val selectedTagAttachments: List<AttachmentDataItem>? = null,
+    val selectedTagTitle: String? = null,
     
     val errorMessage: String? = null
 )
@@ -324,11 +326,10 @@ class SmartNotesViewModel(
                     it.copy(
                         isOpeningPdf = false,
                         openingTagId = null,
-                        activeAttachment = cachedDirect
+                        selectedTagAttachments = listOf(cachedDirect),
+                        selectedTagTitle = resourceTitle
                     )
                 }
-                onUrlReady?.invoke(cachedDirect.url)
-                _events.emit(SmartNotesUiEvent.OpenPdfUrl(cachedDirect.url, cachedDirect.title ?: resourceTitle))
                 return@launch
             }
 
@@ -360,23 +361,17 @@ class SmartNotesViewModel(
                     chapterIds = chapterIds,
                     resourceTypeTagIds = listOf(tagId),
                     isSubjectSpecific = isSubjectSpecific
-                )
+                ).filter { !it.url.isNullOrBlank() }
 
-                val attachment = attachments.firstOrNull { !it.url.isNullOrBlank() }
-                    ?: attachments.firstOrNull()
-
-                if (attachment?.url != null) {
-                    val finalUrl = attachment.url
-                    val finalTitle = attachment.title ?: resourceTitle
+                if (attachments.isNotEmpty()) {
                     _uiState.update {
                         it.copy(
                             isOpeningPdf = false,
                             openingTagId = null,
-                            activeAttachment = attachment
+                            selectedTagAttachments = attachments,
+                            selectedTagTitle = resourceTitle
                         )
                     }
-                    onUrlReady?.invoke(finalUrl)
-                    _events.emit(SmartNotesUiEvent.OpenPdfUrl(finalUrl, finalTitle))
                 } else {
                     _uiState.update {
                         it.copy(
@@ -397,6 +392,23 @@ class SmartNotesViewModel(
                 }
                 _events.emit(SmartNotesUiEvent.ShowToast("পিডিএফ লোড করতে ত্রুটি ঘটেছে"))
             }
+        }
+    }
+
+    fun dismissTagAttachments() {
+        _uiState.update {
+            it.copy(
+                selectedTagAttachments = null,
+                selectedTagTitle = null
+            )
+        }
+    }
+
+    fun selectAttachment(attachment: AttachmentDataItem) {
+        _uiState.update {
+            it.copy(
+                activeAttachment = attachment
+            )
         }
     }
 

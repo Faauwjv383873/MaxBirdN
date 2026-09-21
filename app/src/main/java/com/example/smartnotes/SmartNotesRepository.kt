@@ -190,9 +190,10 @@ query ResourceAttachmentsOfChapter(
         isSubjectSpecific: Boolean
     ): List<AttachmentDataItem> {
         val nonBlankChapterIds = chapterIds.filter { it.isNotBlank() }
+        val actualSubjectId = if (isSubjectSpecific) subjectId else ""
 
         val variables = mutableMapOf<String, Any?>(
-            "subject_id" to subjectId,
+            "subject_id" to actualSubjectId,
             "module_id" to moduleId,
             "module_name" to "AcademicProgram",
             "chapter_ids" to nonBlankChapterIds,
@@ -220,7 +221,7 @@ query ResourceAttachmentsOfChapter(
         // Fallback without phase_id
         if (!phaseId.isNullOrBlank()) {
             val fallbackVars = mutableMapOf<String, Any?>(
-                "subject_id" to subjectId,
+                "subject_id" to actualSubjectId,
                 "module_id" to moduleId,
                 "module_name" to "AcademicProgram",
                 "chapter_ids" to nonBlankChapterIds,
