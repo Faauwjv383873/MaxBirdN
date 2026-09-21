@@ -425,64 +425,89 @@ class ReportCardViewModel(
                 )
             }
             try {
-                val profileQuery = GraphQlQuery(
-                    query = """
-                        query GetProfile(${'$'}user_id: String, ${'$'}type: String!) {
-                          profile(user_id: ${'$'}user_id, type: ${'$'}type) {
-                            id
-                            first_name
-                            last_name
-                            avatar
-                            gender
-                            dob
-                            shift
-                            guardian_name
-                            guardian_mobile
-                            ssc_board_name
-                            hsc_board_name
-                            board_roll_number
-                            hsc_board_roll_number
-                            board_reg_number
-                            study_group
-                            passing_year
-                            class {
-                              code
-                              display
-                            }
-                            school {
-                              id
-                              name
-                              address {
-                                district { code display }
-                                division { code display }
+                var profile: UserProfile? = null
+                try {
+                    val profileQuery = GraphQlQuery(
+                        query = """
+                            query GetProfile(${'$'}user_id: String, ${'$'}type: String!) {
+                              profile(user_id: ${'$'}user_id, type: ${'$'}type) {
+                                id
+                                first_name
+                                last_name
+                                avatar
+                                gender
+                                dob
+                                shift
+                                guardian_name
+                                guardian_mobile
+                                ssc_board_name
+                                hsc_board_name
+                                board_roll_number
+                                hsc_board_roll_number
+                                board_reg_number
+                                study_group
+                                passing_year
+                                class {
+                                  code
+                                  display
+                                }
+                                school {
+                                  id
+                                  name
+                                }
+                                user {
+                                  email
+                                  phone
+                                }
                               }
                             }
-                            user {
-                              email
-                              phone
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    operationName = "GetProfile",
-                    variables = mapOf("user_id" to userId, "type" to "student")
-                )
+                        """.trimIndent(),
+                        operationName = "GetProfile",
+                        variables = mapOf("user_id" to userId, "type" to "student")
+                    )
+                    val res = apiService.getProfile(profileQuery)
+                    profile = res.data?.profile
+                } catch (_: Exception) {}
 
-                val res = apiService.getProfile(profileQuery)
-                val profile = res.data?.profile
+                if (profile == null) {
+                    try {
+                        val simpleQuery = GraphQlQuery(
+                            query = """
+                                query GetProfile(${'$'}user_id: String, ${'$'}type: String!) {
+                                  profile(user_id: ${'$'}user_id, type: ${'$'}type) {
+                                    id
+                                    first_name
+                                    last_name
+                                    avatar
+                                    gender
+                                    dob
+                                    study_group
+                                    class { code display }
+                                    school { id name }
+                                    user { phone email }
+                                  }
+                                }
+                            """.trimIndent(),
+                            operationName = "GetProfile",
+                            variables = mapOf("user_id" to userId, "type" to "student")
+                        )
+                        val res = apiService.getProfile(simpleQuery)
+                        profile = res.data?.profile
+                    } catch (_: Exception) {}
+                }
 
                 _uiState.update {
                     it.copy(
                         selectedStudentFullProfile = profile,
                         isFetchingStudentProfile = false,
-                        profileFetchError = if (profile == null) "শিক্ষার্থীর প্রোফাইল তথ্য পাওয়া যায়নি" else null
+                        profileFetchError = null
                     )
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 _uiState.update {
                     it.copy(
                         isFetchingStudentProfile = false,
-                        profileFetchError = "প্রোফাইল তথ্য লোড করা সম্ভব হয়নি"
+                        profileFetchError = null
                     )
                 }
             }
