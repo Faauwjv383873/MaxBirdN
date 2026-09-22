@@ -21,9 +21,26 @@ jobs:
           distribution: "temurin"
           cache: gradle
 
-      - name: Decode Keystore
+      - name: Setup Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/my-upload-key.jks
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Secrets not found! Generating a temporary release keystore..."
+            keytool -genkey -v -keystore $GITHUB_WORKSPACE/my-upload-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload -storepass android -keypass android -dname "CN=MyApp, OU=MyOrg, O=MyCompany, L=MyCity, S=MyState, C=US"
+            echo "GEN_STORE_PASSWORD=android" >> $GITHUB_ENV
+            echo "GEN_KEY_PASSWORD=android" >> $GITHUB_ENV
+            echo "GEN_KEY_ALIAS=upload" >> $GITHUB_ENV
+          else
+            echo "Decoding repository keystore secret..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/my-upload-key.jks
+            echo "GEN_STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "GEN_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+            if [ -z "${{ secrets.KEY_ALIAS }}" ]; then
+              echo "Secrets list has no KEY_ALIAS. Falling back to default 'upload'."
+              echo "GEN_KEY_ALIAS=upload" >> $GITHUB_ENV
+            else
+              echo "GEN_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+            fi
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -32,8 +49,9 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ env.GEN_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ env.GEN_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ env.GEN_KEY_ALIAS }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v5

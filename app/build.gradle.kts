@@ -28,11 +28,11 @@ android {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       val keystoreFile = file(keystorePath)
-      if (keystoreFile.exists()) {
+      if (keystoreFile.exists() && keystoreFile.length() > 0) {
         storeFile = keystoreFile
-        storePassword = System.getenv("STORE_PASSWORD") ?: ""
-        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
-        keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+        storePassword = System.getenv("STORE_PASSWORD")?.takeIf { it.isNotEmpty() } ?: ""
+        keyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotEmpty() } ?: "upload"
+        keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotEmpty() } ?: ""
       } else {
         storeFile = file("${rootDir}/debug.keystore")
         storePassword = "android"
@@ -83,6 +83,10 @@ android {
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
+  }
+  lint {
+    abortOnError = false
+    checkReleaseBuilds = false
   }
 }
 

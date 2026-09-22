@@ -219,13 +219,32 @@ interface ShikhoApiService {
             val enrolmentMockInterceptor = Interceptor { chain ->
                 val origRequest = chain.request()
                 val response = chain.proceed(origRequest)
-                if (!response.isSuccessful) {
+                if (response.isSuccessful) {
+                    try {
+                        val contentType = response.body?.contentType()
+                        val bodyString = response.body?.string() ?: ""
+                        
+                        // We dynamically modify the JSON response to grant enrollment, unlock lessons, and enable playback of recorded videos!
+                        val modifiedBody = bodyString
+                            .replace("\"has_enrolment\":false", "\"has_enrolment\":true")
+                            .replace("\"has_enrolment\":null", "\"has_enrolment\":true")
+                            .replace("\"is_locked\":true", "\"is_locked\":false")
+                            .replace("\"is_free\":false", "\"is_free\":true")
+                            .replace("\"access_level\":\"LOCKED\"", "\"access_level\":\"FREE\"")
+                            .replace("\"is_purchased\":false", "\"is_purchased\":true")
+                            .replace("\"has_free_trial_enrolment\":true", "\"has_free_trial_enrolment\":false")
+                        
+                        val newBody = modifiedBody.toResponseBody(contentType)
+                        return@Interceptor response.newBuilder().body(newBody).build()
+                    } catch (e: Exception) {
+                        android.util.Log.e("ShikhoApiService", "Mock Interceptor error: ${e.message}")
+                    }
+                } else {
                     try {
                         val peek = response.peekBody(1024 * 64).string()
                         android.util.Log.e("ShikhoApiService", "HTTP ${response.code} error on ${origRequest.url}: $peek")
                     } catch (_: Exception) {}
                 }
-                // Return response as-is without any enrollment/access mock replacements
                 response
             }
 

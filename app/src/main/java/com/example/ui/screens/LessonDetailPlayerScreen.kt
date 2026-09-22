@@ -46,6 +46,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -238,6 +239,18 @@ fun LessonDetailPlayerScreen(
         )
     }
 
+    LaunchedEffect(lesson?.id, candidateStreams) {
+        if (!isLive) {
+            val bestUrl = candidateStreams.getOrNull(currentStreamIndex)
+                ?: candidateStreams.firstOrNull()
+                ?: lesson?.resolvedVideoUrl
+                ?: ""
+            if (bestUrl.isNotBlank()) {
+                activeStreamUrl = bestUrl
+            }
+        }
+    }
+
     // Resolve class type: Animated vs Recorded Lecture vs Live
     val classType = remember(lesson, activeStreamUrl, isLive) {
         PlayerClassType.resolve(
@@ -359,6 +372,7 @@ fun LessonDetailPlayerScreen(
     var showQualityDialog by remember { mutableStateOf(false) }
     var availableQualities by remember { mutableStateOf<List<VideoTrackQuality>>(emptyList()) }
     var selectedQualityLabel by remember { mutableStateOf("অটো") }
+    var isBackgroundAudioActive by rememberSaveable { mutableStateOf(false) }
 
     val toggleResizeMode: () -> Unit = {
         resizeMode = when (resizeMode) {
@@ -649,19 +663,23 @@ fun LessonDetailPlayerScreen(
         }
     }
     
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, isBackgroundAudioActive, isPlaying) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
                     val activity = context as? Activity
-                    if (activity?.isInPictureInPictureMode != true) {
+                    if (activity?.isInPictureInPictureMode != true && !isBackgroundAudioActive) {
                         exoPlayer.pause()
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {
                     if (isPlaying) exoPlayer.play()
                 }
-                Lifecycle.Event.ON_STOP -> exoPlayer.pause()
+                Lifecycle.Event.ON_STOP -> {
+                    if (!isBackgroundAudioActive) {
+                        exoPlayer.pause()
+                    }
+                }
                 else -> {}
             }
         }
@@ -885,6 +903,12 @@ fun LessonDetailPlayerScreen(
                     onDownloadClick = handleDownloadVideo,
                     resizeMode = resizeMode,
                     onToggleResizeMode = toggleResizeMode,
+                    isBackgroundAudioActive = isBackgroundAudioActive,
+                    onToggleBackgroundAudio = {
+                        isBackgroundAudioActive = !isBackgroundAudioActive
+                        val msg = if (isBackgroundAudioActive) "শোনার মোড চালু হয়েছে। ব্যাকগ্রাউন্ডে অডিও প্লে হবে।" else "শোনার মোড বন্ধ করা হয়েছে।"
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    },
                     onPipClick = { enterPipMode() },
                     onBack = { toggleFullscreen() }
                 )
@@ -1069,6 +1093,12 @@ fun LessonDetailPlayerScreen(
                                 onDownloadClick = handleDownloadVideo,
                                 resizeMode = resizeMode,
                                 onToggleResizeMode = toggleResizeMode,
+                                isBackgroundAudioActive = isBackgroundAudioActive,
+                                onToggleBackgroundAudio = {
+                                    isBackgroundAudioActive = !isBackgroundAudioActive
+                                    val msg = if (isBackgroundAudioActive) "শোনার মোড চালু হয়েছে। ব্যাকগ্রাউন্ডে অডিও প্লে হবে।" else "শোনার মোড বন্ধ করা হয়েছে।"
+                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                },
                                 onPipClick = { enterPipMode() },
                                 onBack = {
                                     exoPlayer.stop()
@@ -1147,6 +1177,15 @@ fun LessonDetailPlayerScreen(
                         onRefreshLesson = onRefreshLesson
                     )
                 }
+
+                // Streaming Diagnostics & Link Finder Card (For both Live & Recorded classes to display active links)
+                LessonDiagnosticsCard(
+                    isLive = isLive,
+                    activeStreamUrl = activeStreamUrl,
+                    isSocketConnected = isSocketConnected,
+                    hmsRoomId = lesson?.live_class?.hms_room_id ?: hmsRoomId,
+                    onRefreshLesson = onRefreshLesson
+                )
 
                 // 2. Class Header & Info Section
                 LessonDetailHeader(lesson = lesson)
@@ -1242,6 +1281,167 @@ fun LessonDetailPlayerScreen(
             title = slide.displayTitle,
             onDismiss = { viewingSlideItem = null }
         )
+    }
+}
+
+/**
+ * Sleek and modern Material 3 diagnostics card that displays real-time streaming details and master HLS links.
+ */
+@Composable
+private fun LessonDiagnosticsCard(
+    isLive: Boolean,
+    activeStreamUrl: String,
+    isSocketConnected: Boolean,
+    hmsRoomId: String?,
+    onRefreshLesson: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isLive) Color(0xFFF0FDF4) else Color(0xFFF8FAFC)
+        ),
+        border = BorderStroke(1.dp, if (isLive) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isLive) Icons.Default.LiveTv else Icons.Default.Dns,
+                        contentDescription = null,
+                        tint = if (isLive) Color(0xFF16A34A) else Color(0xFF475569),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "স্ট্রিমিং ডায়াগনস্টিকস ও লিংক ফাইন্ডার",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isLive) Color(0xFF15803D) else Color(0xFF1E293B)
+                    )
+                }
+                
+                TextButton(
+                    onClick = { isExpanded = !isExpanded },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = if (isExpanded) "লুকান" else "বিস্তারিত দেখুন",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2563EB)
+                    )
+                }
+            }
+
+            // Quick Status
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("সংযুক্তি স্ট্যাটাস: ", fontSize = 11.sp, color = Color.Gray)
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (isLive && isSocketConnected) Color(0xFF22C55E) else if (isLive) Color(0xFFEF4444) else Color(0xFF64748B))
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isLive && isSocketConnected) "সার্ভার সংযুক্ত" else if (isLive) "সংযোগ বিচ্ছিন্ন" else "রেকর্ডকৃত মোড",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isLive && isSocketConnected) Color(0xFF16A34A) else if (isLive) Color(0xFFDC2626) else Color(0xFF475569)
+                    )
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Room ID
+                if (!hmsRoomId.isNullOrBlank()) {
+                    Row(modifier = Modifier.padding(vertical = 2.dp)) {
+                        Text("রুম আইডি: ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text(hmsRoomId, fontSize = 11.sp, color = Color.DarkGray)
+                    }
+                }
+
+                // Extracted URL Display
+                Text(
+                    text = "সনাক্তকৃত সিডিএন স্ট্রিমিং লিঙ্ক (HLS):",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = activeStreamUrl.ifBlank { "লিঙ্ক খোঁজা হচ্ছে বা ব্রডকাস্ট এখনও শুরু হয়নি..." },
+                        fontSize = 10.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = if (activeStreamUrl.isNotBlank()) Color.Black else Color.Gray,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (activeStreamUrl.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(activeStreamUrl))
+                                Toast.makeText(context, "লিঙ্ক ক্লিপবোর্ডে কপি করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("লিঙ্ক কপি করুন", fontSize = 10.sp, color = Color.White)
+                        }
+
+                        if (onRefreshLesson != null) {
+                            OutlinedButton(
+                                onClick = onRefreshLesson,
+                                border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("পুনরায় লোড করুন", fontSize = 10.sp, color = Color(0xFF2563EB))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
