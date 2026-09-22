@@ -719,6 +719,7 @@ fun LessonDetailPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
+            // Background WebView for scraping/discovering live stream (always hidden)
             if (isLive && effectiveMeetingUrl.isNotBlank()) {
                 LiveMeetingWebView(
                     meetingUrl = effectiveMeetingUrl,
@@ -728,10 +729,30 @@ fun LessonDetailPlayerScreen(
                         activeStreamUrl = discoveredM3u8
                         livePlayerMode = "STREAM"
                     },
-                    modifier = if (activeStreamUrl.isNotBlank() && livePlayerMode == "STREAM") Modifier.size(1.dp) else Modifier.fillMaxSize()
+                    modifier = Modifier.size(1.dp)
                 )
             }
-            if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
+            if (activeStreamUrl.isBlank() && isLive) {
+                // Beautiful Native Loading State
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "লাইভ স্ট্রিম সংযোগ করা হচ্ছে...",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            } else if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -855,6 +876,7 @@ fun LessonDetailPlayerScreen(
                         .aspectRatio(16f / 9f)
                         .background(Color.Black)
                 ) {
+                    // Background WebView for scraping/discovering live stream (always hidden)
                     if (isLive && effectiveMeetingUrl.isNotBlank()) {
                         LiveMeetingWebView(
                             meetingUrl = effectiveMeetingUrl,
@@ -864,7 +886,7 @@ fun LessonDetailPlayerScreen(
                                 activeStreamUrl = discoveredM3u8
                                 livePlayerMode = "STREAM"
                             },
-                            modifier = if (activeStreamUrl.isNotBlank() && livePlayerMode == "STREAM") Modifier.size(1.dp) else Modifier.fillMaxSize()
+                            modifier = Modifier.size(1.dp)
                         )
                     }
                     if (livePlayerMode == "WEB_PLAYER") {
@@ -883,6 +905,26 @@ fun LessonDetailPlayerScreen(
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
+                        }
+                    } else if (activeStreamUrl.isBlank() && isLive) {
+                        // Beautiful Native Loading State
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "লাইভ স্ট্রিম সংযোগ করা হচ্ছে...",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     } else if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
                         AndroidView(
