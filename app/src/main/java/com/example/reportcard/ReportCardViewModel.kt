@@ -33,6 +33,7 @@ data class ReportCardUiState(
     val isPaginationLoading: Boolean = false,
     val hasMoreLeaderboardPages: Boolean = true,
     val searchQuery: String = "",
+    val currentUserFullProfile: UserProfile? = null,
     val selectedStudentFullProfile: UserProfile? = null,
     val isFetchingStudentProfile: Boolean = false,
     val profileFetchError: String? = null,
@@ -40,13 +41,17 @@ data class ReportCardUiState(
     val errorMessage: String? = null,
     val userName: String = "",
     val userAvatar: String? = null,
-    val userSchool: String? = null
+    val userSchool: String? = null,
+    val userPhone: String? = null
 )
 
 class ReportCardViewModel(
     private val apiService: ShikhoApiService,
     private val sessionManager: SessionManager
 ) : ViewModel() {
+
+    val currentUserId: String
+        get() = sessionManager.getUserId() ?: ""
 
     private val _uiState = MutableStateFlow(ReportCardUiState())
     val uiState: StateFlow<ReportCardUiState> = _uiState.asStateFlow()
@@ -59,15 +64,18 @@ class ReportCardViewModel(
         val name = sessionManager.getUserFullName() ?: "শিক্ষার্থী"
         val avatar = sessionManager.getUserAvatar()
         val school = sessionManager.getUserSchoolName() ?: ""
+        val phone = sessionManager.getUserPhone()
 
         _uiState.value = _uiState.value.copy(
             userName = name,
             userAvatar = avatar,
             userSchool = school,
+            userPhone = phone,
             programTitle = programTitle ?: _uiState.value.programTitle
         )
 
         loadInitialData(programId, initialPhaseId)
+        fetchCurrentUserFullProfile()
     }
 
     fun switchTab(tab: ReportTab) {
@@ -76,6 +84,9 @@ class ReportCardViewModel(
             val progId = _uiState.value.programId
             val phaseId = _uiState.value.selectedPhase?.id ?: ""
             val subjectId = _uiState.value.selectedLeaderboardSubject?.code ?: "ALL"
+            if (_uiState.value.currentUserFullProfile == null) {
+                fetchCurrentUserFullProfile()
+            }
             if (_uiState.value.leaderboardData == null) {
                 loadLeaderboard(progId, phaseId, subjectId)
             }
@@ -414,27 +425,10 @@ class ReportCardViewModel(
         _uiState.update { it.copy(searchQuery = query) }
     }
 
-    fun fetchStudentFullProfile(userId: String) {
-        if (userId.isBlank()) {
-            _uiState.update {
-                it.copy(
-                    isFetchingStudentProfile = false,
-                    selectedStudentFullProfile = null,
-                    profileFetchError = null
-                )
-            }
-            return
-        }
+    fun fetchCurrentUserFullProfile() {
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isFetchingStudentProfile = true,
-                    selectedStudentFullProfile = null,
-                    profileFetchError = null
-                )
-            }
             try {
-                // Exact GraphQL query used by EditProfileViewModel that works with the Shikho server
+                val userId = sessionManager.getUserId() ?: ""
                 val profileQuery = GraphQlQuery(
                     query = """
                         query GetProfile(${'$'}user_id: String, ${'$'}type: String!) {
@@ -485,21 +479,174 @@ class ReportCardViewModel(
 
                 val res = apiService.getProfile(profileQuery)
                 val profile = res.data?.profile
+                if (profile != null) {
+                    val first = profile.first_name?.trim() ?: ""
+                    val last = profile.last_name?.trim() ?: ""
+                    val fullName = "$first $last".trim()
 
-                _uiState.update {
-                    it.copy(
-                        selectedStudentFullProfile = profile,
-                        isFetchingStudentProfile = false,
-                        profileFetchError = if (profile == null) "তথ্য পাওয়া যায়নি" else null
+                    _uiState.update { current ->
+                        current.copy(
+                            currentUserFullProfile = profile,
+                            userName = fullName.ifBlank { current.userName },
+                            userAvatar = profile.avatar?.takeIf { it.isNotBlank() && it != "null" } ?: current.userAvatar,
+                            userSchool = profile.school?.name ?: current.userSchool,
+                            userPhone = profile.user?.phone ?: current.userPhone
+                        )
+                    }
+
+                    sessionManager.saveUserProfile(
+                        firstName = first,
+                        lastName = last,
+                        avatar = profile.avatar,
+                        schoolName = profile.school?.name,
+                        classDisplay = profile.`class`?.display ?: profile.`class`?.code,
+                        phone = profile.user?.phone
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        selectedStudentFullProfile = null,
-                        isFetchingStudentProfile = false,
-                        profileFetchError = e.localizedMessage
+                android.util.Log.e("ReportCardVM", "Failed to fetch current user profile: ${e.message}")
+            }
+        }
+    }
+
+    fun fetchStudentFullProfile(userId: String, isCurrentUser: Boolean = false) {
+        val myUserId = sessionManager.getUserId() ?: ""
+        val isSelf = isCurrentUser || userId.isBlank() || (myUserId.isNotBlank() && userId == myUserId)
+        val targetUserId = if (isSelf) myUserId else userId
+
+        viewModelScope.launch {
+            val cachedProfile = if (isSelf) _uiState.value.currentUserFullProfile else null
+            _uiState.update {
+                it.copy(
+                    isFetchingStudentProfile = cachedProfile == null,
+                    selectedStudentFullProfile = cachedProfile,
+                    profileFetchError = null
+                )
+            }
+
+            try {
+                // Exact comprehensive GraphQL query used by EditProfileViewModel that works with the Shikho server
+                val vars = mutableMapOf<String, Any>("type" to "student")
+                if (targetUserId.isNotBlank()) {
+                    vars["user_id"] = targetUserId
+                }
+
+                val profileQuery = GraphQlQuery(
+                    query = """
+                        query GetProfile(${'$'}user_id: String, ${'$'}type: String!) {
+                          profile(user_id: ${'$'}user_id, type: ${'$'}type) {
+                            first_name
+                            last_name
+                            avatar
+                            gender
+                            dob
+                            shift
+                            guardian_name
+                            guardian_mobile
+                            ssc_board_name
+                            hsc_board_name
+                            board_roll_number
+                            hsc_board_roll_number
+                            board_reg_number
+                            study_group
+                            passing_year
+                            class {
+                              code
+                              display
+                            }
+                            school {
+                              id
+                              name
+                              address {
+                                district {
+                                  code
+                                  display
+                                }
+                                division {
+                                  code
+                                  display
+                                }
+                              }
+                            }
+                            user {
+                              email
+                              phone
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    operationName = "GetProfile",
+                    variables = vars
+                )
+
+                val res = apiService.getProfile(profileQuery)
+                val profile = res.data?.profile
+
+                if (profile != null) {
+                    _uiState.update {
+                        it.copy(
+                            selectedStudentFullProfile = profile,
+                            currentUserFullProfile = if (isSelf) profile else it.currentUserFullProfile,
+                            isFetchingStudentProfile = false,
+                            profileFetchError = null
+                        )
+                    }
+                } else {
+                    // Try fallback query with standard fields
+                    try {
+                        val fallbackQuery = GraphQlQuery(
+                            operationName = "GetProfile",
+                            query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar gender dob study_group passing_year class { code display } school { id name } user { phone email } } }",
+                            variables = vars
+                        )
+                        val fbRes = apiService.getProfile(fallbackQuery)
+                        val fbProfile = fbRes.data?.profile
+                        _uiState.update {
+                            it.copy(
+                                selectedStudentFullProfile = fbProfile ?: it.selectedStudentFullProfile,
+                                currentUserFullProfile = if (isSelf && fbProfile != null) fbProfile else it.currentUserFullProfile,
+                                isFetchingStudentProfile = false,
+                                profileFetchError = if (fbProfile == null && it.selectedStudentFullProfile == null) "তথ্য পাওয়া যায়নি" else null
+                            )
+                        }
+                    } catch (_: Exception) {
+                        _uiState.update {
+                            it.copy(
+                                isFetchingStudentProfile = false,
+                                profileFetchError = if (it.selectedStudentFullProfile == null) "তথ্য পাওয়া যায়নি" else null
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // In case of detailed query failure, try standard query
+                try {
+                    val vars = mutableMapOf<String, Any>("type" to "student")
+                    if (targetUserId.isNotBlank()) {
+                        vars["user_id"] = targetUserId
+                    }
+                    val fallbackQuery = GraphQlQuery(
+                        operationName = "GetProfile",
+                        query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar gender dob study_group passing_year class { code display } school { id name } user { phone email } } }",
+                        variables = vars
                     )
+                    val fbRes = apiService.getProfile(fallbackQuery)
+                    val fbProfile = fbRes.data?.profile
+                    _uiState.update {
+                        it.copy(
+                            selectedStudentFullProfile = fbProfile ?: it.selectedStudentFullProfile,
+                            currentUserFullProfile = if (isSelf && fbProfile != null) fbProfile else it.currentUserFullProfile,
+                            isFetchingStudentProfile = false,
+                            profileFetchError = if (fbProfile == null && it.selectedStudentFullProfile == null) e.localizedMessage else null
+                        )
+                    }
+                } catch (e2: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isFetchingStudentProfile = false,
+                            profileFetchError = if (it.selectedStudentFullProfile == null) (e.localizedMessage ?: e2.localizedMessage) else null
+                        )
+                    }
                 }
             }
         }

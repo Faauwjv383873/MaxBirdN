@@ -143,6 +143,24 @@ fun ReportCardScreen(
                     userScore = uiState.leaderboardData?.user_marks,
                     userName = uiState.userName,
                     userAvatar = uiState.userAvatar,
+                    onClick = {
+                        val myUserId = viewModel.currentUserId
+                        val myUserItem = LeaderboardUserItem(
+                            user_id = myUserId,
+                            rank = uiState.leaderboardData?.user_rank,
+                            score = uiState.leaderboardData?.user_marks,
+                            user = LeaderboardUserInfo(
+                                id = myUserId,
+                                user_id = myUserId,
+                                name = uiState.userName,
+                                avatar = uiState.userAvatar,
+                                school = uiState.userSchool,
+                                phone = uiState.userPhone
+                            )
+                        )
+                        selectedStudentForProfile = myUserItem
+                        viewModel.fetchStudentFullProfile(myUserId, isCurrentUser = true)
+                    },
                     onShare = {
                         val rank = uiState.leaderboardData?.user_rank ?: 0
                         val marks = uiState.leaderboardData?.user_marks ?: 0
@@ -337,7 +355,12 @@ fun ReportCardScreen(
                                         topUsers = filteredUsers.take(3),
                                         onUserClick = { userItem ->
                                             selectedStudentForProfile = userItem
-                                            viewModel.fetchStudentFullProfile(userItem.user?.id ?: "")
+                                            val effectiveId = userItem.effectiveUserId ?: ""
+                                            val myUserId = viewModel.currentUserId
+                                            val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
+                                                    (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
+                                            val targetId = if (isSelf) myUserId else effectiveId
+                                            viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
                                         }
                                     )
                                 }
@@ -361,7 +384,12 @@ fun ReportCardScreen(
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                                             onClick = {
                                                 selectedStudentForProfile = userItem
-                                                viewModel.fetchStudentFullProfile(userItem.user?.id ?: "")
+                                                val effectiveId = userItem.effectiveUserId ?: ""
+                                                val myUserId = viewModel.currentUserId
+                                                val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
+                                                        (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
+                                                val targetId = if (isSelf) myUserId else effectiveId
+                                                viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
                                             }
                                         )
                                     }
@@ -384,7 +412,12 @@ fun ReportCardScreen(
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                                         onClick = {
                                             selectedStudentForProfile = userItem
-                                            viewModel.fetchStudentFullProfile(userItem.user?.id ?: "")
+                                            val effectiveId = userItem.effectiveUserId ?: ""
+                                            val myUserId = viewModel.currentUserId
+                                            val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
+                                                    (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
+                                            val targetId = if (isSelf) myUserId else effectiveId
+                                            viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
                                         }
                                     )
                                 }
@@ -455,6 +488,15 @@ fun ReportCardScreen(
             userItem = userItem,
             fullProfile = uiState.selectedStudentFullProfile,
             isLoadingProfile = uiState.isFetchingStudentProfile,
+            errorMessage = uiState.profileFetchError,
+            onRetry = {
+                val effectiveId = userItem.effectiveUserId ?: ""
+                val myUserId = viewModel.currentUserId
+                val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
+                        (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
+                val targetId = if (isSelf) myUserId else effectiveId
+                viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
+            },
             onDismiss = {
                 selectedStudentForProfile = null
                 viewModel.clearSelectedStudentProfile()
@@ -1705,10 +1747,10 @@ fun PodiumColumn(
     modifier: Modifier = Modifier
 ) {
     val user = userItem.user
-    val score = userItem.score ?: 0
-    val avatarUrl = user?.avatar
-    val name = user?.name ?: "শিক্ষার্থী"
-    val school = user?.school ?: ""
+    val score = userItem.effectiveScore
+    val avatarUrl = user?.effectiveAvatar
+    val name = user?.effectiveName ?: "শিক্ষার্থী"
+    val school = user?.effectiveCollege ?: ""
 
     Column(
         modifier = modifier
@@ -1870,11 +1912,11 @@ fun LeaderboardUserRowItem(
     modifier: Modifier = Modifier
 ) {
     val rank = userItem.rank ?: 0
-    val score = userItem.score ?: 0
+    val score = userItem.effectiveScore
     val user = userItem.user
-    val name = user?.name ?: "শিক্ষার্থী"
-    val avatar = user?.avatar
-    val school = user?.school ?: ""
+    val name = user?.effectiveName ?: "শিক্ষার্থী"
+    val avatar = user?.effectiveAvatar
+    val school = user?.effectiveCollege ?: ""
 
     Surface(
         modifier = modifier
@@ -2433,6 +2475,8 @@ fun StudentProfileDetailDialog(
     userItem: LeaderboardUserItem,
     fullProfile: UserProfile?,
     isLoadingProfile: Boolean,
+    errorMessage: String? = null,
+    onRetry: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val user = userItem.user
@@ -2441,13 +2485,14 @@ fun StudentProfileDetailDialog(
         val fName = fullProfile?.first_name?.trim() ?: ""
         val lName = fullProfile?.last_name?.trim() ?: ""
         val combined = "$fName $lName".trim()
-        if (combined.isNotBlank()) combined else (user?.name?.trim()?.takeIf { it.isNotBlank() } ?: "শিক্ষার্থী")
+        if (combined.isNotBlank()) combined else (user?.effectiveName ?: "শিক্ষার্থী")
     }
 
-    val rawAvatar = fullProfile?.avatar?.takeIf { it.isNotBlank() && it != "null" } ?: user?.avatar
+    val rawAvatar = fullProfile?.avatar?.takeIf { it.isNotBlank() && it != "null" } ?: user?.effectiveAvatar
     val formattedAvatar = AvatarUtils.formatAvatarUrl(rawAvatar, name)
 
-    val phone = (fullProfile?.user?.phone ?: user?.phone)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val phone = (fullProfile?.user?.phone ?: user?.effectivePhone)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val email = fullProfile?.user?.email?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val gender = run {
         val raw = (fullProfile?.gender ?: user?.gender)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
@@ -2474,11 +2519,10 @@ fun StudentProfileDetailDialog(
     }
 
     val guardianName = fullProfile?.guardian_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
     val guardianPhone = fullProfile?.guardian_mobile?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val studyGroup = (fullProfile?.study_group ?: user?.group)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
+    val studyGroup = (fullProfile?.study_group ?: user?.effectiveGroup)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val passingYear = fullProfile?.passing_year?.trim()?.takeIf { it.isNotBlank() && it != "null" }
     val className = (fullProfile?.`class`?.display ?: fullProfile?.`class`?.code ?: user?.batch)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val shift = fullProfile?.shift?.trim()?.takeIf { it.isNotBlank() && it != "null" }?.let {
@@ -2490,23 +2534,18 @@ fun StudentProfileDetailDialog(
     }
 
     val district = (fullProfile?.school?.address?.district?.display ?: user?.district)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
-    val division = fullProfile?.school?.address?.division?.display?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
-    val college = (fullProfile?.school?.name ?: user?.college ?: user?.school)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val division = (fullProfile?.school?.address?.division?.display ?: user?.division)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val college = (fullProfile?.school?.name ?: user?.effectiveCollege)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val sscBoard = fullProfile?.ssc_board_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
     val hscBoard = fullProfile?.hsc_board_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val sscRoll = (fullProfile?.board_roll_number ?: user?.roll_no)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
+    val sscRoll = (fullProfile?.board_roll_number ?: user?.effectiveRoll)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
     val hscRoll = fullProfile?.hsc_board_roll_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-
     val regNo = fullProfile?.board_reg_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val rank = userItem.rank
-    val score = userItem.score
+    val score = userItem.effectiveScore
 
     val context = LocalContext.current
     var showFullScreenAvatar by remember { mutableStateOf(false) }
@@ -2600,6 +2639,32 @@ fun StudentProfileDetailDialog(
                             color = Color(0xFF1D4ED8),
                             fontWeight = FontWeight.Medium
                         )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            } else if (fullProfile == null && !errorMessage.isNullOrBlank()) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    color = Color(0xFFFFFBEB),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFDE68A))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "সম্পূর্ণ বিবরণ লোড করা যায়নি",
+                            fontSize = 12.sp,
+                            color = Color(0xFFB45309),
+                            fontWeight = FontWeight.Medium
+                        )
+                        TextButton(onClick = onRetry) {
+                            Text("পুনরায় চেষ্টা করুন", fontSize = 12.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -2792,6 +2857,15 @@ fun StudentProfileDetailDialog(
                         label = "জন্ম তারিখ",
                         value = dob
                     )
+                    if (!email.isNullOrBlank()) {
+                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                        ProfileInfoRow(
+                            icon = Icons.Default.Email,
+                            iconTint = Color(0xFF2563EB),
+                            label = "ইমেইল",
+                            value = email
+                        )
+                    }
                 }
 
                 // Section 2: 👪 অভিভাবকের তথ্য (Guardian Information)
@@ -2869,6 +2943,15 @@ fun StudentProfileDetailDialog(
                         label = "প্রতিষ্ঠান (স্কুল / কলেজ)",
                         value = college
                     )
+                    if (!passingYear.isNullOrBlank()) {
+                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                        ProfileInfoRow(
+                            icon = Icons.Default.CalendarToday,
+                            iconTint = Color(0xFF8B5CF6),
+                            label = "শিক্ষাবর্ষ / ব্যাচ",
+                            value = "এইচএসসি $passingYear"
+                        )
+                    }
                 }
 
                 // Section 4: 📋 বোর্ড পরীক্ষার তথ্য (Board Exam Information)

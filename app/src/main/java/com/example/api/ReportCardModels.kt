@@ -129,28 +129,95 @@ data class LeaderboardRankingResponse(
 
 @JsonClass(generateAdapter = true)
 data class LeaderboardUserItem(
+    val id: String? = null,
+    val _id: String? = null,
+    val user_id: String? = null,
+    val student_id: String? = null,
     val rank: Int? = null,
     val score: Int? = null,
+    val marks: Int? = null,
+    val total_marks: Int? = null,
     val user: LeaderboardUserInfo? = null
-)
+) {
+    val effectiveUserId: String?
+        get() = user_id?.takeIf { it.isNotBlank() }
+            ?: user?.effectiveId
+            ?: id?.takeIf { it.isNotBlank() }
+            ?: _id?.takeIf { it.isNotBlank() }
+            ?: student_id?.takeIf { it.isNotBlank() }
+
+    val effectiveScore: Int
+        get() = score ?: marks ?: 0
+}
 
 @JsonClass(generateAdapter = true)
 data class LeaderboardUserInfo(
     val id: String? = null,
+    val _id: String? = null,
+    val user_id: String? = null,
+    val student_id: String? = null,
     val name: String? = null,
+    val full_name: String? = null,
+    val first_name: String? = null,
+    val last_name: String? = null,
     val avatar: String? = null,
+    val photo: String? = null,
+    val profile_pic: String? = null,
+    val image: String? = null,
     val school: String? = null,
     val college: String? = null,
+    val institution: String? = null,
     val phone: String? = null,
+    val mobile: String? = null,
     val dob: String? = null,
     val gender: String? = null,
     val district: String? = null,
+    val division: String? = null,
     val group: String? = null,
+    val study_group: String? = null,
     val batch: String? = null,
-    val roll_no: String? = null
+    val passing_year: String? = null,
+    val roll_no: String? = null,
+    val roll: String? = null
 ) {
+    val effectiveId: String?
+        get() = id?.takeIf { it.isNotBlank() }
+            ?: user_id?.takeIf { it.isNotBlank() }
+            ?: _id?.takeIf { it.isNotBlank() }
+            ?: student_id?.takeIf { it.isNotBlank() }
+
+    val effectiveName: String
+        get() = name?.takeIf { it.isNotBlank() }
+            ?: full_name?.takeIf { it.isNotBlank() }
+            ?: run {
+                val f = first_name?.trim() ?: ""
+                val l = last_name?.trim() ?: ""
+                "$f $l".trim()
+            }.takeIf { it.isNotBlank() }
+            ?: "শিক্ষার্থী"
+
+    val effectiveAvatar: String?
+        get() = avatar?.takeIf { it.isNotBlank() }
+            ?: photo?.takeIf { it.isNotBlank() }
+            ?: profile_pic?.takeIf { it.isNotBlank() }
+            ?: image?.takeIf { it.isNotBlank() }
+
     val effectiveCollege: String?
-        get() = college?.takeIf { it.isNotBlank() } ?: school?.takeIf { it.isNotBlank() }
+        get() = college?.takeIf { it.isNotBlank() }
+            ?: school?.takeIf { it.isNotBlank() }
+            ?: institution?.takeIf { it.isNotBlank() }
+
+    val effectivePhone: String?
+        get() = phone?.takeIf { it.isNotBlank() }
+            ?: mobile?.takeIf { it.isNotBlank() }
+
+    val effectiveGroup: String?
+        get() = group?.takeIf { it.isNotBlank() }
+            ?: study_group?.takeIf { it.isNotBlank() }
+
+    val effectiveRoll: String?
+        get() = roll_no?.takeIf { it.isNotBlank() }
+            ?: roll?.takeIf { it.isNotBlank() }
 }
 
 @JsonClass(generateAdapter = true)
