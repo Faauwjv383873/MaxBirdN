@@ -484,16 +484,17 @@ fun ReportCardScreen(
     }
 
     selectedStudentForProfile?.let { userItem ->
+        val effectiveId = userItem.effectiveUserId ?: ""
+        val myUserId = viewModel.currentUserId
+        val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
+                (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
         StudentProfileDetailDialog(
             userItem = userItem,
             fullProfile = uiState.selectedStudentFullProfile,
+            isSelf = isSelf,
             isLoadingProfile = uiState.isFetchingStudentProfile,
             errorMessage = uiState.profileFetchError,
             onRetry = {
-                val effectiveId = userItem.effectiveUserId ?: ""
-                val myUserId = viewModel.currentUserId
-                val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
-                        (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
                 val targetId = if (isSelf) myUserId else effectiveId
                 viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf, studentItem = userItem)
             },
@@ -2474,6 +2475,7 @@ fun SocialContactSection(
 fun StudentProfileDetailDialog(
     userItem: LeaderboardUserItem,
     fullProfile: UserProfile?,
+    isSelf: Boolean = false,
     isLoadingProfile: Boolean,
     errorMessage: String? = null,
     onRetry: () -> Unit = {},
@@ -2525,7 +2527,7 @@ fun StudentProfileDetailDialog(
     val passingYear = (fullProfile?.passing_year ?: userItem.passing_year ?: userItem.user?.passing_year)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
     val className = (fullProfile?.`class`?.display ?: fullProfile?.`class`?.code ?: userItem.batch ?: userItem.user?.batch)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val shift = (fullProfile?.shift ?: "ডে").trim().let {
+    val shift = fullProfile?.shift?.trim()?.takeIf { it.isNotBlank() && it != "null" }?.let {
         when (it.lowercase()) {
             "morning" -> "মর্নিং"
             "day" -> "ডে"
@@ -2541,8 +2543,8 @@ fun StudentProfileDetailDialog(
     val hscBoard = (fullProfile?.hsc_board_name ?: division?.let { "$it শিক্ষা বোর্ড" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val sscRoll = (fullProfile?.board_roll_number ?: userItem.effectiveRoll)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val hscRoll = (fullProfile?.hsc_board_roll_number ?: sscRoll?.let { "${it.toIntOrNull()?.plus(100) ?: it}" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val regNo = (fullProfile?.board_reg_number ?: sscRoll?.let { "1910$it" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val hscRoll = fullProfile?.hsc_board_roll_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val regNo = fullProfile?.board_reg_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val rank = userItem.rank
     val score = userItem.effectiveScore
@@ -2831,6 +2833,7 @@ fun StudentProfileDetailDialog(
                         iconTint = Color(0xFF16A34A),
                         label = "ফোন নম্বর",
                         value = phone,
+                        missingText = "তথ্য দেয়া নেই",
                         isClickable = !phone.isNullOrBlank(),
                         onClick = {
                             if (!phone.isNullOrBlank()) {
@@ -2855,7 +2858,8 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.Cake,
                         iconTint = Color(0xFFEC4899),
                         label = "জন্ম তারিখ",
-                        value = dob
+                        value = dob,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                     if (!email.isNullOrBlank()) {
                         HorizontalDivider(color = Color(0xFFF1F5F9))
@@ -2878,7 +2882,8 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.Person,
                         iconTint = Color(0xFF7C3AED),
                         label = "অভিভাবকের নাম",
-                        value = guardianName
+                        value = guardianName,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
@@ -2886,6 +2891,7 @@ fun StudentProfileDetailDialog(
                         iconTint = Color(0xFF16A34A),
                         label = "অভিভাবকের মোবাইল নম্বর",
                         value = guardianPhone,
+                        missingText = "তথ্য দেয়া নেই",
                         isClickable = !guardianPhone.isNullOrBlank(),
                         onClick = {
                             if (!guardianPhone.isNullOrBlank()) {
@@ -2964,35 +2970,40 @@ fun StudentProfileDetailDialog(
                         icon = Icons.Default.AccountBalance,
                         iconTint = Color(0xFF059669),
                         label = "এসএসসি বোর্ড",
-                        value = sscBoard
+                        value = sscBoard,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Numbers,
                         iconTint = Color(0xFF6366F1),
                         label = "এসএসসি রোল নম্বর",
-                        value = sscRoll
+                        value = sscRoll,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Pin,
                         iconTint = Color(0xFF8B5CF6),
                         label = "বোর্ড রেজিস্ট্রেশন নম্বর",
-                        value = regNo
+                        value = regNo,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.AccountBalance,
                         iconTint = Color(0xFF0284C7),
                         label = "এইচএসসি বোর্ড",
-                        value = hscBoard
+                        value = hscBoard,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                     ProfileInfoRow(
                         icon = Icons.Default.Numbers,
                         iconTint = Color(0xFFD97706),
                         label = "এইচএসসি রোল নম্বর",
-                        value = hscRoll
+                        value = hscRoll,
+                        missingText = "তথ্য দেয়া নেই"
                     )
                 }
             }
@@ -3106,10 +3117,11 @@ private fun ProfileInfoRow(
     iconTint: Color,
     label: String,
     value: String?,
+    missingText: String = "তথ্য দেয়া নেই",
     isClickable: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val displayValue = if (!value.isNullOrBlank() && value != "null") value else "তথ্য দেয়া নেই"
+    val displayValue = if (!value.isNullOrBlank() && value != "null") value else missingText
     val isMissing = value.isNullOrBlank() || value == "null"
 
     Row(

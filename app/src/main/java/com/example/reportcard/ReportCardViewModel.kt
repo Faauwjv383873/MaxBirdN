@@ -712,49 +712,16 @@ class ReportCardViewModel(
         val institutionName = studentItem?.effectiveCollege
             ?: studentItem?.college
             ?: studentItem?.school
-            ?: "নটর ডেম কলেজ, ঢাকা"
+            ?: studentItem?.institution
 
         val userDistrict = studentItem?.district ?: studentItem?.user?.district
         val userDivision = studentItem?.division ?: studentItem?.user?.division
 
-        val inferredDivision = when {
-            !userDivision.isNullOrBlank() && userDivision != "null" -> userDivision
-            institutionName.contains("চট্টগ্রাম", ignoreCase = true) || institutionName.contains("Chittagong", ignoreCase = true) -> "চট্টগ্রাম"
-            institutionName.contains("রাজশাহী", ignoreCase = true) || institutionName.contains("Rajshahi", ignoreCase = true) -> "রাজশাহী"
-            institutionName.contains("সিলেট", ignoreCase = true) || institutionName.contains("Sylhet", ignoreCase = true) -> "সিলেট"
-            institutionName.contains("বরিশাল", ignoreCase = true) || institutionName.contains("Barishal", ignoreCase = true) -> "বরিশাল"
-            institutionName.contains("রংপুর", ignoreCase = true) || institutionName.contains("দিনাজপুর", ignoreCase = true) || institutionName.contains("Rangpur", ignoreCase = true) -> "রংপুর"
-            institutionName.contains("খুলনা", ignoreCase = true) || institutionName.contains("যশোর", ignoreCase = true) || institutionName.contains("Khulna", ignoreCase = true) -> "খুলনা"
-            institutionName.contains("ময়মনসিংহ", ignoreCase = true) || institutionName.contains("Mymensingh", ignoreCase = true) -> "ময়মনসিংহ"
-            institutionName.contains("কুমিল্লা", ignoreCase = true) || institutionName.contains("Comilla", ignoreCase = true) -> "কুমিল্লা"
-            else -> "ঢাকা"
-        }
+        val inferredDivision = userDivision?.takeIf { it.isNotBlank() && it != "null" }
 
-        val inferredDistrict = when {
-            !userDistrict.isNullOrBlank() && userDistrict != "null" -> userDistrict
-            inferredDivision == "চট্টগ্রাম" && institutionName.contains("কক্সবাজার", ignoreCase = true) -> "কক্সবাজার"
-            inferredDivision == "চট্টগ্রাম" && institutionName.contains("কুমিল্লা", ignoreCase = true) -> "কুমিল্লা"
-            inferredDivision == "চট্টগ্রাম" -> "চট্টগ্রাম"
-            inferredDivision == "রাজশাহী" && institutionName.contains("বগুড়া", ignoreCase = true) -> "বগুড়া"
-            inferredDivision == "রাজশাহী" -> "রাজশাহী"
-            inferredDivision == "সিলেট" -> "সিলেট"
-            inferredDivision == "বরিশাল" -> "বরিশাল"
-            inferredDivision == "রংপুর" -> "রংপুর"
-            inferredDivision == "খুলনা" -> "খুলনা"
-            inferredDivision == "ময়মনসিংহ" -> "ময়মনসিংহ"
-            else -> "ঢাকা"
-        }
+        val inferredDistrict = userDistrict?.takeIf { it.isNotBlank() && it != "null" }
 
-        val boardName = when (inferredDivision) {
-            "চট্টগ্রাম" -> "চট্টগ্রাম শিক্ষা বোর্ড"
-            "রাজশাহী" -> "রাজশাহী শিক্ষা বোর্ড"
-            "সিলেট" -> "সিলেট শিক্ষা বোর্ড"
-            "বরিশাল" -> "বরিশাল শিক্ষা বোর্ড"
-            "রংপুর" -> "দিনাজপুর শিক্ষা বোর্ড"
-            "খুলনা" -> "যশোর শিক্ষা বোর্ড"
-            "ময়মনসিংহ" -> "ময়মনসিংহ শিক্ষা বোর্ড"
-            else -> "ঢাকা শিক্ষা বোর্ড"
-        }
+        val boardName = inferredDivision?.let { "$it শিক্ষা বোর্ড" }
 
         val studyGroup = studentItem?.group
             ?: studentItem?.study_group
@@ -772,76 +739,50 @@ class ReportCardViewModel(
             ?: batchDisplay.filter { it.isDigit() }.takeIf { it.isNotBlank() }
             ?: "2027"
 
-        val isFemale = rawName.lowercase().let { n ->
-            n.contains("afrin") || n.contains("nusrat") || n.contains("jannat") ||
-            n.contains("fatima") || n.contains("sultana") || n.contains("akter") ||
-            n.contains("khatun") || n.contains("maliha") || n.contains("samia") ||
-            n.contains("farzana") || n.contains("sadia") || n.contains("tahmina") ||
-            n.contains("tasnim") || n.contains("mim") || n.contains("tumpa") ||
-            n.contains("নুসরাত") || n.contains("জান্নাত") || n.contains("ফাতিমা") ||
-            n.contains("সুলতানা") || n.contains("আক্তার") || n.contains("খাতুন") ||
-            n.contains("মালিহা") || n.contains("সামিয়া") || n.contains("সাদিয়া") ||
-            n.contains("ফারজানা") || n.contains("তাসনিম") || n.contains("মীম")
-        }
-        val gender = studentItem?.gender ?: studentItem?.user?.gender ?: if (isFemale) "মহিলা" else "পুরুষ"
+        val gender = studentItem?.gender ?: studentItem?.user?.gender
+        val dob = studentItem?.dob ?: studentItem?.user?.dob
 
-        val hash = kotlin.math.abs((rawName + (studentItem?.rank ?: 1)).hashCode())
-        val birthYear = (passingYear.toIntOrNull() ?: 2027) - 18
-        val birthMonth = (hash % 12) + 1
-        val birthDay = (hash % 27) + 1
-        val dob = String.format("%04d-%02d-%02dT00:00:00", birthYear, birthMonth, birthDay)
+        val studentPhone = studentItem?.effectivePhone
+        val userInfo = if (!studentPhone.isNullOrBlank()) {
+            UserInfo(phone = studentPhone, email = null)
+        } else null
 
-        val rollSeed = (hash % 900000) + 100000
-        val phonePrefixes = listOf("017", "018", "019", "013", "016", "015")
-        val phonePrefix = phonePrefixes[hash % phonePrefixes.size]
-        val studentPhone = studentItem?.effectivePhone ?: "$phonePrefix${(hash % 90000000) + 10000000}"
-        val guardianMobile = "$phonePrefix${((hash * 31) % 90000000) + 10000000}"
+        val addressInfo = if (!inferredDivision.isNullOrBlank() || !inferredDistrict.isNullOrBlank()) {
+            SchoolAddressInfo(
+                division = inferredDivision?.let { DivisionDistrictInfo(display = it) },
+                district = inferredDistrict?.let { DivisionDistrictInfo(display = it) }
+            )
+        } else null
 
-        val guardianName = if (isFemale) {
-            "মোঃ " + (nameParts.firstOrNull()?.replace("মোসাঃ", "")?.replace("মোসাম্মৎ", "") ?: "আব্দুল") + " হোসেন"
-        } else {
-            "মোঃ " + (if (nameParts.size > 1) nameParts[1] else "রফিকুল") + " ইসলাম"
-        }
-
-        val sscRoll = studentItem?.effectiveRoll ?: "$rollSeed"
-        val hscRoll = "${rollSeed + 100}"
-        val boardRegNumber = "1910${(hash % 900000) + 100000}"
-
-        val cleanNameSlug = rawName.lowercase().replace(Regex("[^a-z0-9]"), "").take(10)
-        val email = if (cleanNameSlug.isNotBlank()) "$cleanNameSlug${hash % 999}@gmail.com" else "student${rollSeed}@gmail.com"
+        val schoolInfo = if (!institutionName.isNullOrBlank() || addressInfo != null) {
+            SchoolInfo(
+                id = null,
+                name = institutionName,
+                address = addressInfo
+            )
+        } else null
 
         return UserProfile(
-            id = targetUserId.takeIf { it.isNotBlank() } ?: "$rollSeed",
+            id = targetUserId.takeIf { it.isNotBlank() } ?: studentItem?.effectiveUserId,
             first_name = firstName,
             last_name = lastName,
             avatar = avatar,
             gender = gender,
             dob = dob,
-            shift = "ডে",
-            guardian_name = guardianName,
-            guardian_mobile = guardianMobile,
+            shift = null,
+            guardian_name = null,
+            guardian_mobile = null,
             ssc_board_name = boardName,
             hsc_board_name = boardName,
-            board_roll_number = sscRoll,
-            hsc_board_roll_number = hscRoll,
-            board_reg_number = boardRegNumber,
+            board_roll_number = studentItem?.effectiveRoll,
+            hsc_board_roll_number = null,
+            board_reg_number = null,
             study_group = studyGroup,
-            `class` = ClassInfo(
-                code = sessionManager.getUserClassName() ?: "C11",
-                display = batchDisplay
-            ),
-            school = SchoolInfo(
-                id = "${(hash % 9000) + 1000}",
-                name = institutionName,
-                address = SchoolAddressInfo(
-                    division = DivisionDistrictInfo(display = inferredDivision),
-                    district = DivisionDistrictInfo(display = inferredDistrict)
-                )
-            ),
-            user = UserInfo(
-                phone = studentPhone,
-                email = email
-            ),
+            `class` = if (!batchDisplay.isNullOrBlank()) {
+                ClassInfo(code = null, display = batchDisplay)
+            } else null,
+            school = schoolInfo,
+            user = userInfo,
             passing_year = passingYear
         )
     }
