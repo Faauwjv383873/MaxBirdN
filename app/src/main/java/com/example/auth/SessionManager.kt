@@ -73,11 +73,18 @@ class SessionManager(context: Context) {
     fun getAccessToken(): String? = sharedPreferences.getString("access_token", null)
     fun getUserId(): String? = sharedPreferences.getString("user_id", null)
 
+    fun setFcmToken(token: String) {
+        sharedPreferences.edit().putString("fcm_token", token).apply()
+    }
+
+    fun getFcmToken(): String? = sharedPreferences.getString("fcm_token", null)
+
     fun saveActiveProgram(
         programId: String,
         titleBn: String?,
         batchId: String? = null,
-        classCode: String? = null
+        classCode: String? = null,
+        phaseId: String? = null
     ) {
         val editor = sharedPreferences.edit()
             .putString("active_program_id", programId)
@@ -88,6 +95,9 @@ class SessionManager(context: Context) {
         if (!classCode.isNullOrBlank()) {
             editor.putString("active_program_class_code", classCode)
         }
+        if (!phaseId.isNullOrBlank()) {
+            editor.putString("active_program_phase_id", phaseId)
+        }
         editor.apply()
     }
 
@@ -95,6 +105,7 @@ class SessionManager(context: Context) {
     fun getActiveProgramTitleBn(): String? = sharedPreferences.getString("active_program_title_bn", null)
     fun getActiveProgramBatchId(): String? = sharedPreferences.getString("active_program_batch_id", null)
     fun getActiveProgramClassCode(): String? = sharedPreferences.getString("active_program_class_code", null)
+    fun getActiveProgramPhaseId(): String? = sharedPreferences.getString("active_program_phase_id", null)
 
     fun clearActiveProgram() {
         sharedPreferences.edit()
@@ -102,6 +113,7 @@ class SessionManager(context: Context) {
             .remove("active_program_title_bn")
             .remove("active_program_batch_id")
             .remove("active_program_class_code")
+            .remove("active_program_phase_id")
             .apply()
     }
 
@@ -207,13 +219,17 @@ class SessionManager(context: Context) {
         if (lessonId.isBlank()) return
         val current = sharedPreferences.getStringSet("completed_lessons", emptySet())?.toMutableSet() ?: mutableSetOf()
         current.add(lessonId)
-        sharedPreferences.edit().putStringSet("completed_lessons", current).apply()
+        sharedPreferences.edit().putStringSet("completed_lessons", HashSet(current)).apply()
     }
 
     fun isLessonCompleted(lessonId: String): Boolean {
         if (lessonId.isBlank()) return false
         val set = sharedPreferences.getStringSet("completed_lessons", emptySet()) ?: emptySet()
         return set.contains(lessonId)
+    }
+
+    fun getCompletedLessonIds(): Set<String> {
+        return sharedPreferences.getStringSet("completed_lessons", emptySet()) ?: emptySet()
     }
 
     fun getJustSignedUp(): Boolean {

@@ -127,6 +127,14 @@ fun LessonDetailPlayerScreen(
 
     val context = LocalContext.current
     val sessionManager = remember(context) { com.example.auth.SessionManager(context) }
+
+    LaunchedEffect(lesson?.id, lesson?.content_id) {
+        val lId = lesson?.id ?: ""
+        val cId = lesson?.content_id ?: ""
+        if (lId.isNotBlank()) sessionManager.markLessonCompleted(lId)
+        if (cId.isNotBlank()) sessionManager.markLessonCompleted(cId)
+        if (!lesson?.live_class?.id.isNullOrBlank()) sessionManager.markLessonCompleted(lesson!!.live_class!!.id)
+    }
     val coroutineScope = rememberCoroutineScope()
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current

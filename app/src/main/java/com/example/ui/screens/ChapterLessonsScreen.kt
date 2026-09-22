@@ -36,6 +36,7 @@ import com.example.course.CourseViewModel
 import com.example.utils.AcademicLocalizationUtils
 import com.example.utils.ClassTypeUtils
 import com.example.utils.EmptyQuestionsCard
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -80,6 +81,7 @@ fun ChapterLessonsScreen(
     subjectTitle: String = "",
     subjectColorHex: String? = null,
     viewModel: CourseViewModel,
+    completedItemRepository: com.example.database.CompletedItemRepository? = null,
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
@@ -89,6 +91,7 @@ fun ChapterLessonsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val sessionManager = remember { SessionManager(context) }
     var lessonCompletionCounter by remember { mutableIntStateOf(0) }
     val uiState by viewModel.uiState.collectAsState()
@@ -393,6 +396,8 @@ fun ChapterLessonsScreen(
                                 key = { it.id }
                             ) { lesson ->
                             val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
+                                    completedItemRepository?.isCompletedSync(lesson.id) == true ||
+                                    completedItemRepository?.isCompletedSync(lesson.content_id) == true ||
                                     lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
                                     lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
                             // Reference counter so recomposition occurs when marked completed
@@ -406,7 +411,18 @@ fun ChapterLessonsScreen(
                                 subjectColor = subjectColor,
                                 onClick = {
                                     sessionManager.markLessonCompleted(lesson.id)
+                                    if (!lesson.content_id.isNullOrBlank()) sessionManager.markLessonCompleted(lesson.content_id)
                                     lessonCompletionCounter++
+                                    coroutineScope.launch {
+                                        completedItemRepository?.markCompleted(
+                                            itemId = lesson.id,
+                                            itemType = if (lesson.isExam) "EXAM" else "LESSON",
+                                            title = lesson.title ?: "",
+                                            subjectId = lesson.subject_id ?: "",
+                                            programId = lesson.program_id ?: "",
+                                            chapterId = lesson.chapter_id ?: ""
+                                        )
+                                    }
                                     viewModel.selectLesson(lesson)
 
                                     val isExamLesson = lesson.isExam ||

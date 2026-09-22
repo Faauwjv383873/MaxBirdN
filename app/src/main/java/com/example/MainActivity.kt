@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermissionOnStartup()
+        fetchAndRegisterFcmToken()
 
         setContent {
             val sessionManager = remember { SessionManager(applicationContext) }
@@ -74,6 +75,24 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Throwable) {
             // Ignore runtime permission dispatch issues on startup
+        }
+    }
+
+    private fun fetchAndRegisterFcmToken() {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val token = task.result
+                    android.util.Log.d("MainActivity", "Fetched FCM Token: $token")
+                    val sessionManager = SessionManager(applicationContext)
+                    sessionManager.setFcmToken(token)
+                    com.example.notification.FcmTopicManager.subscribeAllTopics(sessionManager)
+                } else {
+                    android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
+                }
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "Error fetching FCM token: ${e.message}", e)
         }
     }
 

@@ -66,7 +66,8 @@ data class HomeUiState(
 
 class HomeViewModel(
     private val apiService: ShikhoApiService,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -84,6 +85,16 @@ class HomeViewModel(
 
     init {
         loadData()
+        completedItemRepository?.let { repo ->
+            viewModelScope.launch {
+                repo.completedIdsState.collect { completedSet ->
+                    if (_uiState.value.weeklyRoutine.isNotEmpty()) {
+                        val enriched = com.example.course.LessonCacheManager.enrichWithCompletedState(_uiState.value.weeklyRoutine, completedSet)
+                        _uiState.value = _uiState.value.copy(weeklyRoutine = enriched)
+                    }
+                }
+            }
+        }
     }
 
     fun setCourseSwitcherVisible(visible: Boolean) {
@@ -414,6 +425,7 @@ class HomeViewModel(
                     batchId = active.enrollment_details?.batch_id,
                     classCode = active.classes?.firstOrNull()
                 )
+                com.example.notification.FcmTopicManager.subscribeProgramTopics(sessionManager, active.id)
             }
 
             val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||
@@ -628,8 +640,10 @@ class HomeViewModel(
                 val routineResponse = apiService.getStudentLessons(routineQuery)
                 val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
                 com.example.course.LessonCacheManager.saveLessons(routineLessons, programId = programId)
+                val completedSet = completedItemRepository?.completedIdsState?.value ?: sessionManager.getCompletedLessonIds()
+                val enrichedRoutine = com.example.course.LessonCacheManager.enrichWithCompletedState(routineLessons, completedSet)
                 _uiState.value = _uiState.value.copy(
-                    weeklyRoutine = routineLessons.sortedBy { it.start_time ?: "" },
+                    weeklyRoutine = enrichedRoutine.sortedBy { it.start_time ?: "" },
                     isRoutineLoading = false
                 )
             } catch (e: Exception) {
@@ -641,12 +655,13 @@ class HomeViewModel(
 
 class HomeViewModelFactory(
     private val apiService: ShikhoApiService,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-            return HomeViewModel(apiService, sessionManager) as T
+            return HomeViewModel(apiService, sessionManager, completedItemRepository = completedItemRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

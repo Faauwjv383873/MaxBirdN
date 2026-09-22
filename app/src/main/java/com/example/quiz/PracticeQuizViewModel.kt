@@ -18,7 +18,8 @@ import kotlinx.coroutines.launch
 
 class PracticeQuizViewModel(
     private val repository: PracticeQuizRepository,
-    private val savedItemRepository: SavedItemRepository? = null
+    private val savedItemRepository: SavedItemRepository? = null,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModel() {
 
     companion object {
@@ -447,6 +448,14 @@ class PracticeQuizViewModel(
                     }
                 }
 
+                if (sessionId.isNotBlank()) {
+                    completedItemRepository?.markCompleted(
+                        itemId = sessionId,
+                        itemType = "QUIZ",
+                        title = _uiState.value.targetChapterName ?: "প্র্যাকটিস কুইজ"
+                    )
+                }
+
                 _uiState.update {
                     it.copy(
                         isResultLoading = false,
@@ -616,13 +625,14 @@ class PracticeQuizViewModel(
 class PracticeQuizViewModelFactory(
     private val apiService: ShikhoApiService,
     private val sessionManager: SessionManager,
-    private val savedItemRepository: SavedItemRepository? = null
+    private val savedItemRepository: SavedItemRepository? = null,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PracticeQuizViewModel::class.java)) {
             val repository = PracticeQuizRepository(apiService, sessionManager)
-            return PracticeQuizViewModel(repository, savedItemRepository) as T
+            return PracticeQuizViewModel(repository, savedItemRepository, completedItemRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

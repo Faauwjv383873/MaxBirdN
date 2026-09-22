@@ -15,7 +15,8 @@ import kotlinx.coroutines.flow.update
 class CourseViewModel(
     private val apiService: ShikhoApiService,
     private val sessionManager: SessionManager,
-    private val repository: CourseRepository = CourseRepository(apiService)
+    private val repository: CourseRepository = CourseRepository(apiService),
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModel() {
 
     // Caching for instant sub-second loading
@@ -47,6 +48,16 @@ class CourseViewModel(
     init {
         fetchEnrolledPrograms()
         loadSubjects()
+        completedItemRepository?.let { repo ->
+            viewModelScope.launch {
+                repo.completedIdsState.collect { completedSet ->
+                    if (_uiState.value.lessons.isNotEmpty()) {
+                        val enriched = LessonCacheManager.enrichWithCompletedState(_uiState.value.lessons, completedSet)
+                        _uiState.update { it.copy(lessons = enriched) }
+                    }
+                }
+            }
+        }
     }
 
     fun openCourse(program: EnrolledProgram) {
@@ -778,20 +789,25 @@ class CourseViewModel(
                     LessonCacheManager.saveLessons(matched, programId = progId)
                 }
 
+                val completedSet = completedItemRepository?.completedIdsState?.value ?: sessionManager.getCompletedLessonIds()
+                val enrichedMatched = LessonCacheManager.enrichWithCompletedState(matched, completedSet)
+
                 _uiState.update {
                     it.copy(
-                        lessons = matched,
+                        lessons = enrichedMatched,
                         isLessonsLoading = false,
-                        lessonsErrorMessage = if (matched.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস পাওয়া যায়নি" else null,
+                        lessonsErrorMessage = if (enrichedMatched.isEmpty()) "এই অধ্যায়ে কোনো ক্লাস পাওয়া যায়নি" else null,
                         lessonsDiagnosticInfo = null
                     )
                 }
             } catch (e: Exception) {
+                val completedSet = completedItemRepository?.completedIdsState?.value ?: sessionManager.getCompletedLessonIds()
+                val enrichedInitial = LessonCacheManager.enrichWithCompletedState(effectiveInitial, completedSet)
                 _uiState.update {
                     it.copy(
-                        lessons = effectiveInitial,
+                        lessons = enrichedInitial,
                         isLessonsLoading = false,
-                        lessonsErrorMessage = if (effectiveInitial.isEmpty()) "ক্লাস লোড করতে সমস্যা হয়েছে: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}" else null
+                        lessonsErrorMessage = if (enrichedInitial.isEmpty()) "ক্লাস লোড করতে সমস্যা হয়েছে: ${e.localizedMessage ?: "নেটওয়ার্ক সমস্যা"}" else null
                     )
                 }
             }
@@ -801,12 +817,13 @@ class CourseViewModel(
 
 class CourseViewModelFactory(
     private val apiService: ShikhoApiService,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CourseViewModel::class.java)) {
-            return CourseViewModel(apiService, sessionManager) as T
+            return CourseViewModel(apiService, sessionManager, completedItemRepository = completedItemRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

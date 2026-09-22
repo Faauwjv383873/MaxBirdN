@@ -43,7 +43,8 @@ data class ChapterExamUiState(
 
 class ChapterExamViewModel(
     private val apiService: ShikhoApiService,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChapterExamUiState())
@@ -321,6 +322,16 @@ class ChapterExamViewModel(
                 Log.e("ChapterExamVM", "Error submitting live exam: ${state.sessionId}", e)
             }
 
+            // Mark exam completed
+            if (state.lessonId.isNotBlank()) sessionManager.markLessonCompleted(state.lessonId)
+            if (state.sessionId.isNotBlank()) sessionManager.markLessonCompleted(state.sessionId)
+            val examId = state.lessonId.ifBlank { state.sessionId }
+            completedItemRepository?.markCompleted(
+                itemId = examId,
+                itemType = "EXAM",
+                title = state.examInfo?.title ?: "পরিক্ষা"
+            )
+
             // Fetch performance analysis
             loadPerformanceAnalysis(state.sessionId, state.lessonId)
         }
@@ -587,12 +598,13 @@ class ChapterExamViewModel(
 
 class ChapterExamViewModelFactory(
     private val apiService: ShikhoApiService,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChapterExamViewModel::class.java)) {
-            return ChapterExamViewModel(apiService, sessionManager) as T
+            return ChapterExamViewModel(apiService, sessionManager, completedItemRepository = completedItemRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

@@ -10,6 +10,29 @@ import java.util.concurrent.ConcurrentHashMap
 object LessonCacheManager {
     private val allLessons = ConcurrentHashMap<String, StudentLessonItem>()
 
+    fun markLessonCompletedInCache(lessonId: String) {
+        if (lessonId.isBlank()) return
+        allLessons.forEach { (key, item) ->
+            if (item.id == lessonId || item.content_id == lessonId || item.live_class?.id == lessonId) {
+                allLessons[key] = item.copy(user_activity_state = "COMPLETED")
+            }
+        }
+    }
+
+    fun enrichWithCompletedState(lessons: List<StudentLessonItem>, completedIds: Set<String>): List<StudentLessonItem> {
+        if (completedIds.isEmpty()) return lessons
+        return lessons.map { item ->
+            val isComp = completedIds.contains(item.id) || 
+                         completedIds.contains(item.content_id) || 
+                         completedIds.contains(item.live_class?.id) ||
+                         item.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
+                         item.user_activity_state.equals("ATTENDED", ignoreCase = true)
+            if (isComp && item.user_activity_state != "COMPLETED") {
+                item.copy(user_activity_state = "COMPLETED")
+            } else item
+        }
+    }
+
     fun saveLessons(lessons: List<StudentLessonItem>, programId: String? = null) {
         if (lessons.isEmpty()) return
         val cleanProg = programId?.trim()?.takeIf { it.isNotBlank() }

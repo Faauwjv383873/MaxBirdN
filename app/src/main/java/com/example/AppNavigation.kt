@@ -198,23 +198,24 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         factory = AuthViewModelFactory(apiService, sessionManager)
     )
 
+    val appDatabase = remember { AppDatabase.getDatabase(context) }
+    val savedItemRepository = remember { SavedItemRepository(appDatabase.savedItemDao()) }
+    val completedItemRepository = remember { com.example.database.CompletedItemRepository(appDatabase.completedItemDao(), sessionManager) }
+
     val homeViewModel: HomeViewModel = viewModel(
-        factory = HomeViewModelFactory(apiService, sessionManager)
+        factory = HomeViewModelFactory(apiService, sessionManager, completedItemRepository)
     )
 
     val courseViewModel: CourseViewModel = viewModel(
-        factory = CourseViewModelFactory(apiService, sessionManager)
+        factory = CourseViewModelFactory(apiService, sessionManager, completedItemRepository)
     )
 
-    val appDatabase = remember { AppDatabase.getDatabase(context) }
-    val savedItemRepository = remember { SavedItemRepository(appDatabase.savedItemDao()) }
-
     val chapterExamViewModel: ChapterExamViewModel = viewModel(
-        factory = ChapterExamViewModelFactory(apiService, sessionManager)
+        factory = ChapterExamViewModelFactory(apiService, sessionManager, completedItemRepository)
     )
 
     val practiceQuizViewModel: PracticeQuizViewModel = viewModel(
-        factory = PracticeQuizViewModelFactory(apiService, sessionManager, savedItemRepository)
+        factory = PracticeQuizViewModelFactory(apiService, sessionManager, savedItemRepository, completedItemRepository)
     )
 
     val savedViewModel: SavedViewModel = viewModel(
@@ -520,6 +521,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 subjectTitle = subjectTitle,
                 subjectColorHex = subjectColor,
                 viewModel = courseViewModel,
+                completedItemRepository = completedItemRepository,
                 onBack = {
                     navController.popBackStack()
                 },

@@ -106,6 +106,14 @@ fun VideoPlayerScreen(
     val downloadedItem by downloadManager.getDownloadedItemById(downloadId).collectAsState(initial = null)
     var showDeleteDownloadDialog by remember { mutableStateOf(false) }
 
+    val sessionManager = remember { com.example.auth.SessionManager(context) }
+    LaunchedEffect(videoUrl, title) {
+        if (title.isNotBlank()) {
+            sessionManager.markLessonCompleted(title)
+            sessionManager.markLessonCompleted(downloadId)
+        }
+    }
+
     // Fallback URL if passed URL is empty
     val effectivePlaybackUrl = remember(videoUrl, downloadedItem) {
         val completedLocal = if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) {
