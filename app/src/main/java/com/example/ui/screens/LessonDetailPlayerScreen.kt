@@ -400,19 +400,34 @@ fun LessonDetailPlayerScreen(
 
             // If activeStreamUrl is a master.m3u8, ExoPlayer's onTracksChanged will parse tracks dynamically.
             // If it's a direct stream_X URL, fallback to pre-populating availableQualities.
-            if (urlToPlay.contains("/stream_")) {
-                val baseUrl = urlToPlay
-                val s0 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_0/stream.m3u8")
-                val s1 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_1/stream.m3u8")
-                val s2 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_2/stream.m3u8")
-                val s3 = baseUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/stream_3/stream.m3u8")
+            if (urlToPlay.contains("/master.m3u8")) {
+                val baseMaster = urlToPlay.substringBeforeLast("/master.m3u8")
+                val s0 = "$baseMaster/stream_0/stream.m3u8"
+                val s1 = "$baseMaster/stream_1/stream.m3u8"
+                val s2 = "$baseMaster/stream_2/stream.m3u8"
+                val s3 = "$baseMaster/stream_3/stream.m3u8"
 
                 availableQualities = listOf(
-                    VideoTrackQuality("auto", "অটো (Auto)", 0, 0, null, 0, s0),
-                    VideoTrackQuality("1080p", "1080p (উচ্চ মান)", 1080, 0, null, 0, s0),
-                    VideoTrackQuality("720p", "720p (এইচডি)", 720, 0, null, 0, s1),
-                    VideoTrackQuality("480p", "480p (মাঝারি)", 480, 0, null, 0, s2),
-                    VideoTrackQuality("360p", "360p (সাধারণ)", 360, 0, null, 0, s3)
+                    VideoTrackQuality("auto", "অটো (অ্যাডাপ্টিভ)", 0, 0, null, 0, urlToPlay),
+                    VideoTrackQuality("720p", "720p (এইচডি)", 720, 1280, null, 0, s0),
+                    VideoTrackQuality("480p", "480p (মাঝারি)", 480, 854, null, 0, s1),
+                    VideoTrackQuality("360p", "360p (সাধারণ)", 360, 640, null, 0, s2),
+                    VideoTrackQuality("144p", "144p (ডাটা সেভার)", 144, 256, null, 0, s3)
+                )
+            } else if (urlToPlay.contains("/stream_")) {
+                val streamBase = urlToPlay.replace(Regex("/stream_\\d+/stream\\.m3u8.*"), "")
+                val masterUrl = "$streamBase/master.m3u8"
+                val s0 = "$streamBase/stream_0/stream.m3u8"
+                val s1 = "$streamBase/stream_1/stream.m3u8"
+                val s2 = "$streamBase/stream_2/stream.m3u8"
+                val s3 = "$streamBase/stream_3/stream.m3u8"
+
+                availableQualities = listOf(
+                    VideoTrackQuality("auto", "অটো (অ্যাডাপ্টিভ)", 0, 0, null, 0, masterUrl),
+                    VideoTrackQuality("720p", "720p (এইচডি)", 720, 1280, null, 0, s0),
+                    VideoTrackQuality("480p", "480p (মাঝারি)", 480, 854, null, 0, s1),
+                    VideoTrackQuality("360p", "360p (সাধারণ)", 360, 640, null, 0, s2),
+                    VideoTrackQuality("144p", "144p (ডাটা সেভার)", 144, 256, null, 0, s3)
                 )
             }
 

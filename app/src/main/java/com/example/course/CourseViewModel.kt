@@ -149,11 +149,14 @@ class CourseViewModel(
                 try {
                     val liveClassData = repository.getLiveClassDetails(liveClassId)
                     if (liveClassData != null) {
-                        val pbUrl = liveClassData.playback_url
+                        val pbUrl = liveClassData.playback_url ?: liveClassData.recording_url ?: liveClassData.stream_url ?: liveClassData.hls_url ?: liveClassData.url
                         val updatedLiveClass = (lesson.live_class ?: LiveClassDetails()).copy(
                             id = liveClassData.id ?: lesson.live_class?.id,
                             playback_url = pbUrl ?: lesson.live_class?.playback_url,
-                            recording_url = pbUrl ?: lesson.live_class?.recording_url,
+                            recording_url = liveClassData.recording_url ?: pbUrl ?: lesson.live_class?.recording_url,
+                            stream_url = liveClassData.stream_url ?: lesson.live_class?.stream_url,
+                            hls_url = liveClassData.hls_url ?: lesson.live_class?.hls_url,
+                            url = liveClassData.url ?: lesson.live_class?.url,
                             start_time = liveClassData.start_time ?: lesson.live_class?.start_time,
                             end_time = liveClassData.end_time ?: lesson.live_class?.end_time,
                             teacher = liveClassData.teacher ?: lesson.live_class?.teacher,
@@ -245,12 +248,18 @@ class CourseViewModel(
 
                     val currentSelected = _uiState.value.selectedLesson
                     if (currentSelected != null && (currentSelected.id == lesson.id || currentSelected.content_id == lesson.content_id || currentSelected.live_class?.id == liveClassId)) {
+                        val pbUrl = payload.playback_url ?: payload.recording_url ?: payload.stream_url ?: payload.hls_url ?: payload.url
                         val updatedLiveClass = (currentSelected.live_class ?: LiveClassDetails()).copy(
                             join_link = payload.join_link ?: currentSelected.live_class?.join_link,
                             provider = payload.provider ?: currentSelected.live_class?.provider,
                             hms_room_id = effectiveRoomId ?: currentSelected.live_class?.hms_room_id,
                             hms_token = hmsToken ?: currentSelected.live_class?.hms_token,
-                            blocked_chat = isChatBlocked ?: currentSelected.live_class?.blocked_chat
+                            blocked_chat = isChatBlocked ?: currentSelected.live_class?.blocked_chat,
+                            playback_url = pbUrl ?: currentSelected.live_class?.playback_url,
+                            recording_url = payload.recording_url ?: pbUrl ?: currentSelected.live_class?.recording_url,
+                            stream_url = payload.stream_url ?: currentSelected.live_class?.stream_url,
+                            hls_url = payload.hls_url ?: currentSelected.live_class?.hls_url,
+                            url = payload.url ?: currentSelected.live_class?.url
                         )
                         _uiState.update {
                             it.copy(selectedLesson = currentSelected.copy(live_class = updatedLiveClass))

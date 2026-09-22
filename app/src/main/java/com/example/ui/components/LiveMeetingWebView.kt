@@ -83,13 +83,18 @@ fun LiveMeetingWebView(
                             val reqUrl = request?.url?.toString() ?: ""
 
                             // 100ms লাইভ স্ট্রিম ও master.m3u8 ক্যাপচার
-                            if ((reqUrl.contains("100ms.live") || reqUrl.contains("sh-cdn")) && 
-                                (reqUrl.contains("master.m3u8") || reqUrl.contains(".m3u8"))
+                            if ((reqUrl.contains("100ms.live") || reqUrl.contains("sh-cdn") || reqUrl.contains("beam2") || reqUrl.contains(".m3u8")) && 
+                                (reqUrl.contains("master.m3u8") || reqUrl.contains("/stream_") || reqUrl.contains(".m3u8"))
                             ) {
                                 if (!isLinkFound) {
                                     isLinkFound = true
+                                    val masterUrl = if (reqUrl.contains("/stream_")) {
+                                        reqUrl.replace(Regex("/stream_\\d+/stream\\.m3u8"), "/master.m3u8")
+                                    } else {
+                                        reqUrl
+                                    }
                                     view?.post {
-                                        onStreamDiscovered(reqUrl)
+                                        onStreamDiscovered(masterUrl)
                                     }
                                 }
                             }
