@@ -133,6 +133,25 @@ data class LeaderboardUserItem(
     val _id: String? = null,
     val user_id: String? = null,
     val student_id: String? = null,
+    val name: String? = null,
+    val full_name: String? = null,
+    val avatar: String? = null,
+    val photo: String? = null,
+    val school: String? = null,
+    val college: String? = null,
+    val institution: String? = null,
+    val phone: String? = null,
+    val mobile: String? = null,
+    val dob: String? = null,
+    val gender: String? = null,
+    val district: String? = null,
+    val division: String? = null,
+    val group: String? = null,
+    val study_group: String? = null,
+    val batch: String? = null,
+    val passing_year: String? = null,
+    val roll_no: String? = null,
+    val roll: String? = null,
     val rank: Int? = null,
     val score: Int? = null,
     val marks: Int? = null,
@@ -148,6 +167,33 @@ data class LeaderboardUserItem(
 
     val effectiveScore: Int
         get() = score ?: marks ?: 0
+
+    val effectiveName: String
+        get() = user?.effectiveName
+            ?: name?.takeIf { it.isNotBlank() }
+            ?: full_name?.takeIf { it.isNotBlank() }
+            ?: "শিক্ষার্থী"
+
+    val effectiveAvatar: String?
+        get() = user?.effectiveAvatar
+            ?: avatar?.takeIf { it.isNotBlank() }
+            ?: photo?.takeIf { it.isNotBlank() }
+
+    val effectiveCollege: String?
+        get() = user?.effectiveCollege
+            ?: college?.takeIf { it.isNotBlank() }
+            ?: school?.takeIf { it.isNotBlank() }
+            ?: institution?.takeIf { it.isNotBlank() }
+
+    val effectivePhone: String?
+        get() = user?.effectivePhone
+            ?: phone?.takeIf { it.isNotBlank() }
+            ?: mobile?.takeIf { it.isNotBlank() }
+
+    val effectiveRoll: String?
+        get() = user?.effectiveRoll
+            ?: roll_no?.takeIf { it.isNotBlank() }
+            ?: roll?.takeIf { it.isNotBlank() }
 }
 
 @JsonClass(generateAdapter = true)

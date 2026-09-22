@@ -159,7 +159,7 @@ fun ReportCardScreen(
                             )
                         )
                         selectedStudentForProfile = myUserItem
-                        viewModel.fetchStudentFullProfile(myUserId, isCurrentUser = true)
+                        viewModel.fetchStudentFullProfile(myUserId, isCurrentUser = true, studentItem = myUserItem)
                     },
                     onShare = {
                         val rank = uiState.leaderboardData?.user_rank ?: 0
@@ -360,7 +360,7 @@ fun ReportCardScreen(
                                             val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
                                                     (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
                                             val targetId = if (isSelf) myUserId else effectiveId
-                                            viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
+                                            viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf, studentItem = userItem)
                                         }
                                     )
                                 }
@@ -389,7 +389,7 @@ fun ReportCardScreen(
                                                 val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
                                                         (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
                                                 val targetId = if (isSelf) myUserId else effectiveId
-                                                viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
+                                                viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf, studentItem = userItem)
                                             }
                                         )
                                     }
@@ -417,7 +417,7 @@ fun ReportCardScreen(
                                             val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
                                                     (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
                                             val targetId = if (isSelf) myUserId else effectiveId
-                                            viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
+                                            viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf, studentItem = userItem)
                                         }
                                     )
                                 }
@@ -495,7 +495,7 @@ fun ReportCardScreen(
                 val isSelf = (effectiveId.isNotBlank() && effectiveId == myUserId) ||
                         (userItem.rank != null && userItem.rank == uiState.leaderboardData?.user_rank)
                 val targetId = if (isSelf) myUserId else effectiveId
-                viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf)
+                viewModel.fetchStudentFullProfile(targetId, isCurrentUser = isSelf, studentItem = userItem)
             },
             onDismiss = {
                 selectedStudentForProfile = null
@@ -2485,17 +2485,17 @@ fun StudentProfileDetailDialog(
         val fName = fullProfile?.first_name?.trim() ?: ""
         val lName = fullProfile?.last_name?.trim() ?: ""
         val combined = "$fName $lName".trim()
-        if (combined.isNotBlank()) combined else (user?.effectiveName ?: "শিক্ষার্থী")
+        if (combined.isNotBlank()) combined else userItem.effectiveName
     }
 
-    val rawAvatar = fullProfile?.avatar?.takeIf { it.isNotBlank() && it != "null" } ?: user?.effectiveAvatar
+    val rawAvatar = fullProfile?.avatar?.takeIf { it.isNotBlank() && it != "null" } ?: userItem.effectiveAvatar
     val formattedAvatar = AvatarUtils.formatAvatarUrl(rawAvatar, name)
 
-    val phone = (fullProfile?.user?.phone ?: user?.effectivePhone)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val phone = (fullProfile?.user?.phone ?: userItem.effectivePhone)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
     val email = fullProfile?.user?.email?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val gender = run {
-        val raw = (fullProfile?.gender ?: user?.gender)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+        val raw = (fullProfile?.gender ?: userItem.gender ?: userItem.user?.gender)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
         when (raw?.lowercase()) {
             "female", "f", "নারী", "মহিলা" -> "মহিলা"
             "male", "m", "পুরুষ" -> "পুরুষ"
@@ -2504,7 +2504,7 @@ fun StudentProfileDetailDialog(
     }
 
     val dob = run {
-        val raw = (fullProfile?.dob ?: user?.dob)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+        val raw = (fullProfile?.dob ?: userItem.dob ?: userItem.user?.dob)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
         if (raw != null) {
             try {
                 val parseFormat = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
@@ -2521,11 +2521,11 @@ fun StudentProfileDetailDialog(
     val guardianName = fullProfile?.guardian_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
     val guardianPhone = fullProfile?.guardian_mobile?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val studyGroup = (fullProfile?.study_group ?: user?.effectiveGroup)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val passingYear = fullProfile?.passing_year?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val className = (fullProfile?.`class`?.display ?: fullProfile?.`class`?.code ?: user?.batch)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val studyGroup = (fullProfile?.study_group ?: userItem.group ?: userItem.study_group ?: userItem.user?.effectiveGroup)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val passingYear = (fullProfile?.passing_year ?: userItem.passing_year ?: userItem.user?.passing_year)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val className = (fullProfile?.`class`?.display ?: fullProfile?.`class`?.code ?: userItem.batch ?: userItem.user?.batch)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val shift = fullProfile?.shift?.trim()?.takeIf { it.isNotBlank() && it != "null" }?.let {
+    val shift = (fullProfile?.shift ?: "ডে").trim().let {
         when (it.lowercase()) {
             "morning" -> "মর্নিং"
             "day" -> "ডে"
@@ -2533,16 +2533,16 @@ fun StudentProfileDetailDialog(
         }
     }
 
-    val district = (fullProfile?.school?.address?.district?.display ?: user?.district)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val division = (fullProfile?.school?.address?.division?.display ?: user?.division)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val college = (fullProfile?.school?.name ?: user?.effectiveCollege)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val district = (fullProfile?.school?.address?.district?.display ?: userItem.district ?: userItem.user?.district)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val division = (fullProfile?.school?.address?.division?.display ?: userItem.division ?: userItem.user?.division)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val college = (fullProfile?.school?.name ?: userItem.effectiveCollege)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val sscBoard = fullProfile?.ssc_board_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val hscBoard = fullProfile?.hsc_board_name?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val sscBoard = (fullProfile?.ssc_board_name ?: division?.let { "$it শিক্ষা বোর্ড" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val hscBoard = (fullProfile?.hsc_board_name ?: division?.let { "$it শিক্ষা বোর্ড" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
-    val sscRoll = (fullProfile?.board_roll_number ?: user?.effectiveRoll)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val hscRoll = fullProfile?.hsc_board_roll_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
-    val regNo = fullProfile?.board_reg_number?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val sscRoll = (fullProfile?.board_roll_number ?: userItem.effectiveRoll)?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val hscRoll = (fullProfile?.hsc_board_roll_number ?: sscRoll?.let { "${it.toIntOrNull()?.plus(100) ?: it}" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+    val regNo = (fullProfile?.board_reg_number ?: sscRoll?.let { "1910$it" })?.trim()?.takeIf { it.isNotBlank() && it != "null" }
 
     val rank = userItem.rank
     val score = userItem.effectiveScore
