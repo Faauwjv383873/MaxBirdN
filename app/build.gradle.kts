@@ -11,13 +11,13 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk = 37
+  compileSdk { version = release(36) { minorApiLevel = 1 } }
   buildToolsVersion = "36.0.0"
 
   defaultConfig {
     applicationId = "com.aistudio.maxbird.bxklpq"
     minSdk = 28
-    targetSdk = 37
+    targetSdk = 36
     versionCode = 1
     versionName = "1.0"
 
@@ -72,11 +72,8 @@ android {
     }
   }
   compileOptions {
-    sourceCompatibility = JavaVersion.toVersion("25")
-    targetCompatibility = JavaVersion.toVersion("25")
-  }
-  kotlinOptions {
-    jvmTarget = "25"
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
   buildFeatures {
     compose = true
