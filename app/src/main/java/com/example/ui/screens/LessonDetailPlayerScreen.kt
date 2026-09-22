@@ -194,11 +194,16 @@ fun LessonDetailPlayerScreen(
 
     var livePlayerMode by remember(isLive) { mutableStateOf("STREAM") }
 
+    // Diagnostics & Dialog States
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    var playbackErrorDetails by remember { mutableStateOf<String?>(null) }
+
     val effectiveSocketManager = socketManager ?: remember { HmsLiveSocketManager() }
     val viewerCount by effectiveSocketManager.viewerCount.collectAsState()
     val isHandRaised by effectiveSocketManager.isHandRaised.collectAsState()
     val pinnedMessage by effectiveSocketManager.pinnedMessage.collectAsState()
     val activePoll by effectiveSocketManager.activePoll.collectAsState()
+    val hlsStreamUrl by effectiveSocketManager.hlsStreamUrl.collectAsState()
 
     // Parse Subject Color
     val subjectThemeColor = remember(subjectColorHex) {
@@ -253,6 +258,72 @@ fun LessonDetailPlayerScreen(
         }
     }
 
+    LaunchedEffect(hlsStreamUrl, isLive) {
+        val streamUrl = hlsStreamUrl
+        if (isLive && !streamUrl.isNullOrBlank()) {
+            activeStreamUrl = streamUrl
+            livePlayerMode = "STREAM"
+        }
+    }
+
+    LaunchedEffect(isLive, lesson?.live_class?.hms_room_id, lesson?.live_class?.hms_token, isLessonLoading) {
+        if (isLive && !isLessonLoading) {
+            val liveClass = lesson?.live_class
+            if (liveClass == null) {
+                playbackError = "লাইভ ক্লাসের বিবরণ পাওয়া যায়নি"
+                playbackErrorDetails = "সার্ভার থেকে লাইভ ক্লাসের কোনো তথ্য পাওয়া যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন।"
+            } else if (liveClass.hms_room_id.isNullOrBlank()) {
+                playbackError = "রুম আইডি পাওয়া যায়নি (Room ID Missing)"
+                playbackErrorDetails = "এই লাইভ ক্লাসের জন্য কোনো বৈধ room_id পাওয়া যায়নি। অনুগ্রহ করে শিক্ষক বা সাপোর্ট টিমের সাথে যোগাযোগ করুন।"
+            } else if (liveClass.hms_token.isNullOrBlank()) {
+                playbackError = "টোকেন পাওয়া যায়নি (HMS Token Missing)"
+                playbackErrorDetails = "লাইভ ক্লাসে যোগদানের জন্য প্রয়োজনীয় অথেন্টিকেশন টোকেন পাওয়া যায়নি।"
+            } else {
+                if (playbackError == "রুম আইডি পাওয়া যায়নি (Room ID Missing)" || 
+                    playbackError == "টোকেন পাওয়া যায়নি (HMS Token Missing)" ||
+                    playbackError == "লাইভ ক্লাসের বিবরণ পাওয়া যায়নি") {
+                    playbackError = null
+                    playbackErrorDetails = null
+                }
+            }
+        }
+    }
+
+    val isSocketConnected by effectiveSocketManager.isConnected.collectAsState()
+
+    LaunchedEffect(isLive, isSocketConnected, lesson?.live_class?.hms_token) {
+        val hasToken = !lesson?.live_class?.hms_token.isNullOrBlank()
+        if (isLive && hasToken) {
+            if (!isSocketConnected) {
+                delay(12000L) // Wait 12 seconds to connect
+                if (!isSocketConnected) {
+                    playbackError = "লাইভ সার্ভার সংযোগ ব্যর্থ"
+                    playbackErrorDetails = "লাইভ ক্লাসের ইন্টারেক্টিভ সার্ভারে সংযোগ করা সম্ভব হচ্ছে না। আপনার ইন্টারনেট কানেকশন চেক করুন।"
+                }
+            } else {
+                if (playbackError == "লাইভ সার্ভার সংযোগ ব্যর্থ") {
+                    playbackError = null
+                    playbackErrorDetails = null
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(isLive, isSocketConnected, hlsStreamUrl) {
+        if (isLive && isSocketConnected && hlsStreamUrl.isNullOrBlank()) {
+            delay(15000L) // Wait 15 seconds for stream state
+            if (hlsStreamUrl.isNullOrBlank()) {
+                playbackError = "লাইভ স্ট্রিম পাওয়া যায়নি"
+                playbackErrorDetails = "লাইভ ক্লাসটি এখনো শিক্ষক শুরু করেননি অথবা লাইভ ফিডটি প্রস্তুত নয়। অনুগ্রহ করে একটু অপেক্ষা করুন।"
+            }
+        } else if (isLive && !hlsStreamUrl.isNullOrBlank()) {
+            if (playbackError == "লাইভ স্ট্রিম পাওয়া যায়নি") {
+                playbackError = null
+                playbackErrorDetails = null
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             effectiveSocketManager.disconnect()
@@ -268,9 +339,7 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    // Diagnostics & Dialog States
-    var playbackError by remember { mutableStateOf<String?>(null) }
-    var playbackErrorDetails by remember { mutableStateOf<String?>(null) }
+    // Diagnostics & Dialog States (Moved earlier to prevent unresolved reference)
 
     var showCustomUrlDialog = false
 
@@ -719,19 +788,6 @@ fun LessonDetailPlayerScreen(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // Background WebView for scraping/discovering live stream (always hidden)
-            if (isLive && effectiveMeetingUrl.isNotBlank()) {
-                LiveMeetingWebView(
-                    meetingUrl = effectiveMeetingUrl,
-                    studentName = sessionManager.getUserFirstName() ?: "Student",
-                    authToken = sessionManager.getAccessToken(),
-                    onStreamDiscovered = { discoveredM3u8 ->
-                        activeStreamUrl = discoveredM3u8
-                        livePlayerMode = "STREAM"
-                    },
-                    modifier = Modifier.size(1.dp)
-                )
-            }
             if (activeStreamUrl.isBlank() && isLive) {
                 // Beautiful Native Loading State
                 Box(
@@ -876,19 +932,6 @@ fun LessonDetailPlayerScreen(
                         .aspectRatio(16f / 9f)
                         .background(Color.Black)
                 ) {
-                    // Background WebView for scraping/discovering live stream (always hidden)
-                    if (isLive && effectiveMeetingUrl.isNotBlank()) {
-                        LiveMeetingWebView(
-                            meetingUrl = effectiveMeetingUrl,
-                            studentName = sessionManager.getUserFirstName() ?: "Student",
-                            authToken = sessionManager.getAccessToken(),
-                            onStreamDiscovered = { discoveredM3u8 ->
-                                activeStreamUrl = discoveredM3u8
-                                livePlayerMode = "STREAM"
-                            },
-                            modifier = Modifier.size(1.dp)
-                        )
-                    }
                     if (livePlayerMode == "WEB_PLAYER") {
                         val webStreamUrl = activeStreamUrl
                         if (webStreamUrl.isNotBlank()) {
