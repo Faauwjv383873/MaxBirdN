@@ -2,6 +2,7 @@ package com.example.download
 
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import com.example.database.AppDatabase
 import com.example.database.DownloadedItemDao
 import com.example.database.DownloadedItemEntity
@@ -411,6 +412,16 @@ class AppFileDownloadManager private constructor(
             val extension = if (fileType.equals(DownloadedItemEntity.FILE_TYPE_PDF, ignoreCase = true)) "pdf" else "mp4"
             val sanitizedId = id.replace("[^a-zA-Z0-9_\\-]".toRegex(), "_")
             val targetFile = File(downloadVaultDir, "${fileType.lowercase()}_${sanitizedId}.$extension")
+
+            // Check if already completed and file exists
+            val existingItem = downloadedItemDao.getDownloadedItemByIdOnce(id)
+            if (existingItem != null && existingItem.status == DownloadedItemEntity.STATUS_COMPLETED && targetFile.exists() && targetFile.length() > 0) {
+                Log.d(TAG, "Item $id is already downloaded. Skipping duplicate download.")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "এই ফাইলটি ইতোমধ্যে অ্যাপে সফলভাবে ডাউনলোড করা হয়েছে", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
 
             var initialEntity = DownloadedItemEntity(
                 id = id,

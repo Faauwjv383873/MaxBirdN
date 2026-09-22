@@ -381,6 +381,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     courseViewModel.selectLesson(lesson)
                     navController.navigate(Routes.LESSON_DETAIL_PLAYER)
                 },
+                onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
+                    val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
+                    navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {

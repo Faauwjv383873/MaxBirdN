@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -318,14 +319,15 @@ fun VideoDownloadQualityDialog(
                             )
                         }
 
+                        val isAlreadyDownloaded = downloadedItem != null && downloadedItem.status == DownloadedItemEntity.STATUS_COMPLETED
                         Button(
                             onClick = {
                                 selectedOption?.let { onConfirmDownload(it) }
                             },
-                            enabled = selectedOption != null,
+                            enabled = selectedOption != null && !isAlreadyDownloaded,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF0072EC)
+                                containerColor = if (isAlreadyDownloaded) Color(0xFF10B981) else Color(0xFF0072EC)
                             ),
                             modifier = Modifier
                                 .weight(1.4f)
@@ -333,13 +335,13 @@ fun VideoDownloadQualityDialog(
                                 .testTag("confirm_download_button")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Download,
+                                imageVector = if (isAlreadyDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "ডাউনলোড শুরু",
+                                text = if (isAlreadyDownloaded) "ইতোমধ্যে ডাউনলোড করা" else "ডাউনলোড শুরু",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )

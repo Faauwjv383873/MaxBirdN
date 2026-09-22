@@ -253,8 +253,12 @@ fun LessonDocumentsSection(
                 }
             }
         } else if (allAttachments.isNotEmpty()) {
+            val downloadManager = remember { com.example.download.AppFileDownloadManager.getInstance(context) }
             allAttachments.forEach { attachment ->
                 val downloadUrl = attachment.downloadUrl
+                val pdfId = remember(downloadUrl) { "pdf_" + (downloadUrl?.hashCode().toString()) }
+                val downloadedPdf by downloadManager.getDownloadedItemById(pdfId).collectAsState(initial = null)
+
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
@@ -316,9 +320,13 @@ fun LessonDocumentsSection(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "ইন-অ্যাপ দেখুন • ডাউনলোড (PDF)",
+                                    text = when (downloadedPdf?.status) {
+                                        com.example.database.DownloadedItemEntity.STATUS_COMPLETED -> "ইন-অ্যাপ সংরক্ষিত • অফলাইনে দেখতে ট্যাপ করুন"
+                                        com.example.database.DownloadedItemEntity.STATUS_DOWNLOADING -> "ডাউনলোড হচ্ছে... (${downloadedPdf?.progressPercent}%)"
+                                        else -> "ইন-অ্যাপ দেখুন • অফলাইন ডাউনলোড"
+                                    },
                                     fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (downloadedPdf?.status == com.example.database.DownloadedItemEntity.STATUS_COMPLETED) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -328,17 +336,43 @@ fun LessonDocumentsSection(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             if (!downloadUrl.isNullOrBlank()) {
-                                IconButton(
-                                    onClick = {
-                                        downloadFile(context, downloadUrl, attachment.displayTitle)
+                                when (downloadedPdf?.status) {
+                                    com.example.database.DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                        CircularProgressIndicator(
+                                            progress = { downloadedPdf?.progressFraction ?: 0f },
+                                            color = MaterialTheme.colorScheme.primary,
+                                            strokeWidth = 2.5.dp,
+                                            modifier = Modifier.size(20.dp).padding(2.dp)
+                                        )
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Download,
-                                        contentDescription = "ডাউনলোড",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    com.example.database.DownloadedItemEntity.STATUS_COMPLETED -> {
+                                        IconButton(
+                                            onClick = {
+                                                Toast.makeText(context, "এই ফাইলটি ইতোমধ্যে অ্যাপে ডাউনলোড করা রয়েছে", Toast.LENGTH_SHORT).show()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DownloadDone,
+                                                contentDescription = "ডাউনলোড সম্পন্ন",
+                                                tint = Color(0xFF10B981),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                    else -> {
+                                        IconButton(
+                                            onClick = {
+                                                downloadFile(context, downloadUrl, attachment.displayTitle)
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Download,
+                                                contentDescription = "ডাউনলোড",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
 

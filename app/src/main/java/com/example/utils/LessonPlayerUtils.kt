@@ -123,31 +123,22 @@ fun formatLessonTimeRange(startTimeStr: String?, endTimeStr: String?): String {
 
 fun downloadFile(context: Context, url: String, title: String) {
     try {
-        val uri = Uri.parse(url)
-        val sanitizedTitle = title.replace("[^a-zA-Z0-9_\\-\\u0980-\\u09FF]".toRegex(), "_")
-        val fileName = if (sanitizedTitle.endsWith(".pdf", ignoreCase = true)) sanitizedTitle else "$sanitizedTitle.pdf"
-
-        val request = DownloadManager.Request(uri).apply {
-            setTitle(title)
-            setDescription("লেকচার স্লাইড ডাউনলোড হচ্ছে...")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            setMimeType("application/pdf")
-            addRequestHeader("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 12; V2029 Build/SP1A.210812.003)")
-            addRequestHeader("referer", "https://shikho.com/")
+        if (url.isBlank()) {
+            Toast.makeText(context, "ডাউনলোড লিঙ্ক উপলব্ধ নেই", Toast.LENGTH_SHORT).show()
+            return
         }
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        dm.enqueue(request)
-        Toast.makeText(context, "ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
+        val downloadManager = com.example.download.AppFileDownloadManager.getInstance(context)
+        val downloadId = "pdf_" + (url.hashCode().toString())
+        downloadManager.downloadFile(
+            id = downloadId,
+            title = title,
+            subtitle = "পিডিএফ নোট ও স্লাইড",
+            fileType = com.example.database.DownloadedItemEntity.FILE_TYPE_PDF,
+            remoteUrl = url
+        )
+        Toast.makeText(context, "ইন-অ্যাপ অফলাইন ডাউনলোড শুরু হয়েছে। 'ডাউনলোড' ট্যাবে দেখতে পাবেন।", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "ডাউনলোড করা যায়নি: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-        }
+        Toast.makeText(context, "ডাউনলোড ব্যর্থ হয়েছে: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
