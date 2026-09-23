@@ -60,6 +60,7 @@ class SessionManager(context: Context) {
             .putString("refresh_token", refreshToken)
             .putString("user_id", userId)
             .apply()
+        com.example.notification.FcmTopicManager.syncAllTopics(this)
     }
 
     fun updateAuthTokens(accessToken: String, refreshToken: String?, idToken: String? = null) {
@@ -106,6 +107,7 @@ class SessionManager(context: Context) {
             editor.putString("active_program_phase_id", phaseId)
         }
         editor.apply()
+        com.example.notification.FcmTopicManager.syncAllTopics(this)
     }
 
     fun getActiveProgramId(): String? = sharedPreferences.getString("active_program_id", null)
@@ -122,6 +124,7 @@ class SessionManager(context: Context) {
             .remove("active_program_class_code")
             .remove("active_program_phase_id")
             .apply()
+        com.example.notification.FcmTopicManager.syncAllTopics(this)
     }
 
     fun saveUserAcademicInfo(batchId: String?, className: String?, group: String?, vendor: String? = "BD") {
@@ -131,6 +134,7 @@ class SessionManager(context: Context) {
             .putString("academic_group", group)
             .putString("academic_vendor", vendor ?: "BD")
             .apply()
+        com.example.notification.FcmTopicManager.syncAllTopics(this)
     }
 
     fun getUserBatchId(): String? = sharedPreferences.getString("academic_batch_id", null)
@@ -263,6 +267,16 @@ class SessionManager(context: Context) {
         isUnauthorizedNotified = false
     }
 
+    fun getSubscribedTopics(): Set<String> {
+        return sharedPreferences.getStringSet("subscribed_fcm_topics", emptySet()) ?: emptySet()
+    }
+
+    fun setSubscribedTopics(topics: Set<String>) {
+        sharedPreferences.edit()
+            .putStringSet("subscribed_fcm_topics", topics)
+            .apply()
+    }
+
     fun clearSession() {
         sharedPreferences.edit()
             .remove("access_token")
@@ -279,5 +293,6 @@ class SessionManager(context: Context) {
             .remove("user_avatar")
             .remove("just_signed_up")
             .apply()
+        com.example.notification.FcmTopicManager.syncAllTopics(this)
     }
 }

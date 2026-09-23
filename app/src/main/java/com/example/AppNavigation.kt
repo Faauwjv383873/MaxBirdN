@@ -1008,7 +1008,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 NotificationHistoryRepository.getInstance(context)
             }
             val notificationViewModel: NotificationHistoryViewModel = viewModel(
-                factory = NotificationHistoryViewModelFactory(notificationRepo)
+                factory = NotificationHistoryViewModelFactory(notificationRepo, context, sessionManager)
             )
 
             NotificationHistoryScreen(

@@ -35,7 +35,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Verify Firebase is initialized correctly
+        // 1. Immediately create notification channel on startup
+        com.example.notification.NotificationHelper.createNotificationChannel(this)
+
+        // 2. Verify Firebase is initialized correctly
         try {
             val apps = com.google.firebase.FirebaseApp.getApps(this)
             if (apps.isEmpty()) {
@@ -103,7 +106,7 @@ class MainActivity : ComponentActivity() {
                     android.util.Log.d("MainActivity", "Fetched FCM Token: $token")
                     val sessionManager = SessionManager(applicationContext)
                     sessionManager.setFcmToken(token)
-                    com.example.notification.FcmTopicManager.subscribeAllTopics(sessionManager)
+                    com.example.notification.FcmTopicManager.syncAllTopics(sessionManager)
                 } else {
                     android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
                 }
@@ -111,6 +114,15 @@ class MainActivity : ComponentActivity() {
         } catch (e: Throwable) {
             android.util.Log.e("MainActivity", "Error fetching FCM token: ${e.message}", e)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Auto sync and replace topics every time the user opens or returns to the app
+        try {
+            val sessionManager = SessionManager(applicationContext)
+            com.example.notification.FcmTopicManager.syncAllTopics(sessionManager)
+        } catch (_: Exception) {}
     }
 
     override fun onPictureInPictureModeChanged(

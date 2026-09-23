@@ -1,72 +1,76 @@
 package com.example
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.RingtoneManager
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.example.auth.SessionManager
 import com.example.database.NotificationHistoryEntity
 import com.example.database.NotificationHistoryRepository
+import com.example.notification.FcmTopicManager
+import com.example.notification.NotificationHelper
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "MyFirebaseMsgService"
-        const val CHANNEL_ID = "shikho_push_notifications"
-        const val CHANNEL_NAME = "Shikho Notifications"
+        const val CHANNEL_ID = NotificationHelper.CHANNEL_ID
+        const val CHANNEL_NAME = NotificationHelper.CHANNEL_NAME
     }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d(TAG, "🔥 FCM Token received: $token")
-        
-        val firebaseApp = com.google.firebase.FirebaseApp.getInstance()
-        Log.d(TAG, "🔥 Firebase Project ID: ${firebaseApp.options.projectId}")
-        Log.d(TAG, "🔥 GCM Sender ID: ${firebaseApp.options.gcmSenderId}")
-        Log.d(TAG, "🔥 App ID: ${firebaseApp.options.applicationId}")
-        
-        if (firebaseApp.options.projectId != "shikho-tech") {
-            Log.e(TAG, "❌ WRONG FIREBASE PROJECT! Expected shikho-tech but got ${firebaseApp.options.projectId}")
-            Log.e(TAG, "❌ google-services.json is wrong — check the package_name and project_id")
-        } else {
-            Log.d(TAG, "✅ Firebase correctly initialized with shikho-tech")
-        }
+        Log.d(TAG, "🔑 Refreshed FCM Token: $token")
         
         val sessionManager = SessionManager(applicationContext)
         sessionManager.setFcmToken(token)
+        
+        // Re-synchronize and subscribe to all topics on token refresh
+        FcmTopicManager.syncAllTopics(sessionManager)
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
         Log.d(TAG, "📩 From: ${remoteMessage.from}")
         Log.d(TAG, "📩 Data: ${remoteMessage.data}")
+        Log.d(TAG, "📩 Notification: title='${remoteMessage.notification?.title}', body='${remoteMessage.notification?.body}'")
         
         val data = remoteMessage.data
 
-        // Extract title and body
+        // Extract title and body from either remoteMessage.notification or remoteMessage.data
         val title = remoteMessage.notification?.title
             ?: data["title"]
+            ?: data["subject"]
             ?: "শিখুন Shikho"
             
         val messageBody = remoteMessage.notification?.body
             ?: data["body"]
             ?: data["message"]
+            ?: data["description"]
             ?: ""
 
+        // Extract banner image URL
         val imageUrl = remoteMessage.notification?.imageUrl?.toString()
             ?: data["image"]
             ?: data["imageUrl"]
+            ?: data["picture"]
+            ?: data["banner"]
+            ?: data["big_picture"]
+            ?: data["media_url"]
 
         val type = data["type"] ?: data["event"] ?: "live_class"
         val deepLink = data["deep_link"] ?: data["link"] ?: data["url"]
@@ -79,7 +83,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             null
         }
 
-        // Save to Notification History Room Database BEFORE showing notification
+        // 1. Save to Room Database
         try {
             val repository = NotificationHistoryRepository.getInstance(applicationContext)
             CoroutineScope(Dispatchers.IO).launch {
@@ -105,12 +109,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             Log.e(TAG, "❌ Failed to initialize repository for notification saving: ${e.message}", e)
         }
 
-        if (messageBody.isNotBlank()) {
-            sendNotification(title, messageBody, data)
+        // 2. Display the system notification with BigPictureStyle if an image exists
+        if (title.isNotBlank() || messageBody.isNotBlank()) {
+            sendNotification(title, messageBody, imageUrl, data)
         }
     }
 
-    private fun sendNotification(title: String, messageBody: String, dataPayload: Map<String, String>) {
+    private fun sendNotification(
+        title: String,
+        messageBody: String,
+        imageUrl: String?,
+        dataPayload: Map<String, String>
+    ) {
+        // Ensure channel exists before dispatching
+        NotificationHelper.createNotificationChannel(applicationContext)
+
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             for ((key, value) in dataPayload) {
@@ -126,7 +139,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val pendingIntent = PendingIntent.getActivity(
             this,
-            0,
+            (System.currentTimeMillis() % 100000).toInt(),
             intent,
             pendingIntentFlags
         )
@@ -142,21 +155,46 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
 
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        // Notification Channel required for Android O and above
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Shikho Live Class and Exam Notifications"
-                enableVibration(true)
-            }
-            notificationManager.createNotificationChannel(channel)
+        // Download and attach big image banner if present
+        val bitmap = getBitmapFromUrl(imageUrl)
+        if (bitmap != null) {
+            notificationBuilder.setLargeIcon(bitmap)
+            notificationBuilder.setStyle(
+                NotificationCompat.BigPictureStyle()
+                    .bigPicture(bitmap)
+                    .setSummaryText(messageBody)
+            )
+        } else if (messageBody.isNotBlank()) {
+            notificationBuilder.setStyle(
+                NotificationCompat.BigTextStyle().bigText(messageBody)
+            )
         }
 
-        notificationManager.notify(System.currentTimeMillis().toInt(), notificationBuilder.build())
+        try {
+            val notificationManager = NotificationManagerCompat.from(this)
+            notificationManager.notify((System.currentTimeMillis() % 100000).toInt(), notificationBuilder.build())
+            Log.d(TAG, "🔔 System notification shown: '$title'")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException showing notification: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error displaying notification: ${e.message}", e)
+        }
+    }
+
+    private fun getBitmapFromUrl(imageUrl: String?): Bitmap? {
+        if (imageUrl.isNullOrBlank()) return null
+        return try {
+            val url = URL(imageUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.doInput = true
+            connection.connectTimeout = 6000
+            connection.readTimeout = 6000
+            connection.connect()
+            val input = connection.inputStream
+            BitmapFactory.decodeStream(input)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading notification image ($imageUrl): ${e.message}")
+            null
+        }
     }
 }
