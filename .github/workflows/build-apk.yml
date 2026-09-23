@@ -10,19 +10,19 @@ on:
       build_type:
         description: "Choose build target"
         required: true
-        default: "all"
+        default: "debug"
         type: choice
         options:
-          - "all"
           - "debug"
           - "release"
           - "bundle"
+          - "all"
 
 jobs:
   build:
-    name: Build APK & Bundle
+    name: Build Android App
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Code
@@ -35,32 +35,32 @@ jobs:
           distribution: "temurin"
           cache: "gradle"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
 
-      - name: Prepare Keystore & Signing Environment
-        id: setup_signing
+      # -----------------------------------------------------------
+      # 1. DEBUG APK (Auto-built on every Push/PR, or via manual dispatch)
+      # -----------------------------------------------------------
+      - name: Build Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'all' }}
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # -----------------------------------------------------------
+      # 2. PREPARE SIGNING (Only when manual Release or Bundle is selected)
+      # -----------------------------------------------------------
+      - name: Setup Release Keystore
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}
         run: |
           STORE_PWD="${{ secrets.STORE_PASSWORD }}"
           KEY_PWD="${{ secrets.KEY_PASSWORD }}"
+          if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
+          if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
           
-          # Default passwords if not set in secrets
-          if [ -z "$STORE_PWD" ]; then
-            STORE_PWD="android"
-          fi
-          if [ -z "$KEY_PWD" ]; then
-            KEY_PWD="android"
-          fi
-          
-          # Check if custom base64 keystore exists in GitHub Secrets
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "Decoding KEYSTORE_BASE64 secret..."
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
           elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-            echo "Decoding from keystore_base64.txt..."
             base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
           elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-            echo "Generating fallback signing keystore..."
             keytool -genkeypair -v \
               -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
               -alias "upload" \
@@ -72,57 +72,36 @@ jobs:
               -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
           fi
           
-          # Prepare debug.keystore if missing
-          if [ ! -f "$GITHUB_WORKSPACE/debug.keystore" ]; then
-            if [ -f "$GITHUB_WORKSPACE/debug.keystore.base64" ]; then
-              base64 --decode "$GITHUB_WORKSPACE/debug.keystore.base64" > "$GITHUB_WORKSPACE/debug.keystore"
-            else
-              keytool -genkeypair -v \
-                -keystore "$GITHUB_WORKSPACE/debug.keystore" \
-                -alias "androiddebugkey" \
-                -keyalg RSA \
-                -keysize 2048 \
-                -validity 10000 \
-                -storepass "android" \
-                -keypass "android" \
-                -dname "CN=Android Debug, O=Android, C=US"
-            fi
-          fi
-          
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
           echo "STORE_PASSWORD=$STORE_PWD" >> $GITHUB_ENV
           echo "KEY_PASSWORD=$KEY_PWD" >> $GITHUB_ENV
 
-      - name: Grant Execute Permission for Gradlew
-        run: chmod +x gradlew
-
-      - name: Build Debug APK
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == '' }}
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
+      # -----------------------------------------------------------
+      # 3. RELEASE APK (Only via manual workflow dispatch)
+      # -----------------------------------------------------------
       - name: Build Release APK
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all') }}
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
+      # -----------------------------------------------------------
+      # 4. RELEASE BUNDLE (AAB) (Only via manual workflow dispatch)
+      # -----------------------------------------------------------
       - name: Build Release Bundle (AAB for Play Store)
-        if: ${{ github.event.inputs.build_type == 'all' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}
         run: ./gradlew bundleRelease --no-daemon --stacktrace
 
+      # -----------------------------------------------------------
+      # 5. ORGANIZE & UPLOAD ARTIFACTS
+      # -----------------------------------------------------------
       - name: Organize Artifacts
         run: |
           mkdir -p artifacts
-          
-          # Copy Debug APK
           if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
             cp app/build/outputs/apk/debug/app-debug.apk artifacts/MaxBird-Debug.apk
           fi
-          
-          # Copy Release APK
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
             cp app/build/outputs/apk/release/app-release.apk artifacts/MaxBird-Release.apk
           fi
-          
-          # Copy Release Bundle (AAB)
           if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
             cp app/build/outputs/bundle/release/app-release.aab artifacts/MaxBird-Release.aab
           fi
@@ -153,7 +132,7 @@ jobs:
 
       - name: Build Summary
         run: |
-          echo "### 🚀 MaxBird Android Build Completed Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 MaxBird Android Build Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Target | File | Status |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
@@ -168,4 +147,4 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Package Name:** \`com.maxbird.ff.app\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Min SDK:** \`26 (Android 8.0+)\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Event:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
