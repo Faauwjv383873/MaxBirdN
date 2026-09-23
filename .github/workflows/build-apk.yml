@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: "Choose build target"
+        description: "Choose build target (Push automatically builds Debug only)"
         required: true
         default: "debug"
         type: choice
@@ -39,56 +39,117 @@ jobs:
         run: chmod +x gradlew
 
       # -----------------------------------------------------------
-      # 1. DEBUG APK (Auto-built on every Push/PR, or via manual dispatch)
+      # 1. PREPARE ENVIRONMENT & KEYSTORES (MANDATORY BEFORE ANY BUILD)
       # -----------------------------------------------------------
-      - name: Build Debug APK
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'all' }}
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      # -----------------------------------------------------------
-      # 2. PREPARE SIGNING (Only when manual Release or Bundle is selected)
-      # -----------------------------------------------------------
-      - name: Setup Release Keystore
-        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}
+      - name: Prepare Signing & Config
         run: |
-          STORE_PWD="${{ secrets.STORE_PASSWORD }}"
-          KEY_PWD="${{ secrets.KEY_PASSWORD }}"
-          if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
-          if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
-          
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
-          elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-            base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
-          elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+          # 1. Prepare Debug Keystore (Required for validateSigningDebug)
+          if [ -f "$GITHUB_WORKSPACE/debug.keystore.base64" ]; then
+            echo "Decoding debug.keystore.base64..."
+            base64 --decode "$GITHUB_WORKSPACE/debug.keystore.base64" > "$GITHUB_WORKSPACE/debug.keystore"
+          fi
+
+          if [ ! -f "$GITHUB_WORKSPACE/debug.keystore" ]; then
+            echo "Generating fallback debug.keystore..."
             keytool -genkeypair -v \
-              -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
-              -alias "upload" \
+              -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+              -alias "androiddebugkey" \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -storepass "$STORE_PWD" \
-              -keypass "$KEY_PWD" \
-              -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
+              -storepass "android" \
+              -keypass "android" \
+              -dname "CN=Android Debug, O=Android, C=US"
           fi
-          
-          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
-          echo "STORE_PASSWORD=$STORE_PWD" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=$KEY_PWD" >> $GITHUB_ENV
+
+          # 2. Prepare Google Services configuration if missing
+          if [ ! -f "app/google-services.json" ]; then
+            echo "Creating placeholder google-services.json for build compatibility..."
+            cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "maxbird-app",
+              "storage_bucket": "maxbird-app.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:abcdef",
+                  "android_client_info": {
+                    "package_name": "com.maxbird.ff.app"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "dummy_key"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
+
+          # 3. Prepare Release Keystore (Only if Release / Bundle is requested)
+          SHOULD_BUILD_RELEASE="${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}"
+          if [ "$SHOULD_BUILD_RELEASE" = "true" ]; then
+            STORE_PWD="${{ secrets.STORE_PASSWORD }}"
+            KEY_PWD="${{ secrets.KEY_PASSWORD }}"
+            if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
+            if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
+
+            if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+              echo "Decoding KEYSTORE_BASE64 from GitHub secret..."
+              echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+              echo "Decoding keystore_base64.txt..."
+              base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+              echo "Generating fallback upload keystore..."
+              keytool -genkeypair -v \
+                -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
+                -alias "upload" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -storepass "$STORE_PWD" \
+                -keypass "$KEY_PWD" \
+                -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
+            fi
+
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=$STORE_PWD" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$KEY_PWD" >> $GITHUB_ENV
+          fi
+
+      # -----------------------------------------------------------
+      # 2. DEBUG APK (Auto on Push/PR, or manual 'debug' / 'all')
+      # -----------------------------------------------------------
+      - name: Build Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'all' }}
+        run: ./gradlew assembleDebug --stacktrace
 
       # -----------------------------------------------------------
       # 3. RELEASE APK (Only via manual workflow dispatch)
       # -----------------------------------------------------------
       - name: Build Release APK
         if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all') }}
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --stacktrace
 
       # -----------------------------------------------------------
       # 4. RELEASE BUNDLE (AAB) (Only via manual workflow dispatch)
       # -----------------------------------------------------------
       - name: Build Release Bundle (AAB for Play Store)
         if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}
-        run: ./gradlew bundleRelease --no-daemon --stacktrace
+        run: ./gradlew bundleRelease --stacktrace
 
       # -----------------------------------------------------------
       # 5. ORGANIZE & UPLOAD ARTIFACTS
@@ -147,4 +208,4 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Package Name:** \`com.maxbird.ff.app\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Event:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
