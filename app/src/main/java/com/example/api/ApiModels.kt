@@ -542,7 +542,14 @@ data class StudentLessonItem(
         }
 
     val isLive: Boolean
-        get() = !isExam && (isLiveNow || live_class?.is_on_going == true)
+        get() {
+            if (isExam) return false
+            val endMs = classEndMs
+            if (endMs != Long.MAX_VALUE && System.currentTimeMillis() > endMs) {
+                return false
+            }
+            return isLiveNow || live_class?.is_on_going == true
+        }
 
     val isRecorded: Boolean
         get() = !isExam && !isLiveNow && !isUpcoming && (

@@ -43,26 +43,30 @@ data class HomeUiState(
     val programPhases: List<PhaseItem> = emptyList()
 ) {
     /**
-     * Filtered weekly routine containing only lessons matching the selected subjects
-     * If no subjects are explicitly selected, shows all routine lessons by default.
+     * Filtered weekly routine containing only lessons matching the selected subjects.
+     * By default, all subjects are selected. If a subject is unselected in the subject filter,
+     * its lessons will be excluded here.
      */
     val filteredWeeklyRoutine: List<StudentLessonItem>
         get() {
+            if (selectedSubjectCodes.isEmpty() && courseSubjects.isNotEmpty()) {
+                return emptyList()
+            }
             if (selectedSubjectCodes.isEmpty()) return weeklyRoutine
+
             val filtered = weeklyRoutine.filter { lesson ->
-                val code = lesson.subject_id ?: ""
-                val name = lesson.subject_name ?: ""
-                // Match by subject code, subject_id, or subject name / display_bn
+                val code = lesson.subject_id ?: lesson.live_class?.subject_id ?: ""
+                val name = lesson.subject_name ?: lesson.live_class?.subject_name ?: ""
                 selectedSubjectCodes.any { selected ->
                     selected.equals(code, ignoreCase = true) ||
                     selected.equals(name, ignoreCase = true) ||
                     courseSubjects.any { sub -> 
-                        (sub.code.equals(selected, ignoreCase = true) || sub.display_bn.equals(selected, ignoreCase = true)) &&
-                        (sub.code.equals(code, ignoreCase = true) || sub.display_bn.equals(name, ignoreCase = true) || (sub.display_bn != null && name.contains(sub.display_bn, ignoreCase = true)))
+                        (sub.code.equals(selected, ignoreCase = true) || (sub.display_bn != null && sub.display_bn.equals(selected, ignoreCase = true))) &&
+                        (sub.code.equals(code, ignoreCase = true) || (sub.display_bn != null && (name.contains(sub.display_bn, ignoreCase = true) || code.contains(sub.code ?: "", ignoreCase = true))))
                     }
                 }
             }
-            return if (filtered.isEmpty() && weeklyRoutine.isNotEmpty()) weeklyRoutine else filtered
+            return filtered
         }
 }
 
@@ -272,13 +276,15 @@ class HomeViewModel(
             // Deduplicate by code
             val distinctSubjects = subjectsList.distinctBy { it.code ?: it.display_bn }
             
-            // Load saved preference
-            val savedSelection = sessionManager.getSelectedSubjectCodes(program.id) ?: emptySet()
+            // Load saved preference; if user has not customized yet (savedSelection == null), default ALL subjects selected!
+            val savedSelection = sessionManager.getSelectedSubjectCodes(program.id)
+            val allCodes = distinctSubjects.mapNotNull { it.code ?: it.display_bn }.toSet()
+            val effectiveSelection = savedSelection ?: if (_uiState.value.selectedSubjectCodes.isNotEmpty()) _uiState.value.selectedSubjectCodes else allCodes
 
             _uiState.value = _uiState.value.copy(
                 courseSubjects = distinctSubjects,
                 isCourseSubjectsLoading = false,
-                selectedSubjectCodes = if (savedSelection.isNotEmpty()) savedSelection else _uiState.value.selectedSubjectCodes
+                selectedSubjectCodes = effectiveSelection
             )
         }
     }
@@ -435,15 +441,17 @@ class HomeViewModel(
             val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||
                     allPrograms.any { it.enrollment_details?.is_active == true }
 
-            val activeSavedSubjects = if (active != null) sessionManager.getSelectedSubjectCodes(active.id) ?: emptySet() else emptySet()
+            val activeSavedSubjects = if (active != null) sessionManager.getSelectedSubjectCodes(active.id) else null
             val activeInitialSubjects = active?.subjects?.map {
                 AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon)
             } ?: emptyList()
+            val initialCodes = activeInitialSubjects.mapNotNull { it.code ?: it.display_bn }.toSet()
+            val initialSelected = activeSavedSubjects ?: initialCodes
 
             _uiState.value = _uiState.value.copy(
                 enrolledPrograms = allPrograms,
                 activeProgram = active,
-                selectedSubjectCodes = activeSavedSubjects,
+                selectedSubjectCodes = initialSelected,
                 courseSubjects = activeInitialSubjects,
                 isPremium = hasActiveEnrollment,
                 isLoading = false,

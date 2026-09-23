@@ -206,6 +206,20 @@ class SessionManager(context: Context) {
         _themeModeFlow.value = mode
     }
 
+    // Class Notification Lead Time (Default 25 minutes)
+    private val _classNotificationLeadTimeFlow = kotlinx.coroutines.flow.MutableStateFlow(getClassNotificationLeadTimeMinutes())
+    val classNotificationLeadTimeFlow: kotlinx.coroutines.flow.StateFlow<Int> = _classNotificationLeadTimeFlow
+
+    fun getClassNotificationLeadTimeMinutes(): Int {
+        return sharedPreferences.getInt("class_notification_lead_time_minutes", 25)
+    }
+
+    fun setClassNotificationLeadTimeMinutes(minutes: Int) {
+        val validMinutes = if (minutes in listOf(5, 10, 15, 20, 25, 30, 45, 60)) minutes else 25
+        sharedPreferences.edit().putInt("class_notification_lead_time_minutes", validMinutes).apply()
+        _classNotificationLeadTimeFlow.value = validMinutes
+    }
+
     // Account Completion Status
     fun setAccountComplete(completed: Boolean) {
         sharedPreferences.edit().putBoolean("is_account_completed", completed).apply()

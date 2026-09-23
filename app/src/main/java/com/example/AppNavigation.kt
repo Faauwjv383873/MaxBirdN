@@ -88,6 +88,7 @@ object Routes {
     const val PRACTICE_QUIZ_PLAYER = "practice_quiz_player/{sessionId}"
     const val PRACTICE_QUIZ_RESULT = "practice_quiz_result/{sessionId}"
     const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
+    const val NOTIFICATION_SETTINGS = "notification_settings"
 }
 
 // ============================================================
@@ -406,12 +407,27 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
                     navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
                 },
-                onNavigateToNotificationHistory = {},
+                onNavigateToNotificationHistory = {
+                    navController.navigate(Routes.NOTIFICATION_SETTINGS)
+                },
+                onNavigateToNotification = {
+                    navController.navigate(Routes.NOTIFICATION_SETTINGS)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        animatedComposable(Routes.NOTIFICATION_SETTINGS, anim = NavAnim.forward) {
+            NotificationSettingsScreen(
+                sessionManager = sessionManager,
+                homeViewModel = homeViewModel,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }

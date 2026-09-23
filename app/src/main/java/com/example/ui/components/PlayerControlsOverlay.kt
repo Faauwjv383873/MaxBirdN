@@ -217,7 +217,7 @@ fun PlayerControlsOverlay(
                     // Left: Back Button + Badges + Title
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1.2f)
                     ) {
                         Surface(
                             shape = CircleShape,
@@ -243,7 +243,7 @@ fun PlayerControlsOverlay(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.weight(1f)
                         ) {
                             when (effectiveClassType) {
                                 com.example.player.PlayerClassType.LIVE -> {
@@ -327,7 +327,9 @@ fun PlayerControlsOverlay(
 
                     // Right: Modern Glass Pills Action Strip
                     Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .weight(0.8f)
+                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {

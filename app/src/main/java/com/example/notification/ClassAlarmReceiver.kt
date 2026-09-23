@@ -17,11 +17,13 @@ class ClassAlarmReceiver : BroadcastReceiver() {
         val subjectName = intent.getStringExtra("subject_name") ?: "কোর্স"
         val lessonTitle = intent.getStringExtra("lesson_title") ?: "লাইভ ক্লাস"
         val lessonId = intent.getStringExtra("lesson_id") ?: ""
+        val classStartTimeStr = intent.getStringExtra("class_start_time_str") ?: "নির্দিষ্ট সময়ে"
+        val leadTimeMinutes = intent.getIntExtra("lead_time_minutes", 25)
 
         Log.d("ClassAlarmReceiver", "🚨 Alarm triggered for $subjectName: $lessonTitle")
 
-        val title = "🔥 $subjectName ক্লাস শুরু!"
-        val body = "হ্যালো! তোমার $subjectName এর $lessonTitle ক্লাসটি শুরু হয়ে গেছে! এখনই জয়েন করো! 🚀"
+        val title = "⏰ $subjectName ক্লাস রিমাইন্ডার"
+        val body = "আপনার $subjectName ($lessonTitle) ক্লাস $classStartTimeStr এ শুরু হবে, রেডি হন! 🚀"
 
         ClassAlarmScheduler.createNotificationChannel(context)
         val notificationManager = NotificationManagerCompat.from(context)

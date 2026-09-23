@@ -61,11 +61,13 @@ fun SettingsScreen(
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToReportCard: () -> Unit = {},
+    onNavigateToNotification: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val currentThemeMode by sessionManager.themeModeFlow.collectAsState()
+    val currentLeadTime by sessionManager.classNotificationLeadTimeFlow.collectAsState()
     var showThemeDialog by remember { mutableStateOf(false) }
 
     val userName = remember { sessionManager.getUserFullName() ?: "শিক্ষার্থী" }
@@ -154,7 +156,8 @@ fun SettingsScreen(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (!userAvatar.isNullOrBlank()) {
+                        val isValidUrl = !userAvatar.isNullOrBlank() && (userAvatar.startsWith("http://") || userAvatar.startsWith("https://"))
+                        if (isValidUrl) {
                             SubcomposeAsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(userAvatar)
@@ -164,21 +167,31 @@ fun SettingsScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,
                                 error = {
-                                    Text(
-                                        text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
-                                        color = Color.White,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
+                                            color = Color.White,
+                                            fontSize = 24.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             )
                         } else {
-                            Text(
-                                text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
-                                color = Color.White,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
+                                    color = Color.White,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
@@ -298,7 +311,19 @@ fun SettingsScreen(
             }
 
             // App Preferences & Theme Section
-            SettingsSection(title = "অ্যাপ প্রেফারেন্স ও থিম") {
+            SettingsSection(title = "অ্যাপ প্রেফারেন্স ও নোটিফিকেশন") {
+                SettingsRowItem(
+                    icon = Icons.Default.NotificationsActive,
+                    iconTint = Color(0xFFD97706),
+                    iconBg = Color(0xFFFEF3C7),
+                    title = "নোটিফিকেশন ও ক্লাস অ্যালার্ম",
+                    subtitle = "তারিখ অনুযায়ী সেট করা ক্লাস অ্যালার্ম ও $currentLeadTime মি. আগের রিমাইন্ডার",
+                    badge = "নোটিফিকেশন",
+                    onClick = onNavigateToNotification
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
                 SettingsRowItem(
                     icon = Icons.Default.DarkMode,
                     iconTint = Color(0xFF6366F1),

@@ -52,6 +52,12 @@ object ClassAlarmScheduler {
         }
         val currentTime = System.currentTimeMillis()
 
+        val sessionManager = com.example.auth.SessionManager(context)
+        val leadTimeMinutes = sessionManager.getClassNotificationLeadTimeMinutes()
+        val leadTimeMillis = leadTimeMinutes * 60 * 1000L
+
+        val timeFormatBn = SimpleDateFormat("hh:mm a", Locale("bn", "BD"))
+
         for ((index, lesson) in lessons.withIndex()) {
             val startTimeStr = lesson.start_time ?: lesson.live_class?.start_time ?: continue
             val lessonTitle = lesson.title ?: lesson.live_class?.chapter_name ?: "লাইভ ক্লাস"
@@ -60,16 +66,26 @@ object ClassAlarmScheduler {
 
             try {
                 val date = isoFormat.parse(startTimeStr) ?: continue
-                val triggerTime = date.time
+                val classStartTimeMillis = date.time
+                val alarmTriggerTime = classStartTimeMillis - leadTimeMillis
 
-                if (triggerTime > currentTime) {
+                if (alarmTriggerTime > currentTime) {
                     val requestCode = (lessonId.hashCode() + index) % 1000000
                     scheduledIds.add(requestCode)
+
+                    val classStartTimeDisplay = try {
+                        val formatted = timeFormatBn.format(date)
+                        formatted.replace("AM", "সকাল").replace("PM", "সন্ধ্যা/রাত")
+                    } catch (_: Exception) {
+                        "নির্দিষ্ট সময়ে"
+                    }
 
                     val intent = Intent(context, ClassAlarmReceiver::class.java).apply {
                         putExtra("subject_name", subjectName)
                         putExtra("lesson_title", lessonTitle)
                         putExtra("lesson_id", lessonId)
+                        putExtra("class_start_time_str", classStartTimeDisplay)
+                        putExtra("lead_time_minutes", leadTimeMinutes)
                     }
 
                     val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -87,17 +103,17 @@ object ClassAlarmScheduler {
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         if (alarmManager.canScheduleExactAlarms()) {
-                            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarmTriggerTime, pendingIntent)
                         } else {
-                            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                            alarmManager.set(AlarmManager.RTC_WAKEUP, alarmTriggerTime, pendingIntent)
                         }
                     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarmTriggerTime, pendingIntent)
                     } else {
-                        alarmManager.set(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                        alarmManager.set(AlarmManager.RTC_WAKEUP, alarmTriggerTime, pendingIntent)
                     }
 
-                    Log.d(TAG, "⏰ Scheduled alarm for $subjectName: $lessonTitle at ${Date(triggerTime)}")
+                    Log.d(TAG, "⏰ Scheduled alarm ($leadTimeMinutes mins before) for $subjectName: $lessonTitle at ${Date(alarmTriggerTime)}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing start time '$startTimeStr': ${e.message}")
