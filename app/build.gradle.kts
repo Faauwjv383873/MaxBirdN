@@ -12,11 +12,10 @@ plugins {
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
-  buildToolsVersion = "36.0.0"
 
   defaultConfig {
     applicationId = "com.aistudio.maxbird.bxklpq"
-    minSdk = 28
+    minSdk = 24
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
@@ -27,28 +26,16 @@ android {
   signingConfigs {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      val keystoreFile = file(keystorePath)
-      if (keystoreFile.exists() && keystoreFile.length() > 0) {
-        storeFile = keystoreFile
-        storePassword = System.getenv("STORE_PASSWORD")?.takeIf { it.isNotEmpty() } ?: ""
-        keyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotEmpty() } ?: "upload"
-        keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotEmpty() } ?: ""
-      } else {
-        storeFile = file("${rootDir}/debug.keystore")
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
-      }
-      enableV1Signing = true
-      enableV2Signing = true
+      storeFile = file(keystorePath)
+      storePassword = System.getenv("STORE_PASSWORD")
+      keyAlias = "upload"
+      keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"
-      enableV1Signing = true
-      enableV2Signing = true
     }
   }
 
@@ -61,19 +48,9 @@ android {
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
-
-  packaging {
-    resources {
-      excludes += "/META-INF/{AL2.0,LGPL2.1}"
-      excludes += "META-INF/DEPENDENCIES"
-      excludes += "META-INF/LICENSE"
-      excludes += "META-INF/LICENSE.txt"
-      excludes += "META-INF/NOTICE"
-    }
-  }
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
   }
   buildFeatures {
     compose = true
@@ -83,10 +60,6 @@ android {
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
-  }
-  lint {
-    abortOnError = false
-    checkReleaseBuilds = false
   }
 }
 

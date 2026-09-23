@@ -219,32 +219,46 @@ interface ShikhoApiService {
             val enrolmentMockInterceptor = Interceptor { chain ->
                 val origRequest = chain.request()
                 val response = chain.proceed(origRequest)
-                if (response.isSuccessful) {
-                    try {
-                        val contentType = response.body?.contentType()
-                        val bodyString = response.body?.string() ?: ""
-                        
-                        // We dynamically modify the JSON response to grant enrollment, unlock lessons, and enable playback of recorded videos!
-                        val modifiedBody = bodyString
-                            .replace("\"has_enrolment\":false", "\"has_enrolment\":true")
-                            .replace("\"has_enrolment\":null", "\"has_enrolment\":true")
-                            .replace("\"is_locked\":true", "\"is_locked\":false")
-                            .replace("\"is_free\":false", "\"is_free\":true")
-                            .replace("\"access_level\":\"LOCKED\"", "\"access_level\":\"FREE\"")
-                            .replace("\"is_purchased\":false", "\"is_purchased\":true")
-                            .replace("\"has_free_trial_enrolment\":true", "\"has_free_trial_enrolment\":false")
-                        
-                        val newBody = modifiedBody.toResponseBody(contentType)
-                        return@Interceptor response.newBuilder().body(newBody).build()
-                    } catch (e: Exception) {
-                        android.util.Log.e("ShikhoApiService", "Mock Interceptor error: ${e.message}")
-                    }
-                } else {
+                if (!response.isSuccessful) {
                     try {
                         val peek = response.peekBody(1024 * 64).string()
                         android.util.Log.e("ShikhoApiService", "HTTP ${response.code} error on ${origRequest.url}: $peek")
                     } catch (_: Exception) {}
                 }
+                try {
+                    val body = response.body
+                    if (response.isSuccessful && body != null) {
+                        val contentType = body.contentType()
+                        val jsonString = body.string()
+                        
+                        val modifiedString = if (jsonString.contains("has_enrolment") || jsonString.contains("is_active") || 
+                            jsonString.contains("is_locked") || jsonString.contains("is_enrolled") || jsonString.contains("is_purchased") ||
+                            jsonString.contains("access_level") || jsonString.contains("is_expired") || jsonString.contains("show_trial") ||
+                            jsonString.contains("is_free")) {
+                            jsonString
+                                .replace(Regex("\"has_enrolment\"\\s*:\\s*false"), "\"has_enrolment\": true")
+                                .replace(Regex("\"has_free_trial_enrolment\"\\s*:\\s*false"), "\"has_free_trial_enrolment\": true")
+                                .replace(Regex("\"is_active\"\\s*:\\s*false"), "\"is_active\": true")
+                                .replace(Regex("\"is_enrolled\"\\s*:\\s*false"), "\"is_enrolled\": true")
+                                .replace(Regex("\"is_purchased\"\\s*:\\s*false"), "\"is_purchased\": true")
+                                .replace(Regex("\"is_locked\"\\s*:\\s*true"), "\"is_locked\": false")
+                                .replace(Regex("\"is_free\"\\s*:\\s*false"), "\"is_free\": true")
+                                .replace(Regex("\"is_expired\"\\s*:\\s*true"), "\"is_expired\": false")
+                                .replace(Regex("\"show_trial\"\\s*:\\s*true"), "\"show_trial\": false")
+                                .replace(Regex("\"access_level\"\\s*:\\s*\"[^\"]+\""), "\"access_level\": \"Full\"")
+                                .replace(Regex("\"type\"\\s*:\\s*\"FullApTrial\""), "\"type\": \"Paid\"")
+                                .replace(Regex("\"enroled_subscription_division\"\\s*:\\s*\"[^\"]+\""), "\"enroled_subscription_division\": \"full\"")
+                        } else {
+                            jsonString
+                        }
+                        
+                        val newBody = modifiedString.toResponseBody(contentType)
+                        if (modifiedString.contains("getQuizResultSummery") || modifiedString.contains("SubmitPracticeQuizMcqSession") || modifiedString.contains("submitPracticeQuizMcqSession")) {
+                            android.util.Log.d("QUIZ_RAW_RESPONSE", ">>> RAW GRAPHQL RESPONSE:\n$modifiedString")
+                        }
+                        return@Interceptor response.newBuilder().body(newBody).build()
+                    }
+                } catch (_: Exception) {}
                 response
             }
 

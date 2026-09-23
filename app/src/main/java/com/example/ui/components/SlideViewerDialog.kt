@@ -4,18 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.view.ViewGroup
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,22 +22,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
+import java.net.URLEncoder
 
 @Composable
 fun SlideViewerDialog(
@@ -57,90 +50,31 @@ fun SlideViewerDialog(
     val downloadedItem by downloadManager.getDownloadedItemById(downloadId).collectAsState(initial = null)
 
     var isLoading by remember { mutableStateOf(true) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var hasError by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableFloatStateOf(0f) }
-    var localPdfFile by remember { mutableStateOf<File?>(null) }
 
-    val isLocalFile = remember(localPdfFile) {
-        localPdfFile != null
-    }
-
-    // Proactive reactive download to cache (if not already downloaded in vaulted storage)
-    LaunchedEffect(slideUrl, downloadedItem) {
+    val effectiveUrl = remember(slideUrl, downloadedItem) {
         if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) {
             val file = File(downloadedItem!!.localFilePath)
-            if (file.exists() && file.length() > 0) {
-                localPdfFile = file
-                isLoading = false
-                hasError = false
-                return@LaunchedEffect
-            }
+            if (file.exists() && file.length() > 0) file.absolutePath else slideUrl
+        } else {
+            slideUrl
         }
+    }
 
-        // Check if there is already a completely cached version of this file
-        val cacheFile = File(context.cacheDir, "temp_pdf_${slideUrl.hashCode().toString().replace("-", "n")}.pdf")
-        if (cacheFile.exists() && cacheFile.length() > 0) {
-            localPdfFile = cacheFile
-            isLoading = false
-            hasError = false
-            return@LaunchedEffect
-        }
+    val isLocalFile = remember(effectiveUrl) {
+        effectiveUrl.startsWith("/") || effectiveUrl.startsWith("file://")
+    }
 
-        // Start caching download
-        isLoading = true
-        hasError = false
-        downloadProgress = 0f
-
-        withContext(Dispatchers.IO) {
+    val viewerUrl = remember(effectiveUrl, isLocalFile) {
+        if (isLocalFile) {
+            if (effectiveUrl.startsWith("file://")) effectiveUrl else "file://$effectiveUrl"
+        } else {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(40, java.util.concurrent.TimeUnit.SECONDS)
-                    .followRedirects(true)
-                    .build()
-
-                val request = okhttp3.Request.Builder()
-                    .url(slideUrl)
-                    .build()
-
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    throw IOException("HTTP ${response.code}")
-                }
-
-                val body = response.body ?: throw IOException("Empty body")
-                val totalBytes = body.contentLength()
-                val inputStream = body.byteStream()
-                
-                // Save to a temporary suffix file, then rename to atomic safe complete
-                val tempFile = File(context.cacheDir, "temp_pdf_${slideUrl.hashCode().toString().replace("-", "n")}.pdf.tmp")
-                val outputStream = FileOutputStream(tempFile)
-                val buffer = ByteArray(16384)
-                var bytesRead: Int
-                var totalRead: Long = 0
-
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputStream.write(buffer, 0, bytesRead)
-                    totalRead += bytesRead
-                    if (totalBytes > 0) {
-                        downloadProgress = totalRead.toFloat() / totalBytes
-                    }
-                }
-
-                outputStream.flush()
-                outputStream.close()
-                inputStream.close()
-
-                if (tempFile.renameTo(cacheFile) || cacheFile.exists()) {
-                    localPdfFile = cacheFile
-                } else {
-                    localPdfFile = tempFile
-                }
-                isLoading = false
-            } catch (e: Exception) {
-                e.printStackTrace()
-                hasError = true
-                isLoading = false
+                val encoded = URLEncoder.encode(effectiveUrl, "UTF-8")
+                "https://docs.google.com/gview?embedded=true&url=$encoded"
+            } catch (_: Exception) {
+                effectiveUrl
             }
         }
     }
@@ -155,13 +89,13 @@ fun SlideViewerDialog(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF1F5F9))
+                .background(Color(0xFFF8FAFC))
         ) {
             // Header Bar
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 3.dp
+                shadowElevation = 2.dp
             ) {
                 Row(
                     modifier = Modifier
@@ -191,10 +125,10 @@ fun SlideViewerDialog(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) "অফলাইন সংরক্ষিত লেকচার স্লাইড" else "পিডিএফ লেকচার স্লাইড ভিউয়ার",
+                                text = if (isLocalFile) "অফলাইন সংরক্ষিত লেকচার স্লাইড" else "পিডিএফ লেকচার স্লাইড ভিউয়ার",
                                 fontSize = 11.sp,
-                                color = if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (downloadedItem?.status == DownloadedItemEntity.STATUS_COMPLETED) FontWeight.SemiBold else FontWeight.Normal
+                                color = if (isLocalFile) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (isLocalFile) FontWeight.SemiBold else FontWeight.Normal
                             )
                         }
                     }
@@ -278,17 +212,64 @@ fun SlideViewerDialog(
                 }
             }
 
-            // PDF Render Area
+            // Webview Content Area
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .weight(1f)
-                    .background(Color(0xFFE2E8F0)),
+                    .background(Color(0xFFF8FAFC)),
                 contentAlignment = Alignment.Center
             ) {
-                if (localPdfFile != null) {
-                    NativePdfViewer(file = localPdfFile!!)
-                } else if (isLoading) {
+                AndroidView(
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                loadWithOverviewMode = true
+                                useWideViewPort = true
+                                builtInZoomControls = true
+                                displayZoomControls = false
+                                setSupportZoom(true)
+                                allowFileAccess = true
+                                allowContentAccess = true
+                                cacheMode = WebSettings.LOAD_DEFAULT
+                            }
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    isLoading = true
+                                    hasError = false
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    isLoading = false
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    errorCode: Int,
+                                    description: String?,
+                                    failingUrl: String?
+                                ) {
+                                    super.onReceivedError(view, errorCode, description, failingUrl)
+                                    isLoading = false
+                                    hasError = true
+                                }
+                            }
+                            loadUrl(viewerUrl)
+                            webViewRef = this
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                if (isLoading) {
                     Card(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
@@ -296,32 +277,24 @@ fun SlideViewerDialog(
                         modifier = Modifier.padding(24.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(20.dp),
+                            modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             CircularProgressIndicator(
-                                progress = { downloadProgress },
-                                color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = 3.dp,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp
                             )
-                            Column {
-                                Text(
-                                    text = "স্লাইড লোড হচ্ছে...",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "ডাউনলোড হচ্ছে: ${(downloadProgress * 100).toInt()}%",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = "স্লাইড লোড হচ্ছে...",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
-                } else if (hasError) {
+                }
+
+                if (hasError) {
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -387,116 +360,6 @@ fun SlideViewerDialog(
     }
 }
 
-@Composable
-fun NativePdfViewer(file: File, modifier: Modifier = Modifier) {
-    val fileDescriptor = remember(file) {
-        try {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    val pdfRenderer = remember(fileDescriptor) {
-        if (fileDescriptor != null) {
-            try {
-                PdfRenderer(fileDescriptor)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
-            }
-        } else null
-    }
-
-    DisposableEffect(pdfRenderer, fileDescriptor) {
-        onDispose {
-            try {
-                pdfRenderer?.close()
-                fileDescriptor?.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    if (pdfRenderer == null) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "পিডিএফ স্লাইড ভিউয়ার শুরু করা যাচ্ছে না।",
-                fontSize = 14.sp,
-                color = Color.Red,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    } else {
-        val pageCount = pdfRenderer.pageCount
-        LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color(0xFFE2E8F0)),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(pageCount) { index ->
-                NativePdfPageItem(pdfRenderer = pdfRenderer, pageIndex = index)
-            }
-        }
-    }
-}
-
-@Composable
-fun NativePdfPageItem(pdfRenderer: PdfRenderer, pageIndex: Int, modifier: Modifier = Modifier) {
-    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
-
-    LaunchedEffect(pageIndex) {
-        withContext(Dispatchers.IO) {
-            try {
-                val page = pdfRenderer.openPage(pageIndex)
-                // Use a high-quality resolution (1200px wide for sharp texts)
-                val width = 1200
-                val height = (width.toFloat() / page.width * page.height).toInt()
-                val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-                bitmap = bmp
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .wrapContentHeight()
-            .padding(horizontal = 12.dp)
-            .background(Color.White, RoundedCornerShape(6.dp))
-            .border(0.5.dp, Color.LightGray, RoundedCornerShape(6.dp))
-            .padding(4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = "স্লাইড পৃষ্ঠা ${pageIndex + 1}",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-            }
-        }
-    }
-}
-
 private fun openSlideInExternalApp(context: Context, url: String) {
     try {
         val uri = Uri.parse(url)
@@ -525,3 +388,4 @@ private fun copySlideToClipboard(context: Context, url: String) {
         Toast.makeText(context, "স্লাইড লিংক কপি করা হয়েছে", Toast.LENGTH_SHORT).show()
     } catch (_: Exception) {}
 }
+

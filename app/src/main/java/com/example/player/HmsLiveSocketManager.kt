@@ -75,47 +75,6 @@ class HmsLiveSocketManager(
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
-    // 6. Live HLS Master Stream URL
-    private val _hlsStreamUrl = MutableStateFlow<String?>(null)
-    val hlsStreamUrl: StateFlow<String?> = _hlsStreamUrl.asStateFlow()
-
-    /**
-     * Recursively searches for the stream master URL under nested "variants" array in JSON response.
-     */
-    private fun recursivelyFindHlsUrl(json: Any) {
-        if (json is JSONObject) {
-            val keys = json.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                if (key == "variants") {
-                    val arr = json.optJSONArray("variants")
-                    if (arr != null) {
-                        for (i in 0 until arr.length()) {
-                            val obj = arr.optJSONObject(i)
-                            val url = obj?.optString("url", "") ?: ""
-                            if (url.isNotBlank() && url.startsWith("http") && url.contains(".m3u8")) {
-                                Log.d(TAG, "Recursively discovered HLS master URL from 100ms WebSocket: $url")
-                                _hlsStreamUrl.value = url
-                                return
-                            }
-                        }
-                    }
-                } else {
-                    try {
-                        val value = json.get(key)
-                        recursivelyFindHlsUrl(value)
-                    } catch (_: Exception) {}
-                }
-            }
-        } else if (json is JSONArray) {
-            for (i in 0 until json.length()) {
-                try {
-                    recursivelyFindHlsUrl(json.get(i))
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
     /**
      * Connect to 100ms Live Class WebSocket stream.
      */
@@ -131,7 +90,6 @@ class HmsLiveSocketManager(
         }
 
         disconnect()
-        _hlsStreamUrl.value = null
 
         currentPeerUuid = UUID.randomUUID().toString()
         currentRoomId = roomId
@@ -179,10 +137,6 @@ class HmsLiveSocketManager(
     private fun handleIncomingMessage(text: String) {
         try {
             val json = JSONObject(text)
-            
-            // Extract HLS stream URL from any nested structure in room state
-            recursivelyFindHlsUrl(json)
-
             val method = json.optString("method", "")
             val params = json.optJSONObject("params")
 
@@ -578,6 +532,5 @@ class HmsLiveSocketManager(
         _pinnedMessage.value = null
         _activePoll.value = null
         _viewerCount.value = 1
-        _hlsStreamUrl.value = null
     }
 }

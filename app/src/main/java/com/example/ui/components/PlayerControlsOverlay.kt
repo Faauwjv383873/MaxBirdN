@@ -64,8 +64,6 @@ fun PlayerControlsOverlay(
     onDownloadClick: () -> Unit = {},
     resizeMode: Int = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
     onToggleResizeMode: () -> Unit = {},
-    isBackgroundAudioActive: Boolean = false,
-    onToggleBackgroundAudio: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val effectiveClassType = remember(classType, isLive) {
@@ -308,32 +306,6 @@ fun PlayerControlsOverlay(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Background listening / Headphones Audio Mode button
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isBackgroundAudioActive) Color(0xFF10B981) else Color.White.copy(alpha = 0.2f),
-                            modifier = Modifier.clickable { onToggleBackgroundAudio() }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Headphones,
-                                    contentDescription = "শোনার মোড",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = if (isBackgroundAudioActive) "শোনার মোড: চালু" else "শোনার মোড",
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
                         // Picture in Picture (PiP) Button
                         Surface(
                             shape = RoundedCornerShape(6.dp),

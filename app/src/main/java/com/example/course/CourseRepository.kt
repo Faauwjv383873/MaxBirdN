@@ -356,13 +356,6 @@ class CourseRepository(
             live_class {
               id
               playback_url
-              recording_url
-              stream_url
-              hls_url
-              url
-              join_link
-              provider
-              hms_room_id
               start_time
               end_time
               type
@@ -626,10 +619,6 @@ class CourseRepository(
                     id
                     on_going
                     playback_url
-                    recording_url
-                    stream_url
-                    hls_url
-                    url
                     start_time
                     study_materials {
                       file_url
@@ -771,11 +760,6 @@ class CourseRepository(
                     join_link
                     provider
                     hms_room_id
-                    playback_url
-                    recording_url
-                    stream_url
-                    hls_url
-                    url
                     __typename
                   }
                 }

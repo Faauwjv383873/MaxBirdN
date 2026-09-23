@@ -1115,12 +1115,7 @@ data class JoinLiveClassData(
 data class JoinLiveClassPayload(
     val join_link: String? = null,
     val provider: String? = null,
-    val hms_room_id: String? = null,
-    val playback_url: String? = null,
-    val recording_url: String? = null,
-    val stream_url: String? = null,
-    val hls_url: String? = null,
-    val url: String? = null
+    val hms_room_id: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -1188,10 +1183,6 @@ data class AcademicProgramLiveClassItem(
     val title: String? = null,
     val class_type: String? = null,
     val playback_url: String? = null,
-    val recording_url: String? = null,
-    val stream_url: String? = null,
-    val hls_url: String? = null,
-    val url: String? = null,
     val start_time: String? = null,
     val end_time: String? = null,
     val on_going: Boolean? = false,
