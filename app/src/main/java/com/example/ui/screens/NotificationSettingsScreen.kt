@@ -59,6 +59,74 @@ data class ClassAlarmItem(
     var isEnabled: Boolean = true
 )
 
+fun triggerClassTestNotification(
+    context: Context,
+    subjectName: String,
+    lessonTitle: String,
+    classStartTimeDisplay: String,
+    leadTimeMinutes: Int
+) {
+    ClassAlarmScheduler.createNotificationChannel(context)
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    val title = "⏰ $subjectName ক্লাস রিমাইন্ডার"
+    val body = "আপনার $subjectName ($lessonTitle) ক্লাস $classStartTimeDisplay এ শুরু হবে, রেডি হন! 🚀"
+
+    val mainIntent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+    }
+
+    val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    } else {
+        PendingIntent.FLAG_UPDATE_CURRENT
+    }
+
+    val pendingIntent = PendingIntent.getActivity(
+        context,
+        (System.currentTimeMillis() % 10000).toInt(),
+        mainIntent,
+        pendingIntentFlags
+    )
+
+    val notification = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(title)
+        .setContentText(body)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setDefaults(NotificationCompat.DEFAULT_ALL)
+        .setAutoCancel(true)
+        .setContentIntent(pendingIntent)
+        .build()
+
+    val notificationId = (System.currentTimeMillis() % 100000).toInt()
+    notificationManager.notify(notificationId, notification)
+
+    Toast.makeText(context, "$subjectName রিমাইন্ডার টেস্ট পাঠানো হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
+}
+
+fun triggerGeneralTestNotification(context: Context) {
+    ClassAlarmScheduler.createNotificationChannel(context)
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    val title = "MaxBird - নোটিফিকেশন অ্যালার্ম সফল! 🔔"
+    val body = "আপনার ক্লাস অ্যালার্ম ও নোটিফিকেশন সিস্টেম সম্পূর্ণ প্রস্তুত! নির্ধারিত ক্লাস শুরুর আগে আপনাকে স্বয়ংক্রিয়ভাবে রিমাইন্ড দেওয়া হবে।"
+
+    val notification = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(title)
+        .setContentText(body)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setDefaults(NotificationCompat.DEFAULT_ALL)
+        .setAutoCancel(true)
+        .build()
+
+    notificationManager.notify(101, notification)
+    Toast.makeText(context, "টেস্ট নোটিফিকেশন তৈরি হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NotificationSettingsScreen(
@@ -76,101 +144,46 @@ fun NotificationSettingsScreen(
     val selectedSubjectCodes = homeUiState?.selectedSubjectCodes ?: emptySet()
     val courseSubjects = homeUiState?.courseSubjects ?: emptyList()
 
-    // Sample/Real Scheduled Alarms Grouped by Date - Strictly filtered by "সাবজেক্ট সাজাও" selection
+    // Dynamic Scheduled Alarms - Strictly filtered by routine, subject selection, and excluding past/expired classes
     val alarmList = remember(homeUiState?.weeklyRoutine, homeUiState?.filteredWeeklyRoutine, selectedSubjectCodes, courseSubjects) {
-        val rawLessons = homeUiState?.filteredWeeklyRoutine
+        val rawLessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine
+        val now = System.currentTimeMillis()
+
         if (!rawLessons.isNullOrEmpty()) {
-            rawLessons.mapIndexed { index, lesson ->
-                val subject = lesson.subject_name ?: lesson.live_class?.subject_name ?: "পদার্থবিজ্ঞান ১ম পত্র"
-                val title = lesson.title ?: lesson.live_class?.chapter_name ?: "নিউটনীয় বলবিদ্যা - লেকচার ১"
-                val dateStr = when (index % 3) {
-                    0 -> "আজ, ২৩ সেপ্টেম্বর ২০২৬"
-                    1 -> "আগামীকাল, ২৪ সেপ্টেম্বর ২০২৬"
-                    else -> "২৫ সেপ্টেম্বর ২০২৬"
+            rawLessons.mapNotNull { lesson ->
+                val startMs = lesson.classStartMs
+                val endMs = lesson.classEndMs
+
+                // Filter out past/expired lessons (classEndMs < now) so they vanish once finished
+                if (startMs == Long.MAX_VALUE || endMs < now) {
+                    return@mapNotNull null
                 }
-                val timeStr = when (index % 3) {
-                    0 -> "সকাল ০৭:০০ টা"
-                    1 -> "সকাল ১০:০০ টা"
-                    else -> "সন্ধ্যা ০৭:৩০ টা"
-                }
-                val hours = when (index % 3) {
-                    0 -> 7
-                    1 -> 10
-                    else -> 19
-                }
-                val mins = when (index % 3) {
-                    0 -> 0
-                    1 -> 0
-                    else -> 30
-                }
+
+                val subject = lesson.subject_name ?: lesson.live_class?.subject_name ?: "ক্লাস"
+                val title = lesson.title ?: lesson.live_class?.chapter_name ?: "লাইভ ক্লাস / পরীক্ষা"
+                
+                val dateDisplay = com.example.utils.formatLessonDateDetailed(lesson.start_time ?: lesson.live_class?.start_time)
+                
+                val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Dhaka")).apply { timeInMillis = startMs }
+                val hours = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                val mins = cal.get(java.util.Calendar.MINUTE)
+                
+                val period = if (hours < 12) "সকাল" else if (hours < 17) "দুপুর" else "সন্ধ্যা/রাত"
+                val displayHour = if (hours % 12 == 0) 12 else hours % 12
+                val timeStr = com.example.utils.toBengaliDigits("$period ${if (displayHour < 10) "০$displayHour" else displayHour}:${if (mins < 10) "০$mins" else mins} টা")
+
                 ClassAlarmItem(
-                    id = if (lesson.id.isNotBlank()) lesson.id else "lesson_$index",
+                    id = if (lesson.id.isNotBlank()) lesson.id else "lesson_$startMs",
                     subjectName = subject,
                     lessonTitle = title,
-                    dateDisplay = dateStr,
+                    dateDisplay = dateDisplay,
                     startTimeDisplay = timeStr,
                     classTimeHours = hours,
                     classTimeMinutes = mins
                 )
-            }.distinctBy { it.id }
-        } else if (selectedSubjectCodes.isEmpty() && courseSubjects.isNotEmpty()) {
-            // User explicitly unselected all subjects in "সাবজেক্ট সাজাও"
-            emptyList()
+            }.distinctBy { it.id }.sortedBy { it.id }
         } else {
-            // Default sample alarms if offline or loading - filtered strictly by selectedSubjectCodes
-            val allSamples = listOf(
-                ClassAlarmItem(
-                    id = "sample_1",
-                    subjectName = "পদার্থবিজ্ঞান ১ম পত্র",
-                    lessonTitle = "নিউটনীয় বলবিদ্যা - লাইভ ক্লাস",
-                    dateDisplay = "আজ, ২৩ সেপ্টেম্বর ২০২৬",
-                    startTimeDisplay = "সকাল ০৭:০০ টা",
-                    classTimeHours = 7,
-                    classTimeMinutes = 0
-                ),
-                ClassAlarmItem(
-                    id = "sample_2",
-                    subjectName = "রসায়ন ১ম পত্র",
-                    lessonTitle = "গুণগত রসায়ন - বিশেষ সংশোধন ক্লাস",
-                    dateDisplay = "আগামীকাল, ২৪ সেপ্টেম্বর ২০২৬",
-                    startTimeDisplay = "সকাল ১০:০০ টা",
-                    classTimeHours = 10,
-                    classTimeMinutes = 0
-                ),
-                ClassAlarmItem(
-                    id = "sample_3",
-                    subjectName = "উচ্চতর গণিত ১ম পত্র",
-                    lessonTitle = "ম্যাট্রিক্স ও নির্ণায়ক - সমস্যা সমাধান",
-                    dateDisplay = "২৫ সেপ্টেম্বর ২০২৬",
-                    startTimeDisplay = "সন্ধ্যা ০৭:৩০ টা",
-                    classTimeHours = 19,
-                    classTimeMinutes = 30
-                ),
-                ClassAlarmItem(
-                    id = "sample_4",
-                    subjectName = "জীববিজ্ঞান ১ম পত্র",
-                    lessonTitle = "কোষ ও এর গঠন - চূড়ান্ত মডেল টেস্ট",
-                    dateDisplay = "২৬ সেপ্টেম্বর ২০২৬",
-                    startTimeDisplay = "সকাল ০৮:০০ টা",
-                    classTimeHours = 8,
-                    classTimeMinutes = 0
-                )
-            )
-
-            if (selectedSubjectCodes.isNotEmpty() && courseSubjects.isNotEmpty()) {
-                allSamples.filter { sample ->
-                    selectedSubjectCodes.any { code ->
-                        code.equals(sample.subjectName, ignoreCase = true) ||
-                        sample.subjectName.contains(code, ignoreCase = true) ||
-                        courseSubjects.any { sub ->
-                            (sub.code.equals(code, ignoreCase = true) || (sub.display_bn != null && sub.display_bn.equals(code, ignoreCase = true))) &&
-                            (sub.display_bn != null && sample.subjectName.contains(sub.display_bn, ignoreCase = true))
-                        }
-                    }
-                }
-            } else {
-                allSamples
-            }
+            emptyList()
         }
     }
 
@@ -216,14 +229,15 @@ fun NotificationSettingsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
             // ==========================================
             // SECTION 1: Lead Time Selector Card
             // ==========================================
@@ -517,11 +531,45 @@ fun NotificationSettingsScreen(
                     alarmList.groupBy { it.dateDisplay }
                 }
 
-                groupedAlarms.forEach { (dateGroup, items) ->
-                    Column(
+                if (groupedAlarms.isEmpty()) {
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.EventAvailable,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = "কোনো আসন্ন ক্লাস বা পরীক্ষার অ্যালার্ম নেই",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "অতীতের ক্লাস বা অ্যালার্মসমূহ স্বয়ংক্রিয়ভাবে মুছে গেছে। নতুন কোনো ক্লাস বা পরীক্ষার শিডিউল যুক্ত হলে এখানে অ্যালার্ম দেখাবে।",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    groupedAlarms.forEach { (dateGroup, items) ->
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                         // Date Group Header Badge
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -759,88 +807,23 @@ fun NotificationSettingsScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
         }
-    }
 
-    if (homeViewModel != null && homeUiState?.showSubjectFilterDialog == true) {
-        com.example.ui.components.SubjectFilterDialog(
-            courseTitle = homeUiState.activeProgram?.title_bn ?: "সাবজেক্ট সাজাও",
-            subjects = homeUiState.courseSubjects,
-            selectedSubjectCodes = homeUiState.selectedSubjectCodes,
-            isLoading = homeUiState.isCourseSubjectsLoading,
-            isSaving = homeUiState.isSavingSubjectFilter,
-            onToggleSubject = { homeViewModel.toggleSubjectSelection(it) },
-            onSelectAll = { homeViewModel.selectAllSubjects() },
-            onClearAll = { homeViewModel.clearAllSubjectSelection() },
-            onSave = { homeViewModel.saveSubjectFilter() },
-            onDismiss = { homeViewModel.dismissSubjectFilterDialog() }
-        )
+        if (homeViewModel != null && homeUiState?.showSubjectFilterDialog == true) {
+            com.example.ui.components.SubjectFilterDialog(
+                courseTitle = homeUiState.activeProgram?.title_bn ?: "সাবজেক্ট সাজাও",
+                subjects = homeUiState.courseSubjects,
+                selectedSubjectCodes = homeUiState.selectedSubjectCodes,
+                isLoading = homeUiState.isCourseSubjectsLoading,
+                isSaving = homeUiState.isSavingSubjectFilter,
+                onToggleSubject = { homeViewModel.toggleSubjectSelection(it) },
+                onSelectAll = { homeViewModel.selectAllSubjects() },
+                onClearAll = { homeViewModel.clearAllSubjectSelection() },
+                onSave = { homeViewModel.saveSubjectFilter() },
+                onDismiss = { homeViewModel.dismissSubjectFilterDialog() }
+            )
+        }
     }
 }
-
-private fun triggerClassTestNotification(
-    context: Context,
-    subjectName: String,
-    lessonTitle: String,
-    classStartTimeDisplay: String,
-    leadTimeMinutes: Int
-) {
-    ClassAlarmScheduler.createNotificationChannel(context)
-    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    val title = "⏰ $subjectName ক্লাস রিমাইন্ডার"
-    val body = "আপনার $subjectName ($lessonTitle) ক্লাস $classStartTimeDisplay এ শুরু হবে, রেডি হন! 🚀"
-
-    val mainIntent = Intent(context, MainActivity::class.java).apply {
-        flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-    }
-
-    val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    } else {
-        PendingIntent.FLAG_UPDATE_CURRENT
-    }
-
-    val pendingIntent = PendingIntent.getActivity(
-        context,
-        (System.currentTimeMillis() % 10000).toInt(),
-        mainIntent,
-        pendingIntentFlags
-    )
-
-    val notification = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(title)
-        .setContentText(body)
-        .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setDefaults(NotificationCompat.DEFAULT_ALL)
-        .setAutoCancel(true)
-        .setContentIntent(pendingIntent)
-        .build()
-
-    val notificationId = (System.currentTimeMillis() % 100000).toInt()
-    notificationManager.notify(notificationId, notification)
-
-    Toast.makeText(context, "$subjectName রিমাইন্ডার টেস্ট পাঠানো হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
+}
 }
 
-private fun triggerGeneralTestNotification(context: Context) {
-    ClassAlarmScheduler.createNotificationChannel(context)
-    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    val title = "MaxBird - নোটিফিকেশন অ্যালার্ম সফল! 🔔"
-    val body = "আপনার ক্লাস অ্যালার্ম ও নোটিফিকেশন সিস্টেম সম্পূর্ণ প্রস্তুত! নির্ধারিত ক্লাস শুরুর আগে আপনাকে স্বয়ংক্রিয়ভাবে রিমাইন্ড দেওয়া হবে।"
-
-    val notification = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(title)
-        .setContentText(body)
-        .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setDefaults(NotificationCompat.DEFAULT_ALL)
-        .setAutoCancel(true)
-        .build()
-
-    notificationManager.notify(101, notification)
-    Toast.makeText(context, "টেস্ট নোটিফিকেশন তৈরি হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
-}

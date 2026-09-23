@@ -51,6 +51,10 @@ jobs:
       # 1. PREPARE ENVIRONMENT & KEYSTORES (MANDATORY BEFORE ANY BUILD)
       # -----------------------------------------------------------
       - name: Prepare Signing & Config
+        env:
+          KEYSTORE_BASE64_SECRET: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
         run: |
           # 1. Prepare Debug Keystore (Required for validateSigningDebug)
           if [ -f "$GITHUB_WORKSPACE/debug.keystore.base64" ]; then
@@ -74,14 +78,14 @@ jobs:
           # 2. Prepare Release Keystore (Only if Release / Bundle is requested)
           SHOULD_BUILD_RELEASE="${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}"
           if [ "$SHOULD_BUILD_RELEASE" = "true" ]; then
-            STORE_PWD="${{ secrets.STORE_PASSWORD }}"
-            KEY_PWD="${{ secrets.KEY_PASSWORD }}"
+            STORE_PWD="$STORE_PASSWORD_SECRET"
+            KEY_PWD="$KEY_PASSWORD_SECRET"
             if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
             if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
 
-            if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            if [ -n "$KEYSTORE_BASE64_SECRET" ]; then
               echo "Decoding KEYSTORE_BASE64 from GitHub secret..."
-              echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+              echo "$KEYSTORE_BASE64_SECRET" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
             elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
               echo "Decoding keystore_base64.txt..."
               base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
