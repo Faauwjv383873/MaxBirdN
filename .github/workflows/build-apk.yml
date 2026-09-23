@@ -115,17 +115,15 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon -Djava.awt.headless=true --stacktrace
 
       # -----------------------------------------------------------
-      # 3. RELEASE APK (Only via manual workflow dispatch)
+      # 3. RELEASE APK (Build on push)
       # -----------------------------------------------------------
       - name: Build Release APK
-        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all') }}
         run: ./gradlew assembleRelease --no-daemon -Djava.awt.headless=true --stacktrace
 
       # -----------------------------------------------------------
-      # 4. RELEASE BUNDLE (AAB) (Only via manual workflow dispatch)
+      # 4. RELEASE BUNDLE (AAB) (Build on push)
       # -----------------------------------------------------------
       - name: Build Release Bundle (AAB for Play Store)
-        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}
         run: ./gradlew bundleRelease --no-daemon -Djava.awt.headless=true --stacktrace
 
       # -----------------------------------------------------------

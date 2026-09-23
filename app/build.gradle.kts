@@ -32,7 +32,7 @@ android {
       if (!storePasswordEnv.isNullOrBlank() && file(keystorePath).exists()) {
         storeFile = file(keystorePath)
         storePassword = storePasswordEnv
-        keyAlias = "upload"
+        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
         keyPassword = keyPasswordEnv ?: storePasswordEnv
       } else {
         // Fallback to debug keystore if release keys are not provided
