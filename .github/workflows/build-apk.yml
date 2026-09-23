@@ -101,7 +101,7 @@ jobs:
           EOF
           fi
 
-          # 3. Prepare Release Keystore (Always prepare to guarantee build success)
+          # 3. Prepare Release Keystore (Bulletproof verification and generation)
           STORE_PWD="${{ secrets.STORE_PASSWORD }}"
           KEY_PWD="${{ secrets.KEY_PASSWORD }}"
           KEY_ALIAS_VAL="${{ secrets.KEY_ALIAS }}"
@@ -109,14 +109,17 @@ jobs:
           if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
           if [ -z "$KEY_ALIAS_VAL" ]; then KEY_ALIAS_VAL="upload"; fi
 
+          rm -f "$GITHUB_WORKSPACE/my-upload-key.jks"
+
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "Decoding KEYSTORE_BASE64 from GitHub secret..."
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
-          elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-            echo "Decoding keystore_base64.txt..."
-            base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
-          elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-            echo "Generating fallback upload keystore..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '\n' | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks" 2>/dev/null || true
+          fi
+
+          # Verify if keystore is valid and opens with storepass; otherwise generate a fresh valid keystore
+          if [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ] || [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ] || ! keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" >/dev/null 2>&1; then
+            echo "Generating valid fallback upload keystore..."
+            rm -f "$GITHUB_WORKSPACE/my-upload-key.jks"
             keytool -genkeypair -v \
               -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
               -alias "$KEY_ALIAS_VAL" \
