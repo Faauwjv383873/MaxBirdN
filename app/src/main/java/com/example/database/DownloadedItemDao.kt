@@ -21,6 +21,12 @@ interface DownloadedItemDao {
     @Query("SELECT * FROM downloaded_items WHERE id = :id")
     suspend fun getDownloadedItemByIdOnce(id: String): DownloadedItemEntity?
 
+    @Query("SELECT * FROM downloaded_items WHERE localFilePath = :path LIMIT 1")
+    suspend fun getDownloadedItemByPath(path: String): DownloadedItemEntity?
+
+    @Query("SELECT * FROM downloaded_items WHERE localFilePath = :path LIMIT 1")
+    fun getDownloadedItemByPathFlow(path: String): Flow<DownloadedItemEntity?>
+
     @Query("SELECT * FROM downloaded_items WHERE status = 'COMPLETED' ORDER BY createdAt DESC")
     fun getAllCompletedDownloads(): Flow<List<DownloadedItemEntity>>
 
