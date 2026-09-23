@@ -1,5 +1,7 @@
 package com.example.home
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -65,10 +67,11 @@ data class HomeUiState(
 }
 
 class HomeViewModel(
+    application: Application,
     private val apiService: ShikhoApiService,
     private val sessionManager: SessionManager,
     private val completedItemRepository: com.example.database.CompletedItemRepository? = null
-) : ViewModel() {
+) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(
         HomeUiState(
@@ -102,6 +105,8 @@ class HomeViewModel(
     }
 
     fun switchActiveCourse(program: EnrolledProgram) {
+        // Cancel all previous course alarms immediately
+        com.example.notification.ClassAlarmScheduler.cancelAllAlarms(getApplication())
         sessionManager.saveActiveProgram(
             programId = program.id,
             titleBn = program.title_bn,
@@ -425,7 +430,6 @@ class HomeViewModel(
                     batchId = active.enrollment_details?.batch_id,
                     classCode = active.classes?.firstOrNull()
                 )
-                com.example.notification.FcmTopicManager.subscribeProgramTopics(sessionManager, active.id)
             }
 
             val hasActiveEnrollment = active?.enrollment_details?.is_active == true ||
@@ -541,6 +545,7 @@ class HomeViewModel(
                 val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
 
                 com.example.course.LessonCacheManager.saveLessons(routineLessons, programId = programId)
+                com.example.notification.ClassAlarmScheduler.schedule7DayClassAlarms(getApplication(), programId, routineLessons)
 
                 // ৫. খালি আসলে খালিই থাকবে (যেমন Think AI তে খালি আসে), স্প্যাম কুয়েরি হবে না
                 _uiState.value = _uiState.value.copy(
@@ -654,6 +659,7 @@ class HomeViewModel(
 }
 
 class HomeViewModelFactory(
+    private val application: android.app.Application,
     private val apiService: ShikhoApiService,
     private val sessionManager: SessionManager,
     private val completedItemRepository: com.example.database.CompletedItemRepository? = null
@@ -661,7 +667,7 @@ class HomeViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-            return HomeViewModel(apiService, sessionManager, completedItemRepository = completedItemRepository) as T
+            return HomeViewModel(application, apiService, sessionManager, completedItemRepository = completedItemRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

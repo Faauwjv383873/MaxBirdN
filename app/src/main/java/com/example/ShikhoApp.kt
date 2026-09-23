@@ -2,9 +2,7 @@ package com.example
 
 import android.app.Application
 import android.util.Log
-import com.example.auth.SessionManager
-import com.example.notification.FcmTopicManager
-import com.example.notification.NotificationHelper
+import com.example.notification.ClassAlarmScheduler
 import com.google.firebase.FirebaseApp
 
 class ShikhoApp : Application() {
@@ -26,11 +24,7 @@ class ShikhoApp : Application() {
             Log.e(TAG, "❌ Failed to initialize FirebaseApp in ShikhoApp: ${e.message}", e)
         }
 
-        // 2. Ensure NotificationChannel is created right when app launches
-        NotificationHelper.createNotificationChannel(this)
-
-        // 3. Immediately synchronize and replace FCM topics in background
-        val sessionManager = SessionManager(this)
-        FcmTopicManager.syncAllTopics(sessionManager)
+        // 2. Ensure Class Alarm NotificationChannel is created right when app launches
+        ClassAlarmScheduler.createNotificationChannel(this)
     }
 }

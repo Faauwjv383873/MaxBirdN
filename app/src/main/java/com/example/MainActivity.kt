@@ -22,6 +22,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import com.example.notification.ClassAlarmScheduler
 import com.example.auth.SessionManager
 import com.example.ui.theme.MyApplicationTheme
 
@@ -36,7 +38,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // 1. Immediately create notification channel on startup
-        com.example.notification.NotificationHelper.createNotificationChannel(this)
+        ClassAlarmScheduler.createNotificationChannel(this)
 
         // 2. Verify Firebase is initialized correctly
         try {
@@ -106,7 +108,6 @@ class MainActivity : ComponentActivity() {
                     android.util.Log.d("MainActivity", "Fetched FCM Token: $token")
                     val sessionManager = SessionManager(applicationContext)
                     sessionManager.setFcmToken(token)
-                    com.example.notification.FcmTopicManager.syncAllTopics(sessionManager)
                 } else {
                     android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
                 }
@@ -118,11 +119,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Auto sync and replace topics every time the user opens or returns to the app
-        try {
-            val sessionManager = SessionManager(applicationContext)
-            com.example.notification.FcmTopicManager.syncAllTopics(sessionManager)
-        } catch (_: Exception) {}
     }
 
     override fun onPictureInPictureModeChanged(

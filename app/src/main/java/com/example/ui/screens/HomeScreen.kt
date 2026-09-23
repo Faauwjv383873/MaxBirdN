@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.EnrolledProgram
 import com.example.api.StudentLessonItem
-import com.example.database.NotificationHistoryRepository
 import com.example.home.HomeViewModel
 import com.example.ui.components.CourseProgressSection
 import com.example.ui.components.CourseSwitcherBottomSheet
@@ -60,9 +59,6 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
     val context = LocalContext.current
-    val unreadNotificationsCount by remember(context) {
-        NotificationHistoryRepository.getInstance(context).getUnreadCount()
-    }.collectAsState(initial = 0)
 
     // ===== LOGIC: Scroll-driven collapsible header (unchanged) =====
     var isHeaderVisible by remember { mutableStateOf(true) }
@@ -173,8 +169,10 @@ fun HomeScreen(
                 activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
                 onOpenCourseSwitcher = { viewModel.setCourseSwitcherVisible(true) },
                 onAvatarClick = { onNavigateToProfile() },
-                unreadNotificationCount = unreadNotificationsCount,
-                onNotificationClick = onNavigateToNotificationHistory
+                unreadNotificationCount = 0,
+                onNotificationClick = {
+                    android.widget.Toast.makeText(context, "আগামী ৭ দিনের ক্লাসের এলার্ম ও নোটিফিকেশন সেট করা আছে!", android.widget.Toast.LENGTH_SHORT).show()
+                }
             )
 
             Column(
