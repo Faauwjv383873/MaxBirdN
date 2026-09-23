@@ -101,37 +101,37 @@ jobs:
           EOF
           fi
 
-          # 3. Prepare Release Keystore (Only if Release / Bundle is requested)
-          SHOULD_BUILD_RELEASE="${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}"
-          if [ "$SHOULD_BUILD_RELEASE" = "true" ]; then
-            STORE_PWD="${{ secrets.STORE_PASSWORD }}"
-            KEY_PWD="${{ secrets.KEY_PASSWORD }}"
-            if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
-            if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
+          # 3. Prepare Release Keystore (Always prepare to guarantee build success)
+          STORE_PWD="${{ secrets.STORE_PASSWORD }}"
+          KEY_PWD="${{ secrets.KEY_PASSWORD }}"
+          KEY_ALIAS_VAL="${{ secrets.KEY_ALIAS }}"
+          if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
+          if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
+          if [ -z "$KEY_ALIAS_VAL" ]; then KEY_ALIAS_VAL="upload"; fi
 
-            if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-              echo "Decoding KEYSTORE_BASE64 from GitHub secret..."
-              echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
-            elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-              echo "Decoding keystore_base64.txt..."
-              base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
-            elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-              echo "Generating fallback upload keystore..."
-              keytool -genkeypair -v \
-                -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
-                -alias "upload" \
-                -keyalg RSA \
-                -keysize 2048 \
-                -validity 10000 \
-                -storepass "$STORE_PWD" \
-                -keypass "$KEY_PWD" \
-                -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
-            fi
-
-            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
-            echo "STORE_PASSWORD=$STORE_PWD" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=$KEY_PWD" >> $GITHUB_ENV
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Decoding KEYSTORE_BASE64 from GitHub secret..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+          elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+            echo "Decoding keystore_base64.txt..."
+            base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
+          elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+            echo "Generating fallback upload keystore..."
+            keytool -genkeypair -v \
+              -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
+              -alias "$KEY_ALIAS_VAL" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$STORE_PWD" \
+              -keypass "$KEY_PWD" \
+              -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
           fi
+
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+          echo "STORE_PASSWORD=$STORE_PWD" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=$KEY_PWD" >> $GITHUB_ENV
+          echo "KEY_ALIAS=$KEY_ALIAS_VAL" >> $GITHUB_ENV
 
       # -----------------------------------------------------------
       # 2. DEBUG APK (Auto on Push/PR, or manual 'debug' / 'all')
