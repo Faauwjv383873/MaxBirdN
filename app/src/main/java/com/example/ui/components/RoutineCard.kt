@@ -95,7 +95,8 @@ fun WeeklyRoutineSection(
     selectedSubjectsCount: Int = 0,
     totalSubjectsCount: Int = 0,
     selectedSubjectNames: List<String> = emptyList(),
-    onOpenLessonDetail: (StudentLessonItem) -> Unit = {}
+    onOpenLessonDetail: (StudentLessonItem) -> Unit = {},
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null
 ) {
     val dhakaZone = TimeZone.getTimeZone("Asia/Dhaka")
     val todayCal = Calendar.getInstance(dhakaZone)
@@ -366,7 +367,11 @@ fun WeeklyRoutineSection(
                         contentPadding = PaddingValues(end = 16.dp)
                     ) {
                         items(selectedDay.lessons) { lesson ->
-                            ShikhoRoutineCard(lesson = lesson, onClick = { onOpenLessonDetail(lesson) })
+                            ShikhoRoutineCard(
+                                lesson = lesson,
+                                onClick = { onOpenLessonDetail(lesson) },
+                                onNavigateToExam = onNavigateToExam
+                            )
                         }
                     }
                 }
@@ -485,7 +490,8 @@ fun WeeklyRoutineSection(
 fun ShikhoRoutineCard(
     lesson: StudentLessonItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null
 ) {
     // ===== LOGIC (হুবহু সেম) =====
     val startTime = lesson.start_time ?: lesson.live_class?.start_time
@@ -503,9 +509,11 @@ fun ShikhoRoutineCard(
     val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
     val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE)
     val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
+    val isExamNow = isExam && (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs)
 
     val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
     val classTypeLabel = when {
+        isExamNow -> "✍️ পরীক্ষা চলছে"
         isExam -> "✍️ পরীক্ষা (Exam)"
         else -> classTypeBadge.label
     }
@@ -513,6 +521,20 @@ fun ShikhoRoutineCard(
     val subjectName = lesson.subject_name ?: "বিষয়"
     val titleText = ClassTypeUtils.formatLessonTitle(lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস")
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
+
+    val handleCardClick = {
+        if (isExam && onNavigateToExam != null) {
+            val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
+                ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
+                ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                ?: lesson.id
+            val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson.title ?: "পরীক্ষা")
+            val chapterName = lesson.subject_name ?: ""
+            onNavigateToExam(sessionId, lesson.id, formattedTitle, chapterName)
+        } else {
+            onClick()
+        }
+    }
 
     // ===== NEW: press scale + live pulse =====
     val interaction = remember { MutableInteractionSource() }
@@ -535,15 +557,25 @@ fun ShikhoRoutineCard(
             .width(260.dp)
             .height(154.dp)
             .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .clickable(interactionSource = interaction, indication = null, onClick = handleCardClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isLiveNow) Color(0xFFFFF1F2) else subjectColors.backgroundColor.copy(alpha = 0.35f)
+            containerColor = when {
+                isLiveNow -> Color(0xFFFFF1F2)
+                isExamNow -> Color(0xFFFFFBEB)
+                isExam -> Color(0xFFFEF3C7).copy(alpha = 0.35f)
+                else -> subjectColors.backgroundColor.copy(alpha = 0.35f)
+            }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 5.dp else 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow || isExamNow) 5.dp else 2.dp),
         border = BorderStroke(
-            width = if (isLiveNow) 1.5.dp else 1.2.dp,
-            color = if (isLiveNow) Color(0xFFEF4444) else subjectColors.backgroundColor
+            width = if (isLiveNow || isExamNow) 1.5.dp else 1.2.dp,
+            color = when {
+                isLiveNow -> Color(0xFFEF4444)
+                isExamNow -> Color(0xFFF59E0B)
+                isExam -> Color(0xFFFCD34D)
+                else -> subjectColors.backgroundColor
+            }
         )
     ) {
         Row(modifier = Modifier.fillMaxHeight().fillMaxWidth()) {
@@ -553,8 +585,12 @@ fun ShikhoRoutineCard(
                     .width(5.dp)
                     .fillMaxHeight()
                     .background(
-                        if (isLiveNow) Brush.verticalGradient(listOf(Color(0xFFEF4444), Color(0xFFFB7185)))
-                        else Brush.verticalGradient(listOf(subjectColors.textColor, subjectColors.textColor.copy(alpha = 0.55f)))
+                        when {
+                            isLiveNow -> Brush.verticalGradient(listOf(Color(0xFFEF4444), Color(0xFFFB7185)))
+                            isExamNow -> Brush.verticalGradient(listOf(Color(0xFFF59E0B), Color(0xFFFBBF24)))
+                            isExam -> Brush.verticalGradient(listOf(Color(0xFFD97706), Color(0xFFF59E0B)))
+                            else -> Brush.verticalGradient(listOf(subjectColors.textColor, subjectColors.textColor.copy(alpha = 0.55f)))
+                        }
                     )
             )
 
@@ -579,36 +615,82 @@ fun ShikhoRoutineCard(
                         )
                     }
 
-                    // NEW: live badge with animated dot / অন্য badge সেম
+                    // Live / Exam / Class type badge
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (isLiveNow || isLive) Color(0xFFFEE2E2) else Color(0xFFE0F2FE)
+                        color = when {
+                            isLiveNow -> Color(0xFFFEE2E2)
+                            isExamNow || isExam -> Color(0xFFFEF3C7)
+                            isLive -> Color(0xFFFEE2E2)
+                            else -> classTypeBadge.backgroundColor
+                        }
                     ) {
-                        if (isLiveNow) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFEF4444))
-                                )
-                                Text("লাইভ চলছে", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                        when {
+                            isLiveNow -> {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEF4444))
+                                    )
+                                    Text("🔴 লাইভ চলছে", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                                }
                             }
-                        } else {
-                            Text(
-                                text = classTypeLabel,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isLive) Color(0xFFDC2626) else Color(0xFF0284C7),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            isExamNow -> {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFD97706))
+                                    )
+                                    Text("✍️ পরীক্ষা চলছে", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD97706))
+                                }
+                            }
+                            isExam -> {
+                                Text(
+                                    text = "✍️ পরীক্ষা (Exam)",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFD97706),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            isLive -> {
+                                Text(
+                                    text = "🔴 লাইভ ক্লাস",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFDC2626),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = classTypeBadge.label,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = classTypeBadge.textColor,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

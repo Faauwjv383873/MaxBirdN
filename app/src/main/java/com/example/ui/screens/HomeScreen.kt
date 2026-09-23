@@ -50,6 +50,7 @@ fun HomeScreen(
     onOpenCourse: (phaseId: String?) -> Unit = {},
     onOpenFullRoutine: () -> Unit = {},
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -216,7 +217,8 @@ fun HomeScreen(
                             selectedSubjectNames = selectedSubjectNames,
                             onSeeAllClick = { onOpenFullRoutine() },
                             onCustomizeSubjectsClick = { viewModel.openSubjectFilterDialog() },
-                            onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) }
+                            onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) },
+                            onNavigateToExam = onNavigateToExam
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))

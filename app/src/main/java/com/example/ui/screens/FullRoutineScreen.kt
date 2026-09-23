@@ -67,6 +67,7 @@ fun FullRoutineScreen(
     viewModel: HomeViewModel,
     onBack: () -> Unit,
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -469,7 +470,20 @@ fun FullRoutineScreen(
                         items(selectedDayLessons) { lesson ->
                             RoutineTimelineCard(
                                 lesson = lesson,
-                                onClick = { onOpenLessonDetail?.invoke(lesson) }
+                                onClick = {
+                                    if (lesson.isExam && onNavigateToExam != null) {
+                                        val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
+                                            ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
+                                            ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                                            ?: lesson.id
+                                        val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson.title ?: "পরীক্ষা")
+                                        val chapterName = lesson.subject_name ?: ""
+                                        onNavigateToExam(sessionId, lesson.id, formattedTitle, chapterName)
+                                    } else {
+                                        onOpenLessonDetail?.invoke(lesson)
+                                    }
+                                },
+                                onNavigateToExam = onNavigateToExam
                             )
                         }
                     }
@@ -715,7 +729,8 @@ private fun MonthYearSelectionDialog(
 @Composable
 private fun RoutineTimelineCard(
     lesson: StudentLessonItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null
 ) {
     // ===== LOGIC (হুবহু সেম) =====
     val st = lesson.start_time ?: lesson.live_class?.start_time
@@ -738,10 +753,12 @@ private fun RoutineTimelineCard(
     val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE)
 
     val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
+    val isExamNow = isExam && (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs)
 
     val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
     val typeText = when {
         isLiveNow -> "🔴 লাইভ চলছে"
+        isExamNow -> "✍️ পরীক্ষা চলছে"
         isExam -> "✍️ পরীক্ষা (Exam)"
         else -> classTypeBadge.label
     }
@@ -749,6 +766,20 @@ private fun RoutineTimelineCard(
     val subjectName = lesson.subject_name ?: "বিষয়"
     val titleText = ClassTypeUtils.formatLessonTitle(lesson.title ?: lesson.live_class?.chapter_name ?: "অনলাইন ক্লাস")
     val subjectColors = SubjectColorUtils.getColorScheme(subjectName)
+
+    val handleCardClick = {
+        if (isExam && onNavigateToExam != null) {
+            val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
+                ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
+                ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                ?: lesson.id
+            val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson.title ?: "পরীক্ষা")
+            val chapterName = lesson.subject_name ?: ""
+            onNavigateToExam(sessionId, lesson.id, formattedTitle, chapterName)
+        } else {
+            onClick()
+        }
+    }
 
     val titleFontSize = when {
         titleText.length > 50 -> 11.5.sp
@@ -778,7 +809,7 @@ private fun RoutineTimelineCard(
     )
 
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        // Timeline dot — NEW: pulsing when live
+        // Timeline dot — pulsing when live or exam is now
         Box(
             modifier = Modifier
                 .width(28.dp)
@@ -789,20 +820,26 @@ private fun RoutineTimelineCard(
                 modifier = Modifier
                     .size(20.dp)
                     .clip(CircleShape)
-                    .background(if (isLiveNow) Color(0xFFFEE2E2) else if (isExam) Color(0xFFFEF3C7) else Color(0xFFE0F2FE)),
+                    .background(
+                        when {
+                            isLiveNow -> Color(0xFFFEE2E2)
+                            isExamNow || isExam -> Color(0xFFFEF3C7)
+                            else -> Color(0xFFE0F2FE)
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(if (isLiveNow) 10.dp else 8.dp)
+                        .size(if (isLiveNow || isExamNow) 10.dp else 8.dp)
                         .graphicsLayer {
-                            if (isLiveNow) { scaleX = liveDotScale; scaleY = liveDotScale }
+                            if (isLiveNow || isExamNow) { scaleX = liveDotScale; scaleY = liveDotScale }
                         }
                         .clip(CircleShape)
                         .background(
                             when {
                                 isLiveNow -> Color(0xFFEF4444)
-                                isExam -> Color(0xFFD97706)
+                                isExamNow || isExam -> Color(0xFFD97706)
                                 else -> Color(0xFF0284C7)
                             }
                         )
@@ -817,16 +854,26 @@ private fun RoutineTimelineCard(
             modifier = Modifier
                 .weight(1f)
                 .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
-                .clickable(interactionSource = interaction, indication = null) { onClick() },
+                .clickable(interactionSource = interaction, indication = null, onClick = handleCardClick),
             shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isLiveNow) Color(0xFFFFF1F2) else MaterialTheme.colorScheme.surface
+                containerColor = when {
+                    isLiveNow -> Color(0xFFFFF1F2)
+                    isExamNow -> Color(0xFFFFFBEB)
+                    isExam -> Color(0xFFFEF3C7).copy(alpha = 0.25f)
+                    else -> MaterialTheme.colorScheme.surface
+                }
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow) 3.5.dp else 1.5.dp),
-            border = if (isLiveNow) BorderStroke(1.5.dp, Color(0xFFEF4444)) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            elevation = CardDefaults.cardElevation(defaultElevation = if (isLiveNow || isExamNow) 3.5.dp else 1.5.dp),
+            border = when {
+                isLiveNow -> BorderStroke(1.5.dp, Color(0xFFEF4444))
+                isExamNow -> BorderStroke(1.5.dp, Color(0xFFF59E0B))
+                isExam -> BorderStroke(1.dp, Color(0xFFFCD34D))
+                else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            }
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                // Top Tag Row — LOGIC সেম
+                // Top Tag Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -849,6 +896,23 @@ private fun RoutineTimelineCard(
                                 Text("লাইভ চলছে", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
+                    } else if (isExamNow) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFD97706)) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                                Text("পরীক্ষা চলছে", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
                     }
 
                     Surface(shape = RoundedCornerShape(8.dp), color = subjectColors.backgroundColor) {
@@ -863,13 +927,16 @@ private fun RoutineTimelineCard(
                         )
                     }
 
-                    if (!isLiveNow) {
-                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)) {
+                    if (!isLiveNow && !isExamNow) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isExam) Color(0xFFFEF3C7) else classTypeBadge.backgroundColor
+                        ) {
                             Text(
                                 text = typeText,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (isExam) Color(0xFFD97706) else classTypeBadge.textColor,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }

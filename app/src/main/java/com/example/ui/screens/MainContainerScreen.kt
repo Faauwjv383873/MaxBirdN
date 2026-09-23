@@ -46,6 +46,7 @@ fun MainContainerScreen(
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
     onOpenLessonDetail: (com.example.api.StudentLessonItem) -> Unit = {},
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit = { _, _, _, _, _ -> },
     onLogout: () -> Unit = {}
 ) {
@@ -137,6 +138,7 @@ fun MainContainerScreen(
                         },
                         onOpenFullRoutine = onNavigateToFullRoutine,
                         onOpenLessonDetail = onOpenLessonDetail,
+                        onNavigateToExam = onNavigateToExam,
                         onNavigateToReportCard = onNavigateToReportCard
                     )
                 }
