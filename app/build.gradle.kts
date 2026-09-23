@@ -24,29 +24,18 @@ android {
   }
 
   signingConfigs {
-    val debugKeystore = file("${rootDir}/debug.keystore")
-    if (debugKeystore.exists()) {
-      create("debugConfig") {
-        storeFile = debugKeystore
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
-      }
+    create("release") {
+      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      storeFile = file(keystorePath)
+      storePassword = System.getenv("STORE_PASSWORD")
+      keyAlias = "upload"
+      keyPassword = System.getenv("KEY_PASSWORD")
     }
-
-    val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-    val releaseKeystoreFile = file(keystorePath)
-    val storePwd = System.getenv("STORE_PASSWORD")
-    val keyPwd = System.getenv("KEY_PASSWORD")
-    val keyAliasEnv = System.getenv("KEY_ALIAS") ?: "upload"
-
-    if (releaseKeystoreFile.exists() && !storePwd.isNullOrEmpty() && !keyPwd.isNullOrEmpty()) {
-      create("release") {
-        storeFile = releaseKeystoreFile
-        storePassword = storePwd
-        keyAlias = keyAliasEnv
-        keyPassword = keyPwd
-      }
+    create("debugConfig") {
+      storeFile = file("${rootDir}/debug.keystore")
+      storePassword = "android"
+      keyAlias = "androiddebugkey"
+      keyPassword = "android"
     }
   }
 
@@ -55,22 +44,9 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      val releaseConfig = signingConfigs.findByName("release")
-      if (releaseConfig != null) {
-        signingConfig = releaseConfig
-      } else {
-        val debugConfig = signingConfigs.findByName("debugConfig")
-        if (debugConfig != null) {
-          signingConfig = debugConfig
-        }
-      }
+      signingConfig = signingConfigs.getByName("release")
     }
-    debug {
-      val debugConfig = signingConfigs.findByName("debugConfig")
-      if (debugConfig != null) {
-        signingConfig = debugConfig
-      }
-    }
+    debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -84,10 +60,6 @@ android {
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
-  }
-  lint {
-    checkReleaseBuilds = false
-    abortOnError = false
   }
 }
 

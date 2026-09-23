@@ -30,12 +30,6 @@ val LocalPictureInPictureMode = compositionLocalOf { false }
 class MainActivity : ComponentActivity() {
 
     val isPipModeState = mutableStateOf(false)
-    var onUserLeaveHintListener: (() -> Unit)? = null
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        onUserLeaveHintListener?.invoke()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

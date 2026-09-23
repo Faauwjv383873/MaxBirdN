@@ -1,10 +1,14 @@
 package com.example.ui.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.util.LruCache
@@ -18,12 +22,11 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,8 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import kotlinx.coroutines.Dispatchers
@@ -63,17 +65,6 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "SlideViewerDialog"
 
-enum class PdfViewMode {
-    VERTICAL_SCROLL, // Continuous vertical scrolling
-    HORIZONTAL_SLIDES // Slide presentation mode (swipe left / right)
-}
-
-enum class ReadingTheme {
-    DAY,     // Normal white paper
-    SEPIA,   // Eye comfort warm paper
-    NIGHT    // Inverted dark mode
-}
-
 /**
  * Controller to manage PdfRenderer lifecycle and multi-page rendering safely.
  */
@@ -87,7 +78,7 @@ class PdfPageRenderer(
         private set
 
     val pageAspectRatios = mutableStateMapOf<Int, Float>()
-    private val cache = LruCache<Int, Bitmap>(35)
+    private val cache = LruCache<Int, Bitmap>(30)
     private val lock = Any()
 
     var isInitialized by mutableStateOf(false)
@@ -145,8 +136,7 @@ class PdfPageRenderer(
                     val aspect = if (pHeight > 0) pWidth.toFloat() / pHeight.toFloat() else 0.707f
                     pageAspectRatios[pageIndex] = aspect
 
-                    // Render at high resolution (1080px to 2400px) so text and equations stay razor sharp
-                    val renderWidth = targetWidthPx.coerceIn(1080, 2400)
+                    val renderWidth = targetWidthPx.coerceIn(720, 2048)
                     val renderHeight = (renderWidth / aspect).toInt().coerceAtLeast(100)
 
                     val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
@@ -236,12 +226,7 @@ fun SlideViewerDialog(
     var remoteErrorMessage by remember { mutableStateOf<String?>(null) }
     var cachedFileState by remember { mutableStateOf<File?>(null) }
 
-    // User viewing preferences
-    var viewMode by remember { mutableStateOf(PdfViewMode.VERTICAL_SCROLL) }
-    var readingTheme by remember { mutableStateOf(ReadingTheme.DAY) }
-    var isFullscreen by remember { mutableStateOf(false) }
-
-    // Resolve target file strictly for in-app viewing
+    // Resolve target file
     val targetPdfFile = remember(
         isDirectLocal,
         directCleanPath,
@@ -306,7 +291,7 @@ fun SlideViewerDialog(
 
                     val response = client.newCall(request).execute()
                     if (!response.isSuccessful || response.body == null) {
-                        throw Exception("সার্ভার থেকে ফাইল পাওয়া যায়নি (HTTP ${response.code})")
+                        throw Exception("HTTP ${response.code}")
                     }
 
                     val body = response.body!!
@@ -355,7 +340,7 @@ fun SlideViewerDialog(
             } catch (e: Exception) {
                 Log.e(TAG, "Error downloading PDF preview: ${e.message}", e)
                 isFetchingRemote = false
-                remoteErrorMessage = e.localizedMessage ?: "পিডিএফ লোড করা সম্ভব হয়নি"
+                remoteErrorMessage = e.localizedMessage ?: "পিডিএফ ডাউনলোড করা সম্ভব হয়নি"
             }
         }
     }
@@ -387,74 +372,45 @@ fun SlideViewerDialog(
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = when (readingTheme) {
-                ReadingTheme.DAY -> Color(0xFF0F172A)
-                ReadingTheme.SEPIA -> Color(0xFF1C1917)
-                ReadingTheme.NIGHT -> Color(0xFF000000)
-            }
+            color = Color(0xFF0F172A) // Dark modern theme for optimal reading contrast
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top Header Bar (Can be hidden in Fullscreen mode)
-                AnimatedVisibility(
-                    visible = !isFullscreen,
-                    enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
-                ) {
-                    PdfViewerTopBar(
-                        title = title,
-                        isOffline = isOfflineAvailable,
-                        pageCount = rendererState?.pageCount ?: 0,
-                        viewMode = viewMode,
-                        readingTheme = readingTheme,
-                        downloadedItem = effectiveDownloadedItem,
-                        onDismiss = onDismiss,
-                        onToggleViewMode = {
-                            viewMode = if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
-                                PdfViewMode.HORIZONTAL_SLIDES
-                            } else {
-                                PdfViewMode.VERTICAL_SCROLL
-                            }
-                        },
-                        onCycleTheme = {
-                            readingTheme = when (readingTheme) {
-                                ReadingTheme.DAY -> ReadingTheme.SEPIA
-                                ReadingTheme.SEPIA -> ReadingTheme.NIGHT
-                                ReadingTheme.NIGHT -> ReadingTheme.DAY
-                            }
-                        },
-                        onToggleFullscreen = {
-                            isFullscreen = !isFullscreen
-                        },
-                        onDownloadClick = {
-                            val urlToDownload = remoteCandidateUrl ?: effectiveDownloadedItem?.remoteUrl
-                            if (!urlToDownload.isNullOrBlank()) {
-                                downloadManager.downloadFile(
-                                    id = downloadId,
-                                    title = title,
-                                    subtitle = "পিডিএফ লেকচার নোট",
-                                    fileType = DownloadedItemEntity.FILE_TYPE_PDF,
-                                    remoteUrl = urlToDownload
-                                )
-                                Toast.makeText(context, "ইন-অ্যাপ অফলাইন ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "এই ফাইলটি ইতোমধ্যে অ্যাপে অফলাইনে সংরক্ষিত রয়েছে", Toast.LENGTH_SHORT).show()
-                            }
+                // Top Header Bar
+                PdfViewerTopBar(
+                    title = title,
+                    isOffline = isOfflineAvailable,
+                    pageCount = rendererState?.pageCount ?: 0,
+                    downloadedItem = effectiveDownloadedItem,
+                    onDismiss = onDismiss,
+                    onDownloadClick = {
+                        val urlToDownload = remoteCandidateUrl ?: effectiveDownloadedItem?.remoteUrl
+                        if (!urlToDownload.isNullOrBlank()) {
+                            downloadManager.downloadFile(
+                                id = downloadId,
+                                title = title,
+                                subtitle = "পিডিএফ লেকচার নোট",
+                                fileType = DownloadedItemEntity.FILE_TYPE_PDF,
+                                remoteUrl = urlToDownload
+                            )
+                            Toast.makeText(context, "ইন-অ্যাপ অফলাইন ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "এই ফাইলটি ইতোমধ্যে অফলাইনে সংরক্ষিত রয়েছে", Toast.LENGTH_SHORT).show()
                         }
-                    )
-                }
+                    },
+                    onOpenExternalClick = {
+                        openPdfInExternalApp(context, targetPdfFile, remoteCandidateUrl)
+                    },
+                    onShareClick = {
+                        sharePdfFile(context, targetPdfFile, title, remoteCandidateUrl)
+                    }
+                )
 
                 // Main Viewer Body
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .background(
-                            when (readingTheme) {
-                                ReadingTheme.DAY -> Color(0xFF1E293B)
-                                ReadingTheme.SEPIA -> Color(0xFF292524)
-                                ReadingTheme.NIGHT -> Color(0xFF0F0F10)
-                            }
-                        ),
+                        .background(Color(0xFF1E293B)),
                     contentAlignment = Alignment.Center
                 ) {
                     when {
@@ -474,6 +430,9 @@ fun SlideViewerDialog(
                                 onRetry = {
                                     remoteErrorMessage = null
                                     cachedFileState = null
+                                },
+                                onOpenExternal = {
+                                    openPdfInExternalApp(context, targetPdfFile, remoteCandidateUrl)
                                 }
                             )
                         }
@@ -482,10 +441,6 @@ fun SlideViewerDialog(
                         rendererState != null && rendererState.isInitialized && rendererState.pageCount > 0 -> {
                             NativePdfViewerContent(
                                 renderer = rendererState,
-                                viewMode = viewMode,
-                                readingTheme = readingTheme,
-                                isFullscreen = isFullscreen,
-                                onToggleFullscreen = { isFullscreen = !isFullscreen },
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -503,7 +458,7 @@ fun SlideViewerDialog(
                                 )
                                 Spacer(modifier = Modifier.height(14.dp))
                                 Text(
-                                    text = "সুরক্ষিত ইন-অ্যাপ রিডার প্রস্তুত হচ্ছে...",
+                                    text = "পিডিএফ ভিউয়ার প্রস্তুত হচ্ছে...",
                                     color = Color.White.copy(alpha = 0.85f),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium
@@ -522,14 +477,11 @@ private fun PdfViewerTopBar(
     title: String,
     isOffline: Boolean,
     pageCount: Int,
-    viewMode: PdfViewMode,
-    readingTheme: ReadingTheme,
     downloadedItem: DownloadedItemEntity?,
     onDismiss: () -> Unit,
-    onToggleViewMode: () -> Unit,
-    onCycleTheme: () -> Unit,
-    onToggleFullscreen: () -> Unit,
-    onDownloadClick: () -> Unit
+    onDownloadClick: () -> Unit,
+    onOpenExternalClick: () -> Unit,
+    onShareClick: () -> Unit
 ) {
     Surface(
         color = Color(0xFF0F172A),
@@ -557,11 +509,11 @@ private fun PdfViewerTopBar(
                 )
             }
 
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = title.ifBlank { "ইন-অ্যাপ পিডিএফ নোট" },
+                    text = title.ifBlank { "পিডিএফ ভিউয়ার" },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -586,19 +538,6 @@ private fun PdfViewerTopBar(
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
-                    } else {
-                        Surface(
-                            color = Color(0xFF38BDF8).copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "অ্যাপ সুরক্ষিত ভিউ",
-                                fontSize = 10.sp,
-                                color = Color(0xFF7DD3FC),
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                            )
-                        }
                     }
 
                     if (pageCount > 0) {
@@ -611,74 +550,27 @@ private fun PdfViewerTopBar(
                 }
             }
 
-            // Mode Switcher: Continuous Scroll vs Single Slide Presentation
-            IconButton(
-                onClick = onToggleViewMode,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = if (viewMode == PdfViewMode.VERTICAL_SCROLL) Icons.Default.ViewAgenda else Icons.Default.ViewCarousel,
-                    contentDescription = if (viewMode == PdfViewMode.VERTICAL_SCROLL) "স্লাইড মোড" else "স্ক্রল মোড",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Theme Switcher: Day -> Sepia -> Night
-            IconButton(
-                onClick = onCycleTheme,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = when (readingTheme) {
-                        ReadingTheme.DAY -> Icons.Default.WbSunny
-                        ReadingTheme.SEPIA -> Icons.Default.AutoStories
-                        ReadingTheme.NIGHT -> Icons.Default.NightsStay
-                    },
-                    contentDescription = "রিডিং থিম",
-                    tint = when (readingTheme) {
-                        ReadingTheme.DAY -> Color(0xFFFBBF24)
-                        ReadingTheme.SEPIA -> Color(0xFFFDE68A)
-                        ReadingTheme.NIGHT -> Color(0xFF93C5FD)
-                    },
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Fullscreen Toggle
-            IconButton(
-                onClick = onToggleFullscreen,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Fullscreen,
-                    contentDescription = "ফুলস্ক্রিন",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // In-App Download Action
+            // Action: Download
             when (downloadedItem?.status) {
                 DownloadedItemEntity.STATUS_DOWNLOADING -> {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .padding(4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
                             progress = { downloadedItem.progressFraction },
                             color = Color(0xFF38BDF8),
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp)
+                            strokeWidth = 2.5.dp,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
                 DownloadedItemEntity.STATUS_COMPLETED -> {
                     IconButton(
                         onClick = onDownloadClick,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.DownloadDone,
@@ -691,16 +583,42 @@ private fun PdfViewerTopBar(
                 else -> {
                     IconButton(
                         onClick = onDownloadClick,
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Download,
-                            contentDescription = "ইন-অ্যাপ অফলাইন ডাউনলোড",
+                            contentDescription = "অফলাইন ডাউনলোড",
                             tint = Color.White,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 }
+            }
+
+            // Action: Open in External PDF Viewer (Adobe/Drive)
+            IconButton(
+                onClick = onOpenExternalClick,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.OpenInNew,
+                    contentDescription = "অন্য অ্যাপে খুলুন",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Action: Share
+            IconButton(
+                onClick = onShareClick,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = "শেয়ার করুন",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
@@ -709,62 +627,25 @@ private fun PdfViewerTopBar(
 @Composable
 private fun NativePdfViewerContent(
     renderer: PdfPageRenderer,
-    viewMode: PdfViewMode,
-    readingTheme: ReadingTheme,
-    isFullscreen: Boolean,
-    onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
-    val verticalListState = rememberLazyListState()
-    val horizontalPagerState = rememberPagerState(pageCount = { renderer.pageCount })
+    val listState = rememberLazyListState()
 
     var scale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
     var showJumpDialog by remember { mutableStateOf(false) }
 
-    val currentVisiblePage = remember(viewMode) {
+    val currentVisiblePage = remember {
         derivedStateOf {
-            if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
-                (verticalListState.firstVisibleItemIndex + 1).coerceAtMost(renderer.pageCount)
-            } else {
-                (horizontalPagerState.currentPage + 1).coerceAtMost(renderer.pageCount)
-            }
+            (listState.firstVisibleItemIndex + 1).coerceAtMost(renderer.pageCount)
         }
     }
 
     val displayWidthPx = context.resources.displayMetrics.widthPixels
     val renderTargetWidth = remember(displayWidthPx) {
-        (displayWidthPx * 2.0f).toInt().coerceIn(1080, 2400)
-    }
-
-    // ColorFilter for Night/Sepia Reading modes
-    val colorFilter = remember(readingTheme) {
-        when (readingTheme) {
-            ReadingTheme.NIGHT -> ColorFilter.colorMatrix(
-                ColorMatrix(
-                    floatArrayOf(
-                        -1f,  0f,  0f,  0f, 255f,
-                         0f, -1f,  0f,  0f, 255f,
-                         0f,  0f, -1f,  0f, 255f,
-                         0f,  0f,  0f,  1f,   0f
-                    )
-                )
-            )
-            ReadingTheme.SEPIA -> ColorFilter.colorMatrix(
-                ColorMatrix(
-                    floatArrayOf(
-                        0.94f, 0f, 0f, 0f, 20f,
-                        0f, 0.88f, 0f, 0f, 15f,
-                        0f, 0f, 0.74f, 0f, 0f,
-                        0f, 0f, 0f, 1f, 0f
-                    )
-                )
-            )
-            ReadingTheme.DAY -> null
-        }
+        (displayWidthPx * 1.5f).toInt().coerceIn(720, 1920)
     }
 
     if (showJumpDialog) {
@@ -774,13 +655,8 @@ private fun NativePdfViewerContent(
             onDismiss = { showJumpDialog = false },
             onPageSelected = { targetPage ->
                 showJumpDialog = false
-                val idx = (targetPage - 1).coerceIn(0, renderer.pageCount - 1)
                 coroutineScope.launch {
-                    if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
-                        verticalListState.animateScrollToItem(idx)
-                    } else {
-                        horizontalPagerState.animateScrollToPage(idx)
-                    }
+                    listState.animateScrollToItem((targetPage - 1).coerceIn(0, renderer.pageCount - 1))
                 }
             }
         )
@@ -802,230 +678,179 @@ private fun NativePdfViewerContent(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = {
-                        onToggleFullscreen()
-                    },
                     onDoubleTap = {
-                        scale = when {
-                            scale < 1.4f -> 2.0f
-                            scale < 2.5f -> 3.0f
-                            else -> 1.0f
-                        }
-                        if (scale == 1.0f) {
+                        if (scale > 1.05f) {
+                            scale = 1f
                             panOffset = Offset.Zero
+                        } else {
+                            scale = 2.0f
                         }
                     }
                 )
             }
     ) {
-        // Mode 1: Continuous Vertical Scrolling
-        if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
-            LazyColumn(
-                state = verticalListState,
-                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 16.dp, bottom = 90.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = panOffset.x
-                        translationY = panOffset.y
-                    }
-            ) {
-                items(
-                    count = renderer.pageCount,
-                    key = { pageIndex -> pageIndex }
-                ) { pageIndex ->
-                    PdfPageCard(
-                        pageIndex = pageIndex,
-                        renderer = renderer,
-                        colorFilter = colorFilter,
-                        readingTheme = readingTheme,
-                        targetWidthPx = renderTargetWidth
-                    )
+        // Continuous Vertical Page List
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 80.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = panOffset.x
+                    translationY = panOffset.y
                 }
-            }
-        } else {
-            // Mode 2: Horizontal Slide Presentation Mode
-            HorizontalPager(
-                state = horizontalPagerState,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 20.dp),
-                pageSpacing = 16.dp,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = panOffset.x
-                        translationY = panOffset.y
-                    }
+        ) {
+            items(
+                count = renderer.pageCount,
+                key = { pageIndex -> pageIndex }
             ) { pageIndex ->
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    PdfPageCard(
-                        pageIndex = pageIndex,
-                        renderer = renderer,
-                        colorFilter = colorFilter,
-                        readingTheme = readingTheme,
-                        targetWidthPx = renderTargetWidth
-                    )
-                }
+                PdfPageCard(
+                    pageIndex = pageIndex,
+                    renderer = renderer,
+                    targetWidthPx = renderTargetWidth
+                )
             }
         }
 
         // Floating Bottom Controls
-        AnimatedVisibility(
-            visible = !isFullscreen,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xFF0F172A).copy(alpha = 0.92f),
+            shadowElevation = 8.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(bottom = 12.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0xFF0F172A).copy(alpha = 0.94f),
-                shadowElevation = 8.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                // Zoom Out Button
+                IconButton(
+                    onClick = {
+                        val newScale = (scale - 0.25f).coerceAtLeast(1f)
+                        scale = newScale
+                        if (newScale <= 1f) panOffset = Offset.Zero
+                    },
+                    enabled = scale > 1f,
+                    modifier = Modifier.size(34.dp)
                 ) {
-                    // Zoom Out Button
-                    IconButton(
-                        onClick = {
-                            val newScale = (scale - 0.25f).coerceAtLeast(1f)
-                            scale = newScale
-                            if (newScale <= 1f) panOffset = Offset.Zero
-                        },
-                        enabled = scale > 1f,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ZoomOut,
-                            contentDescription = "Zoom Out",
-                            tint = if (scale > 1f) Color.White else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Zoom Level Badge (Reset button)
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (scale > 1.05f) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else Color.Transparent,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .pointerInput(Unit) {
-                                detectTapGestures {
-                                    scale = 1f
-                                    panOffset = Offset.Zero
-                                }
-                            }
-                    ) {
-                        Text(
-                            text = "${(scale * 100).toInt()}%",
-                            color = if (scale > 1.05f) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Zoom In Button
-                    IconButton(
-                        onClick = {
-                            scale = (scale + 0.25f).coerceAtMost(3.5f)
-                        },
-                        enabled = scale < 3.5f,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ZoomIn,
-                            contentDescription = "Zoom In",
-                            tint = if (scale < 3.5f) Color.White else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    VerticalDivider(
-                        modifier = Modifier
-                            .height(20.dp)
-                            .padding(horizontal = 4.dp),
-                        color = Color.White.copy(alpha = 0.2f)
+                    Icon(
+                        imageVector = Icons.Default.ZoomOut,
+                        contentDescription = "Zoom Out",
+                        tint = if (scale > 1f) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(18.dp)
                     )
+                }
 
-                    // Previous Page Scroll Button
-                    IconButton(
-                        onClick = {
-                            val prev = (currentVisiblePage.value - 2).coerceAtLeast(0)
-                            coroutineScope.launch {
-                                if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
-                                    verticalListState.animateScrollToItem(prev)
-                                } else {
-                                    horizontalPagerState.animateScrollToPage(prev)
-                                }
+                // Zoom Level Badge (Reset button)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (scale > 1.05f) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .pointerInput(Unit) {
+                            detectTapGestures {
+                                scale = 1f
+                                panOffset = Offset.Zero
                             }
-                        },
-                        enabled = currentVisiblePage.value > 1,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (viewMode == PdfViewMode.VERTICAL_SCROLL) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowLeft,
-                            contentDescription = "Previous Page",
-                            tint = if (currentVisiblePage.value > 1) Color.White else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                        }
+                ) {
+                    Text(
+                        text = "${(scale * 100).toInt()}%",
+                        color = if (scale > 1.05f) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
 
-                    // Page Indicator Pill (Tap to Jump)
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .pointerInput(Unit) {
-                                detectTapGestures {
-                                    showJumpDialog = true
-                                }
-                            }
-                    ) {
-                        Text(
-                            text = "${toBengaliDigits(currentVisiblePage.value)} / ${toBengaliDigits(renderer.pageCount)}",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
+                // Zoom In Button
+                IconButton(
+                    onClick = {
+                        scale = (scale + 0.25f).coerceAtMost(3.5f)
+                    },
+                    enabled = scale < 3.5f,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ZoomIn,
+                        contentDescription = "Zoom In",
+                        tint = if (scale < 3.5f) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
 
-                    // Next Page Scroll Button
-                    IconButton(
-                        onClick = {
-                            val next = currentVisiblePage.value.coerceAtMost(renderer.pageCount - 1)
-                            coroutineScope.launch {
-                                if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
-                                    verticalListState.animateScrollToItem(next)
-                                } else {
-                                    horizontalPagerState.animateScrollToPage(next)
-                                }
+                VerticalDivider(
+                    modifier = Modifier
+                        .height(20.dp)
+                        .padding(horizontal = 4.dp),
+                    color = Color.White.copy(alpha = 0.2f)
+                )
+
+                // Previous Page Scroll Button
+                IconButton(
+                    onClick = {
+                        val prev = (currentVisiblePage.value - 2).coerceAtLeast(0)
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(prev)
+                        }
+                    },
+                    enabled = currentVisiblePage.value > 1,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Previous Page",
+                        tint = if (currentVisiblePage.value > 1) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Page Indicator Pill (Tap to Jump)
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .pointerInput(Unit) {
+                            detectTapGestures {
+                                showJumpDialog = true
                             }
-                        },
-                        enabled = currentVisiblePage.value < renderer.pageCount,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (viewMode == PdfViewMode.VERTICAL_SCROLL) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Next Page",
-                            tint = if (currentVisiblePage.value < renderer.pageCount) Color.White else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                        }
+                ) {
+                    Text(
+                        text = "${toBengaliDigits(currentVisiblePage.value)} / ${toBengaliDigits(renderer.pageCount)}",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+
+                // Next Page Scroll Button
+                IconButton(
+                    onClick = {
+                        val next = currentVisiblePage.value.coerceAtMost(renderer.pageCount - 1)
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(next)
+                        }
+                    },
+                    enabled = currentVisiblePage.value < renderer.pageCount,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Next Page",
+                        tint = if (currentVisiblePage.value < renderer.pageCount) Color.White else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
@@ -1036,39 +861,31 @@ private fun NativePdfViewerContent(
 private fun PdfPageCard(
     pageIndex: Int,
     renderer: PdfPageRenderer,
-    colorFilter: ColorFilter?,
-    readingTheme: ReadingTheme,
     targetWidthPx: Int
 ) {
     var pageBitmap by remember(pageIndex) {
         mutableStateOf(renderer.getCachedBitmap(pageIndex))
+    }
+    var isRendering by remember(pageIndex) {
+        mutableStateOf(pageBitmap == null)
     }
 
     val aspectRatio = renderer.pageAspectRatios[pageIndex] ?: 0.707f
 
     LaunchedEffect(pageIndex, renderer) {
         if (pageBitmap == null) {
+            isRendering = true
             val bmp = renderer.renderPage(pageIndex, targetWidthPx)
             pageBitmap = bmp
+            isRendering = false
         }
     }
 
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = when (readingTheme) {
-            ReadingTheme.DAY -> Color.White
-            ReadingTheme.SEPIA -> Color(0xFFF7F3E9)
-            ReadingTheme.NIGHT -> Color(0xFF1E1E20)
-        },
+        color = Color.White,
         shadowElevation = 4.dp,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            when (readingTheme) {
-                ReadingTheme.DAY -> Color(0xFFE2E8F0)
-                ReadingTheme.SEPIA -> Color(0xFFE7E0D3)
-                ReadingTheme.NIGHT -> Color(0xFF333338)
-            }
-        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
@@ -1084,7 +901,6 @@ private fun PdfPageCard(
                     bitmap = pageBitmap!!.asImageBitmap(),
                     contentDescription = "পৃষ্ঠা ${pageIndex + 1}",
                     contentScale = ContentScale.FillWidth,
-                    colorFilter = colorFilter,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -1100,8 +916,8 @@ private fun PdfPageCard(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "পৃষ্ঠা ${toBengaliDigits(pageIndex + 1)} লোড হচ্ছে...",
-                        color = Color(0xFF94A3B8),
+                        text = "পৃষ্ঠা ${toBengaliDigits(pageIndex + 1)} প্রস্তুত হচ্ছে...",
+                        color = Color(0xFF64748B),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -1123,12 +939,12 @@ private fun JumpToPageDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(text = "পৃষ্ঠা পরিবর্তন", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(text = "পৃষ্ঠা নম্বর নির্বাচন", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         },
         text = {
             Column {
                 Text(
-                    text = "১ থেকে ${toBengaliDigits(totalPages)} এর মধ্যে যে পৃষ্ঠায় যেতে চান তার নম্বর লিখুন:",
+                    text = "১ থেকে ${toBengaliDigits(totalPages)} এর মধ্যে কোনো পৃষ্ঠায় যেতে নম্বর লিখুন:",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1143,28 +959,10 @@ private fun JumpToPageDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilledTonalButton(
-                        onClick = { onPageSelected(1) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("প্রথম পৃষ্ঠা", fontSize = 11.sp)
-                    }
-                    FilledTonalButton(
-                        onClick = { onPageSelected(totalPages) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("শেষ পৃষ্ঠা", fontSize = 11.sp)
-                    }
-                }
             }
         },
         confirmButton = {
-            Button(
+            TextButton(
                 onClick = {
                     val p = inputText.toIntOrNull()
                     if (p != null && p in 1..totalPages) {
@@ -1271,7 +1069,8 @@ private fun RemoteLoadingCard(
 @Composable
 private fun PdfErrorCard(
     errorMessage: String,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onOpenExternal: () -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -1313,15 +1112,92 @@ private fun PdfErrorCard(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Button(
-                onClick = onRetry,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("পুনরায় চেষ্টা করুন")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onRetry,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("পুনরায় চেষ্টা করুন")
+                }
+
+                OutlinedButton(
+                    onClick = onOpenExternal,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("অন্য অ্যাপে খুলুন")
+                }
             }
         }
+    }
+}
+
+private fun openPdfInExternalApp(context: Context, file: File?, fallbackUrl: String? = null) {
+    if (file != null && file.exists() && file.length() > 0) {
+        try {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(intent, "পিডিএফ রিডারে ওপেন করুন"))
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening via FileProvider", e)
+        }
+    }
+
+    if (!fallbackUrl.isNullOrBlank() && (fallbackUrl.startsWith("http://") || fallbackUrl.startsWith("https://"))) {
+        try {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "ব্রাউজার পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+        }
+    } else {
+        Toast.makeText(context, "পিডিএফ ফাইলটি অন্য অ্যাপে ওপেন করা সম্ভব হয়নি", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun sharePdfFile(context: Context, file: File?, title: String, fallbackUrl: String? = null) {
+    if (file != null && file.exists() && file.length() > 0) {
+        try {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TEXT, title)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "পিডিএফ শেয়ার করুন"))
+            return
+        } catch (_: Exception) {}
+    }
+
+    if (!fallbackUrl.isNullOrBlank()) {
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "$title\n$fallbackUrl")
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "লিংক শেয়ার করুন"))
+        } catch (_: Exception) {}
     }
 }
 
