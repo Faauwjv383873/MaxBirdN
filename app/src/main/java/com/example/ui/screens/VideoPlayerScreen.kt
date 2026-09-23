@@ -1,14 +1,19 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.os.Build
+import android.util.Rational
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -56,7 +61,9 @@ import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
 import com.example.player.VideoTrackQuality
+import com.example.ui.components.PlaybackSpeedDialog
 import com.example.ui.components.VideoDownloadQualityDialog
+import com.example.ui.components.VideoQualityDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -91,7 +98,7 @@ fun VideoPlayerScreen(
     var showQualityDialog by remember { mutableStateOf(false) }
     var showDownloadQualityDialog by remember { mutableStateOf(false) }
     var availableQualities by remember { mutableStateOf<List<VideoTrackQuality>>(emptyList()) }
-    var selectedQualityLabel by remember { mutableStateOf("Auto") }
+    var selectedQualityLabel by remember { mutableStateOf("অটো") }
 
     // Controls visibility state
     var areControlsVisible by remember { mutableStateOf(true) }
@@ -261,7 +268,6 @@ fun VideoPlayerScreen(
     }
 
     // Handle App Lifecycle (Pause video on background)
-
     val mediaSession = remember(exoPlayer) {
         try {
             MediaSession.Builder(context, exoPlayer)
@@ -278,13 +284,13 @@ fun VideoPlayerScreen(
             } catch (_: Exception) {}
         }
     }
-    
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
-                    val activity = context as? Activity
-                    if (activity?.isInPictureInPictureMode != true) {
+                    val act = context as? Activity
+                    if (act?.isInPictureInPictureMode != true) {
                         exoPlayer.pause()
                     }
                 }
@@ -317,17 +323,17 @@ fun VideoPlayerScreen(
                     onDoubleTap = { offset ->
                         val screenWidth = size.width
                         if (!isLive) {
-                            if (offset.x < screenWidth * 0.35f) {
-                                // Double tapped LEFT side: seek -10s
+                            if (offset.x < screenWidth * 0.38f) {
+                                // Double tapped LEFT: seek -10s
                                 val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
                                 exoPlayer.seekTo(target)
                                 doubleTapSide = "LEFT"
                                 coroutineScope.launch {
-                                    delay(700)
+                                    delay(650)
                                     if (doubleTapSide == "LEFT") doubleTapSide = null
                                 }
-                            } else if (offset.x > screenWidth * 0.65f) {
-                                // Double tapped RIGHT side: seek +10s
+                            } else if (offset.x > screenWidth * 0.62f) {
+                                // Double tapped RIGHT: seek +10s
                                 val maxDur = if (totalDuration > 0) totalDuration else exoPlayer.duration.coerceAtLeast(0L)
                                 val target = (exoPlayer.currentPosition + 10000L).let {
                                     if (maxDur > 0) it.coerceAtMost(maxDur) else it
@@ -335,7 +341,7 @@ fun VideoPlayerScreen(
                                 exoPlayer.seekTo(target)
                                 doubleTapSide = "RIGHT"
                                 coroutineScope.launch {
-                                    delay(700)
+                                    delay(650)
                                     if (doubleTapSide == "RIGHT") doubleTapSide = null
                                 }
                             } else {
@@ -371,20 +377,19 @@ fun VideoPlayerScreen(
         // 1.1 Double-Tap Animated Seek Visual Indicators
         AnimatedVisibility(
             visible = doubleTapSide == "LEFT",
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut(),
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + scaleOut(targetScale = 0.85f),
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 32.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(90.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.65f)),
-                contentAlignment = Alignment.Center
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
             ) {
                 Column(
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -394,9 +399,9 @@ fun VideoPlayerScreen(
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "-10 সে.",
+                        text = "-১০ সেকেন্ড",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -407,20 +412,19 @@ fun VideoPlayerScreen(
 
         AnimatedVisibility(
             visible = doubleTapSide == "RIGHT",
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut(),
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + scaleOut(targetScale = 0.85f),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 32.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(90.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.65f)),
-                contentAlignment = Alignment.Center
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
             ) {
                 Column(
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -430,9 +434,9 @@ fun VideoPlayerScreen(
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "+10 সে.",
+                        text = "+১০ সেকেন্ড",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -452,16 +456,16 @@ fun VideoPlayerScreen(
                 CircularProgressIndicator(
                     color = Color.White,
                     strokeWidth = 3.dp,
-                    modifier = Modifier.size(54.dp)
+                    modifier = Modifier.size(52.dp)
                 )
             }
         }
 
         // 3. Overlay Controls
         AnimatedVisibility(
-            visible = areControlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut()
+            visible = areControlsVisible || isBuffering,
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(220))
         ) {
             Box(
                 modifier = Modifier
@@ -469,222 +473,319 @@ fun VideoPlayerScreen(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.8f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.85f)
+                                Color.Black.copy(alpha = 0.82f),
+                                Color.Black.copy(alpha = 0.15f),
+                                Color.Black.copy(alpha = 0.88f)
                             )
                         )
                     )
             ) {
-                // TOP BAR: Back Button, Title, Subject Badge, Live Indicator, Resize Mode
-                Column(
+                // TOP BAR: Back Button, Title, Badges, Action Strip
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .then(if (isFullscreen) Modifier.statusBarsPadding() else Modifier)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // Left: Back button + Title info
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            IconButton(
-                                onClick = {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.18f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .clickable {
                                     if (isFullscreen) {
                                         isFullscreen = false
                                     } else {
                                         onBack()
                                     }
-                                },
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                            ) {
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Back",
                                     tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
+                        }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            if (!subjectName.isNullOrBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = badgeColor.copy(alpha = 0.85f),
+                                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.25f))
+                                ) {
+                                    Text(
+                                        text = subjectName,
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (isLive) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFE53935),
+                                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        text = "🔴 LIVE",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Right: Action Strip (PiP, Zoom, Quality, Offline Download, Speed)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        // Picture-in-Picture button
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                                modifier = Modifier.clickable {
+                                    try {
+                                        val params = PictureInPictureParams.Builder()
+                                            .setAspectRatio(Rational(16, 9))
+                                            .build()
+                                        activity?.enterPictureInPictureMode(params)
+                                    } catch (_: Exception) {
+                                        Toast.makeText(context, "PiP মোড এই ডিভাইসে সমর্থিত নয়", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                 ) {
-                                    if (!subjectName.isNullOrBlank()) {
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = badgeColor.copy(alpha = 0.85f)
-                                        ) {
-                                            Text(
-                                                text = subjectName,
-                                                color = Color.White,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    }
-
-                                    if (isLive) {
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color(0xFFE53935)
-                                        ) {
-                                            Text(
-                                                text = "🔴 LIVE",
-                                                color = Color.White,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    }
-
+                                    Icon(
+                                        imageVector = Icons.Default.PictureInPictureAlt,
+                                        contentDescription = "PiP",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
                                     Text(
-                                        text = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
+                                        text = "PiP",
                                         color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Top Action Icons (Horizontal Scrollable Strip)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        // Aspect ratio resize toggle
+                        val resizeModeLabel = when (resizeMode) {
+                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> "ফিট"
+                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "জুম"
+                            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "ফুল"
+                            else -> "ফিট"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.16f),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                            modifier = Modifier.clickable {
+                                resizeMode = when (resizeMode) {
+                                    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                }
+                            }
                         ) {
-                            // Offline In-App Download Action
-                            when (downloadedItem?.status) {
-                                DownloadedItemEntity.STATUS_DOWNLOADING -> {
-                                    val item = downloadedItem!!
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.4f))
-                                            .clickable {
-                                                downloadManager.cancelDownload(downloadId)
-                                                Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
-                                            },
-                                        contentAlignment = Alignment.Center
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AspectRatio,
+                                    contentDescription = "Aspect Ratio",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = resizeModeLabel,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Quality selector
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.16f),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                            modifier = Modifier.clickable { showQualityDialog = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.HighQuality,
+                                    contentDescription = "Quality",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = selectedQualityLabel,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Offline In-App Download Action
+                        when (downloadedItem?.status) {
+                            DownloadedItemEntity.STATUS_DOWNLOADING -> {
+                                val item = downloadedItem!!
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.4f),
+                                    border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                                    modifier = Modifier.clickable {
+                                        downloadManager.cancelDownload(downloadId)
+                                        Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                     ) {
                                         CircularProgressIndicator(
                                             progress = { item.progressFraction },
                                             color = Color(0xFF38BDF8),
                                             strokeWidth = 2.dp,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(12.dp)
                                         )
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "${item.progressPercent}%",
-                                            fontSize = 8.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White
                                         )
                                     }
                                 }
-                                DownloadedItemEntity.STATUS_COMPLETED -> {
-                                    IconButton(
-                                        onClick = { showDeleteDownloadDialog = true },
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                            }
+                            DownloadedItemEntity.STATUS_COMPLETED -> {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.3f),
+                                    border = BorderStroke(0.8.dp, Color(0xFF34D399).copy(alpha = 0.6f)),
+                                    modifier = Modifier.clickable { showDeleteDownloadDialog = true }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.DownloadDone,
+                                            imageVector = Icons.Default.DownloadDone,
                                             contentDescription = "অফলাইন ডাউনলোড সম্পন্ন",
-                                            tint = Color(0xFF10B981),
-                                            modifier = Modifier.size(18.dp)
+                                            tint = Color(0xFF34D399),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "সেভড",
+                                            color = Color(0xFF34D399),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
-                                else -> {
-                                    IconButton(
-                                        onClick = {
-                                            showDownloadQualityDialog = true
-                                        },
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.4f))
+                            }
+                            else -> {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.16f),
+                                    border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                                    modifier = Modifier.clickable { showDownloadQualityDialog = true }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.Download,
-                                            contentDescription = "অফলাইন ডাউনলোড করুন",
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = "ডাউনলোড",
                                             tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "ডাউনলোড",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
                             }
+                        }
 
-                            // Aspect ratio resize toggle
-                            IconButton(
-                                onClick = {
-                                    resizeMode = when (resizeMode) {
-                                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp)
+                        // Playback Speed
+                        if (!isLive) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                                modifier = Modifier.clickable { showSpeedDialog = true }
                             ) {
-                                Icon(
-                                    Icons.Default.AspectRatio,
-                                    contentDescription = "Aspect Ratio",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            // Quality selector
-                            IconButton(
-                                onClick = { showQualityDialog = true },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.HighQuality,
-                                    contentDescription = "Quality",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            // Playback Speed
-                            TextButton(
-                                onClick = { showSpeedDialog = true },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
+                                val displaySpeed = String.format(Locale.US, "%.2f", playbackSpeed).removeSuffix(".00")
                                 Text(
-                                    text = "${playbackSpeed}x",
+                                    text = "${displaySpeed}x",
                                     color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                 )
                             }
                         }
@@ -698,128 +799,234 @@ fun VideoPlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Rewind 10 seconds
-                    IconButton(
-                        onClick = {
-                            val newPos = (exoPlayer.currentPosition - 10000).coerceAtLeast(0)
-                            exoPlayer.seekTo(newPos)
-                        },
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.45f))
-                    ) {
-                        Icon(
-                            Icons.Default.Replay10,
-                            contentDescription = "Rewind 10 seconds",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
-                        )
+                    if (!isLive) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    val newPos = (exoPlayer.currentPosition - 10000).coerceAtLeast(0)
+                                    exoPlayer.seekTo(newPos)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Replay10,
+                                    contentDescription = "Rewind 10 seconds",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
                     }
 
                     // Play / Pause Button
-                    IconButton(
-                        onClick = {
-                            if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                            } else {
-                                exoPlayer.play()
-                            }
-                        },
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White,
+                        shadowElevation = 8.dp,
                         modifier = Modifier
-                            .size(68.dp)
+                            .size(64.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable {
+                                if (exoPlayer.isPlaying) {
+                                    exoPlayer.pause()
+                                } else {
+                                    exoPlayer.play()
+                                }
+                            }
                     ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(40.dp)
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color(0xFF0F172A),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
                     }
 
                     // Forward 10 seconds
-                    IconButton(
-                        onClick = {
-                            val newPos = (exoPlayer.currentPosition + 10000).coerceAtMost(exoPlayer.duration)
-                            exoPlayer.seekTo(newPos)
-                        },
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.45f))
-                    ) {
-                        Icon(
-                            Icons.Default.Forward10,
-                            contentDescription = "Forward 10 seconds",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
-                        )
+                    if (!isLive) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    val newPos = (exoPlayer.currentPosition + 10000).coerceAtMost(exoPlayer.duration)
+                                    exoPlayer.seekTo(newPos)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Forward10,
+                                    contentDescription = "Forward 10 seconds",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
-                // BOTTOM CONTROLS: Current Time / Total Time, Seekbar, Fullscreen Toggle
+                // BOTTOM CONTROLS: Seekbar + Bengali time + Fullscreen Toggle
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    // Progress Slider
-                    Slider(
-                        value = if (isSeeking) seekPosition.toFloat() else currentPosition.toFloat(),
-                        onValueChange = { value ->
-                            isSeeking = true
-                            seekPosition = value.toLong()
-                        },
-                        onValueChangeFinished = {
-                            currentPosition = seekPosition
-                            exoPlayer.seekTo(seekPosition)
-                            coroutineScope.launch {
-                                delay(350)
-                                isSeeking = false
-                            }
-                        },
-                        valueRange = 0f..(if (totalDuration > 0) totalDuration.toFloat() else 1f),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Color(0xFFE11D48),
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(24.dp)
-                    )
+                    if (!isLive) {
+                        val bufferedFraction = if (totalDuration > 0) {
+                            (bufferedPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
 
-                    Spacer(modifier = Modifier.height(2.dp))
+                        val currentFraction = if (totalDuration > 0) {
+                            (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Duration Text
-                        val curPosText = formatTimeMs(if (isSeeking) seekPosition else currentPosition)
-                        val totalDurationText = if (totalDuration > 0) formatTimeMs(totalDuration) else "লাইভ"
-                        Text(
-                            text = "$curPosText / $totalDurationText",
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        val seekValue = if (isSeeking) {
+                            (seekPosition.toFloat() / (if (totalDuration > 0) totalDuration else 1L).toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            currentFraction
+                        }
 
-                        // Fullscreen Toggle
-                        IconButton(
-                            onClick = { isFullscreen = !isFullscreen },
-                            modifier = Modifier.size(34.dp)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(26.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                            // Secondary Track for Buffering
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 6.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Color.White.copy(alpha = 0.2f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(bufferedFraction)
+                                        .fillMaxHeight()
+                                        .background(Color.White.copy(alpha = 0.45f))
+                                )
+                            }
+
+                            // Interactive Slider
+                            Slider(
+                                value = seekValue,
+                                onValueChange = { fraction ->
+                                    isSeeking = true
+                                    seekPosition = (fraction * totalDuration).toLong().coerceIn(0L, totalDuration)
+                                },
+                                onValueChangeFinished = {
+                                    currentPosition = seekPosition
+                                    exoPlayer.seekTo(seekPosition)
+                                    coroutineScope.launch {
+                                        delay(300)
+                                        isSeeking = false
+                                    }
+                                },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color(0xFFE11D48),
+                                    inactiveTrackColor = Color.Transparent
+                                ),
+                                modifier = Modifier.fillMaxWidth()
                             )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Duration Text
+                            val curPos = if (isSeeking) seekPosition else currentPosition
+                            val timeString = "${ShikhoPlayerManager.formatTime(curPos, true)} / ${ShikhoPlayerManager.formatTime(totalDuration, true)}"
+                            Text(
+                                text = timeString,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            // Fullscreen Toggle
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable { isFullscreen = !isFullscreen }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                        contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // LIVE BAR
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE11D48))
+                                )
+                                Text(
+                                    text = "🔴 সরাসরি লাইভ সম্প্রচার চলছে (Live)",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.22f)),
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable { isFullscreen = !isFullscreen }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                        contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -828,193 +1035,40 @@ fun VideoPlayerScreen(
 
         // Speed Selector Dialog
         if (showSpeedDialog) {
-            val formattedSpeed = String.format(java.util.Locale.US, "%.2f", playbackSpeed)
-            val presets = listOf(0.5f, 0.75f, 1.0f, 1.05f, 1.10f, 1.15f, 1.20f, 1.25f, 1.35f, 1.5f, 1.75f, 2.0f, 2.5f)
-            AlertDialog(
-                onDismissRequest = { showSpeedDialog = false },
-                title = { Text("প্লেব্যাক স্পিড (Speed Control)", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                text = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "${formattedSpeed}x",
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    val next = (playbackSpeed - 0.10f).coerceAtLeast(0.25f)
-                                    playbackSpeed = (Math.round(next * 100) / 100f)
-                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-                                },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("-0.10", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    val next = (playbackSpeed - 0.05f).coerceAtLeast(0.25f)
-                                    playbackSpeed = (Math.round(next * 100) / 100f)
-                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-                                },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("-0.05", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    val next = (playbackSpeed + 0.05f).coerceAtMost(3.00f)
-                                    playbackSpeed = (Math.round(next * 100) / 100f)
-                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-                                },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("+0.05", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    val next = (playbackSpeed + 0.10f).coerceAtMost(3.00f)
-                                    playbackSpeed = (Math.round(next * 100) / 100f)
-                                    exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-                                },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("+0.10", fontSize = 11.sp)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Slider(
-                            value = playbackSpeed,
-                            onValueChange = { raw ->
-                                val stepped = Math.round(raw / 0.05f) * 0.05f
-                                playbackSpeed = (Math.round(stepped * 100) / 100f).coerceIn(0.25f, 3.00f)
-                                exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-                            },
-                            valueRange = 0.25f..3.00f,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = "দ্রুত নির্বাচন (Presets):",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        ) {
-                            presets.take(5).forEach { p ->
-                                val isSel = Math.abs(playbackSpeed - p) < 0.02f
-                                FilterChip(
-                                    selected = isSel,
-                                    onClick = {
-                                        playbackSpeed = p
-                                        exoPlayer.playbackParameters = PlaybackParameters(playbackSpeed)
-                                    },
-                                    label = { Text("${p}x", fontSize = 11.sp) }
-                                )
-                            }
-                        }
-                    }
+            PlaybackSpeedDialog(
+                playbackSpeed = playbackSpeed,
+                onSpeedChange = { speed ->
+                    playbackSpeed = speed
+                    exoPlayer.playbackParameters = PlaybackParameters(speed)
                 },
-                confirmButton = {
-                    TextButton(onClick = { showSpeedDialog = false }) {
-                        Text("সম্পূর্ণ")
-                    }
-                }
+                onDismiss = { showSpeedDialog = false }
             )
         }
 
         // Quality Selector Dialog
         if (showQualityDialog) {
-            AlertDialog(
-                onDismissRequest = { showQualityDialog = false },
-                title = { Text("ভিডিও কোয়ালিটি", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-                text = {
-                    Column {
-                        if (availableQualities.isEmpty()) {
-                            Text(
-                                "অটো রেজোলিউশন চলছে",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        } else {
-                            availableQualities.forEach { quality ->
-                                val isSelected = selectedQualityLabel == quality.label
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            selectedQualityLabel = quality.label
-                                            if (quality.id == "auto") {
-                                                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                                    .buildUpon()
-                                                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                                                    .build()
-                                            } else if (quality.trackGroup != null) {
-                                                val override = TrackSelectionOverride(
-                                                    quality.trackGroup.mediaTrackGroup,
-                                                    listOf(quality.trackIndex)
-                                                )
-                                                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                                    .buildUpon()
-                                                    .setOverrideForType(override)
-                                                    .build()
-                                            }
-                                            showQualityDialog = false
-                                        }
-                                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = quality.label,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    if (isSelected) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = "Selected",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
+            VideoQualityDialog(
+                availableQualities = availableQualities,
+                selectedQualityLabel = selectedQualityLabel,
+                onSelectQuality = { quality ->
+                    selectedQualityLabel = quality.label
+                    if (quality.id == "auto") {
+                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                            .buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .build()
+                    } else if (quality.trackGroup != null) {
+                        val override = TrackSelectionOverride(
+                            quality.trackGroup.mediaTrackGroup,
+                            listOf(quality.trackIndex)
+                        )
+                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                            .buildUpon()
+                            .setOverrideForType(override)
+                            .build()
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { showQualityDialog = false }) {
-                        Text("বন্ধ করো")
-                    }
-                }
+                onDismiss = { showQualityDialog = false }
             )
         }
 
@@ -1048,14 +1102,16 @@ fun VideoPlayerScreen(
             AlertDialog(
                 onDismissRequest = { showDeleteDownloadDialog = false },
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Icon(
                             Icons.Default.DownloadDone,
                             contentDescription = null,
                             tint = Color(0xFF10B981),
                             modifier = Modifier.size(24.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text("অফলাইন ডাউনলোড", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 },
@@ -1079,7 +1135,7 @@ fun VideoPlayerScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = { showDeleteDownloadDialog = false }) {
-                        Text("ঠিক আছে")
+                        Text("ঠিক আছে", fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -1090,25 +1146,11 @@ fun VideoPlayerScreen(
                             Toast.makeText(context, "ডাউনলোড করা ফাইল ডিলিট করা হয়েছে", Toast.LENGTH_SHORT).show()
                         }
                     ) {
-                        Text("ডিলিট করুন", color = MaterialTheme.colorScheme.error)
+                        Text("ডিলিট করুন", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                     }
                 }
             )
         }
-    }
-}
-
-// Helper: Format milliseconds into 00:00 or 00:00:00
-private fun formatTimeMs(millis: Long): String {
-    val totalSeconds = millis / 1000
-    val seconds = totalSeconds % 60
-    val minutes = (totalSeconds / 60) % 60
-    val hours = totalSeconds / 3600
-
-    return if (hours > 0) {
-        String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 }
 

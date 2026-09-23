@@ -51,6 +51,9 @@ import com.example.quiz.PracticeQuizViewModelFactory
 import com.example.utils.ClassTypeUtils
 import com.example.database.AppDatabase
 import com.example.database.SavedItemRepository
+import com.example.database.NotificationHistoryRepository
+import com.example.notification.NotificationHistoryViewModel
+import com.example.notification.NotificationHistoryViewModelFactory
 import com.example.reportcard.ReportCardViewModel
 import com.example.reportcard.ReportCardViewModelFactory
 import com.example.saved.SavedViewModel
@@ -73,6 +76,7 @@ object Routes {
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SAVED_ITEMS = "saved_items"
     const val DOWNLOADS = "downloads"
+    const val NOTIFICATION_HISTORY = "notification_history"
     const val REPORT_CARD = "report_card?programId={programId}&programTitle={programTitle}&phaseId={phaseId}"
     const val SMART_NOTES = "smart_notes/{subjectCode}?title={title}&color={color}&phaseId={phaseId}"
     const val CHAPTER_RESOURCES = "chapter_resources/{chapterId}?name={name}&subjectCode={subjectCode}&phaseId={phaseId}"
@@ -405,6 +409,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedSubject = URLEncoder.encode(subjectName, "UTF-8")
                     val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
                     navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
+                },
+                onNavigateToNotificationHistory = {
+                    navController.navigate(Routes.NOTIFICATION_HISTORY)
                 },
                 onLogout = {
                     authViewModel.logout()
@@ -987,6 +994,25 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
             ReportCardScreen(
                 viewModel = reportCardViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.NOTIFICATION_HISTORY,
+            anim = NavAnim.forward
+        ) {
+            val notificationRepo = remember(context) {
+                NotificationHistoryRepository.getInstance(context)
+            }
+            val notificationViewModel: NotificationHistoryViewModel = viewModel(
+                factory = NotificationHistoryViewModelFactory(notificationRepo)
+            )
+
+            NotificationHistoryScreen(
+                viewModel = notificationViewModel,
                 onBack = {
                     navController.popBackStack()
                 }

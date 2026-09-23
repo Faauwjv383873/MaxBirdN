@@ -48,6 +48,7 @@ fun MainContainerScreen(
     onOpenLessonDetail: (com.example.api.StudentLessonItem) -> Unit = {},
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit = { _, _, _, _, _ -> },
+    onNavigateToNotificationHistory: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -139,7 +140,8 @@ fun MainContainerScreen(
                         onOpenFullRoutine = onNavigateToFullRoutine,
                         onOpenLessonDetail = onOpenLessonDetail,
                         onNavigateToExam = onNavigateToExam,
-                        onNavigateToReportCard = onNavigateToReportCard
+                        onNavigateToReportCard = onNavigateToReportCard,
+                        onNavigateToNotificationHistory = onNavigateToNotificationHistory
                     )
                 }
                 1 -> {

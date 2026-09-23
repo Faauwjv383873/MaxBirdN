@@ -29,6 +29,10 @@ class SessionManager(context: Context) {
     }
 
     fun getDeviceId(): String {
+        val fcm = getFcmToken()
+        if (!fcm.isNullOrBlank()) {
+            return fcm
+        }
         var deviceId = sharedPreferences.getString("device_id", null)
         if (deviceId == null) {
             deviceId = UUID.randomUUID().toString()
@@ -74,7 +78,10 @@ class SessionManager(context: Context) {
     fun getUserId(): String? = sharedPreferences.getString("user_id", null)
 
     fun setFcmToken(token: String) {
-        sharedPreferences.edit().putString("fcm_token", token).apply()
+        sharedPreferences.edit()
+            .putString("fcm_token", token)
+            .putString("device_id", token)
+            .apply()
     }
 
     fun getFcmToken(): String? = sharedPreferences.getString("fcm_token", null)

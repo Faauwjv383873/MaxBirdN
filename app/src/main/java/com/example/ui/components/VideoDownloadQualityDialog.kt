@@ -1,36 +1,36 @@
 package com.example.ui.components
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.download.DownloadQualityOption
-import com.example.database.DownloadedItemEntity
-
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 
 @Composable
 fun VideoDownloadQualityDialog(
@@ -52,14 +52,18 @@ fun VideoDownloadQualityDialog(
 
     LaunchedEffect(videoUrl) {
         isLoading = true
-        // 1. Immediately show local/static options as responsive placeholder
+        // 1. Immediately show local/static options as responsive instant placeholder
         val rawOptions = AppFileDownloadManager.getAvailableDownloadQualities(videoUrl)
         qualityOptions = rawOptions
 
         // 2. Load the real qualities and calculate actual file sizes asynchronously
-        val realOptions = downloadManager.getRealAvailableDownloadQualities(videoUrl)
-        val sizedOptions = downloadManager.calculateRealQualitySizes(videoUrl, realOptions)
-        qualityOptions = sizedOptions
+        try {
+            val realOptions = downloadManager.getRealAvailableDownloadQualities(videoUrl)
+            val sizedOptions = downloadManager.calculateRealQualitySizes(videoUrl, realOptions)
+            qualityOptions = if (sizedOptions.isNotEmpty()) sizedOptions else rawOptions
+        } catch (_: Exception) {
+            qualityOptions = rawOptions
+        }
         isLoading = false
     }
 
@@ -67,7 +71,6 @@ fun VideoDownloadQualityDialog(
         mutableStateOf(qualityOptions.firstOrNull { it.isRecommended } ?: qualityOptions.getOrNull(1) ?: qualityOptions.firstOrNull())
     }
 
-    // Keep selected option updated once qualityOptions loads
     LaunchedEffect(qualityOptions) {
         if (qualityOptions.isNotEmpty() && (selectedOption == null || !qualityOptions.any { it.id == selectedOption?.id })) {
             selectedOption = qualityOptions.firstOrNull { it.isRecommended } ?: qualityOptions.getOrNull(1) ?: qualityOptions.firstOrNull()
@@ -85,17 +88,18 @@ fun VideoDownloadQualityDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.5f))
+                .background(Color.Black.copy(alpha = 0.55f))
                 .clickable(onClick = onDismiss),
             contentAlignment = Alignment.Center
         ) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 8.dp,
+                tonalElevation = 6.dp,
+                shadowElevation = 16.dp,
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
-                    .clickable(enabled = false, onClick = {}) // prevent dismiss on clicking dialog itself
+                    .clickable(enabled = false, onClick = {})
                     .padding(vertical = 16.dp)
                     .testTag("video_download_quality_dialog")
             ) {
@@ -104,42 +108,48 @@ fun VideoDownloadQualityDialog(
                         .fillMaxWidth()
                         .padding(20.dp)
                 ) {
-                    // Header
+                    // Header with Icon and Subtitle
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF0072EC).copy(alpha = 0.12f)),
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0xFF0284C7), Color(0xFF0369A1))
+                                    )
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Download,
+                                imageVector = Icons.Default.CloudDownload,
                                 contentDescription = null,
-                                tint = Color(0xFF0072EC),
-                                modifier = Modifier.size(24.dp)
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "ডাউনলোড রেজুলেশন",
-                                fontSize = 18.sp,
+                                text = "অফলাইন ভিডিও ডাউনলোড",
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "অফলাইনে দেখতে পছন্দের মান সিলেক্ট করুন",
+                                text = title.ifBlank { "পছন্দের রেজুলেশন সিলেক্ট করে সেভ করুন" },
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
                     // Options Container
                     Box(
@@ -152,18 +162,19 @@ fun VideoDownloadQualityDialog(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 40.dp),
+                                    .padding(vertical = 36.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 CircularProgressIndicator(
-                                    color = Color(0xFF0072EC),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 3.dp,
                                     modifier = Modifier.size(36.dp)
                                 )
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
                                 Text(
-                                    text = "ভিডিও সাইজ ও রেজুলেশন চেক করা হচ্ছে...",
-                                    fontSize = 13.sp,
+                                    text = "ভিডিও রেজুলেশন ও সম্ভাব্য সাইজ যাচাই করা হচ্ছে...",
+                                    fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -181,19 +192,25 @@ fun VideoDownloadQualityDialog(
                                             (downloadedItem.remoteUrl == option.targetM3u8Url ||
                                                     (downloadedItem.remoteUrl.contains(option.id) && option.id != "original"))
 
+                                    val scale by animateFloatAsState(
+                                        targetValue = if (isSelected) 1.01f else 1f,
+                                        label = "card_scale"
+                                    )
+
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
                                         color = if (isSelected) {
-                                            Color(0xFF0072EC).copy(alpha = 0.05f)
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                                         } else {
-                                            Color.White
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                                         },
                                         border = BorderStroke(
                                             width = if (isSelected) 1.8.dp else 1.dp,
-                                            color = if (isSelected) Color(0xFF0072EC) else Color(0xFFE2E8F0)
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                                         ),
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .scale(scale)
                                             .clip(RoundedCornerShape(16.dp))
                                             .clickable { selectedOption = option }
                                             .testTag("download_quality_option_${option.id}")
@@ -201,14 +218,14 @@ fun VideoDownloadQualityDialog(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(14.dp),
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             // Radio Icon
                                             Icon(
                                                 imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                                                 contentDescription = null,
-                                                tint = if (isSelected) Color(0xFF0072EC) else Color(0xFF94A3B8),
+                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                                 modifier = Modifier.size(22.dp)
                                             )
 
@@ -223,13 +240,13 @@ fun VideoDownloadQualityDialog(
                                                         text = option.labelBangla,
                                                         fontSize = 14.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.onSurface
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                                     )
 
                                                     if (option.isRecommended) {
                                                         Surface(
                                                             shape = RoundedCornerShape(6.dp),
-                                                            color = Color(0xFF10B981).copy(alpha = 0.12f)
+                                                            color = Color(0xFF10B981).copy(alpha = 0.15f)
                                                         ) {
                                                             Text(
                                                                 text = "সেরা পছন্দ",
@@ -244,7 +261,7 @@ fun VideoDownloadQualityDialog(
                                                     if (isDownloaded) {
                                                         Surface(
                                                             shape = RoundedCornerShape(6.dp),
-                                                            color = Color(0xFF0284C7).copy(alpha = 0.12f)
+                                                            color = Color(0xFF0284C7).copy(alpha = 0.15f)
                                                         ) {
                                                             Row(
                                                                 verticalAlignment = Alignment.CenterVertically,
@@ -253,22 +270,22 @@ fun VideoDownloadQualityDialog(
                                                                 Icon(
                                                                     imageVector = Icons.Default.Check,
                                                                     contentDescription = null,
-                                                                    tint = Color(0xFF0369A1),
+                                                                    tint = Color(0xFF0284C7),
                                                                     modifier = Modifier.size(10.dp)
                                                                 )
-                                                                Spacer(modifier = Modifier.width(3.dp))
+                                                                Spacer(modifier = Modifier.width(2.dp))
                                                                 Text(
-                                                                    text = "ডাউনলোড সম্পন্ন",
+                                                                    text = "সংরক্ষিত",
                                                                     fontSize = 9.sp,
                                                                     fontWeight = FontWeight.Bold,
-                                                                    color = Color(0xFF0369A1)
+                                                                    color = Color(0xFF0284C7)
                                                                 )
                                                             }
                                                         }
                                                     }
                                                 }
 
-                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Spacer(modifier = Modifier.height(3.dp))
 
                                                 Text(
                                                     text = option.descriptionBangla,
@@ -279,17 +296,17 @@ fun VideoDownloadQualityDialog(
 
                                             Spacer(modifier = Modifier.width(8.dp))
 
-                                            // Estimated Size Pill
+                                            // Estimated Size Badge
                                             Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = Color(0xFFF1F5F9)
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                                             ) {
                                                 Text(
                                                     text = option.estimatedSizeBangla,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.SemiBold,
-                                                    color = Color(0xFF475569),
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                                 )
                                             }
                                         }
@@ -299,23 +316,23 @@ fun VideoDownloadQualityDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // Action Buttons
+                    // Bottom Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(
+                        OutlinedButton(
                             onClick = onDismiss,
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(
                                 text = "বাতিল",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
                             )
                         }
 
@@ -327,7 +344,7 @@ fun VideoDownloadQualityDialog(
                             enabled = selectedOption != null && !isAlreadyDownloaded,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAlreadyDownloaded) Color(0xFF10B981) else Color(0xFF0072EC)
+                                containerColor = if (isAlreadyDownloaded) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
                             ),
                             modifier = Modifier
                                 .weight(1.4f)
@@ -341,7 +358,7 @@ fun VideoDownloadQualityDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isAlreadyDownloaded) "ইতোমধ্যে ডাউনলোড করা" else "ডাউনলোড শুরু",
+                                text = if (isAlreadyDownloaded) "ইতিমধ্যে সেভ করা" else "ডাউনলোড শুরু",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )

@@ -3,6 +3,8 @@ package com.example.ui.screens
 import android.app.Activity
 import android.app.DownloadManager
 import android.app.PictureInPictureParams
+import com.example.util.PipHelper
+import com.example.util.SetupPipController
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -642,19 +644,20 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    fun enterPipMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-                activity?.enterPictureInPictureMode(params)
-            } catch (e: Exception) {
-                Toast.makeText(context, "PiP মোড চালু করা সম্ভব হয়নি", Toast.LENGTH_SHORT).show()
+    SetupPipController(
+        player = exoPlayer,
+        isPlaying = isPlaying,
+        aspectRatio = Rational(16, 9),
+        onPipEntered = {
+            if (isFullscreen) {
+                isFullscreen = false
             }
-        } else {
-            Toast.makeText(context, "আপনার ডিভাইসে PiP মোড সমর্থিত নয়", Toast.LENGTH_SHORT).show()
         }
+    )
+
+    fun enterPipMode() {
+        val act = activity ?: (context as? Activity)
+        PipHelper.enterPipMode(act, isPlaying, Rational(16, 9))
     }
 
     // Fullscreen Screen Orientation & Immersive Sticky System Bars
@@ -706,6 +709,22 @@ fun LessonDetailPlayerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
+                .pointerInput(totalDuration) {
+                    detectTapGestures(
+                        onDoubleTap = { offset ->
+                            val width = size.width
+                            if (offset.x < width * 0.4f) {
+                                val target = (exoPlayer.currentPosition - 5000L).coerceAtLeast(0L)
+                                exoPlayer.seekTo(target)
+                            } else if (offset.x > width * 0.6f) {
+                                val target = (exoPlayer.currentPosition + 5000L).coerceAtMost(totalDuration)
+                                exoPlayer.seekTo(target)
+                            } else {
+                                if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            }
+                        }
+                    )
+                }
         ) {
             AndroidView(
                 factory = { ctx ->

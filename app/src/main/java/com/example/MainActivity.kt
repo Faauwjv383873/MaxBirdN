@@ -34,6 +34,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Verify Firebase is initialized correctly
+        try {
+            val apps = com.google.firebase.FirebaseApp.getApps(this)
+            if (apps.isEmpty()) {
+                android.util.Log.e("MainActivity", "❌ Firebase NOT initialized!")
+            } else {
+                val projectId = com.google.firebase.FirebaseApp.getInstance().options.projectId
+                android.util.Log.d("MainActivity", "✅ Firebase Project: $projectId")
+                if (projectId != "shikho-tech") {
+                    android.util.Log.e("MainActivity", "❌ Wrong Firebase project! Expected: shikho-tech, Got: $projectId")
+                }
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "Firebase check failed: ${e.message}", e)
+        }
+
         requestNotificationPermissionOnStartup()
         fetchAndRegisterFcmToken()
 

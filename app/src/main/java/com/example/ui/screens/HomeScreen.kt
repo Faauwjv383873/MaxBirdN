@@ -27,12 +27,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.EnrolledProgram
 import com.example.api.StudentLessonItem
+import com.example.database.NotificationHistoryRepository
 import com.example.home.HomeViewModel
 import com.example.ui.components.CourseProgressSection
 import com.example.ui.components.CourseSwitcherBottomSheet
@@ -52,10 +54,15 @@ fun HomeScreen(
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
+    onNavigateToNotificationHistory: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val unreadNotificationsCount by remember(context) {
+        NotificationHistoryRepository.getInstance(context).getUnreadCount()
+    }.collectAsState(initial = 0)
 
     // ===== LOGIC: Scroll-driven collapsible header (unchanged) =====
     var isHeaderVisible by remember { mutableStateOf(true) }
@@ -165,7 +172,9 @@ fun HomeScreen(
                 isPremium = uiState.isPremium,
                 activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
                 onOpenCourseSwitcher = { viewModel.setCourseSwitcherVisible(true) },
-                onAvatarClick = { onNavigateToProfile() }
+                onAvatarClick = { onNavigateToProfile() },
+                unreadNotificationCount = unreadNotificationsCount,
+                onNotificationClick = onNavigateToNotificationHistory
             )
 
             Column(

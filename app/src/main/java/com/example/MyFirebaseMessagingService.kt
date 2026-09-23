@@ -10,8 +10,14 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.auth.SessionManager
+import com.example.database.NotificationHistoryEntity
+import com.example.database.NotificationHistoryRepository
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -23,35 +29,84 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d(TAG, "Refreshed FCM Token: $token")
+        Log.d(TAG, "🔥 FCM Token received: $token")
         
-        // Save FCM token in SessionManager for API backend registration
+        val firebaseApp = com.google.firebase.FirebaseApp.getInstance()
+        Log.d(TAG, "🔥 Firebase Project ID: ${firebaseApp.options.projectId}")
+        Log.d(TAG, "🔥 GCM Sender ID: ${firebaseApp.options.gcmSenderId}")
+        Log.d(TAG, "🔥 App ID: ${firebaseApp.options.applicationId}")
+        
+        if (firebaseApp.options.projectId != "shikho-tech") {
+            Log.e(TAG, "❌ WRONG FIREBASE PROJECT! Expected shikho-tech but got ${firebaseApp.options.projectId}")
+            Log.e(TAG, "❌ google-services.json is wrong — check the package_name and project_id")
+        } else {
+            Log.d(TAG, "✅ Firebase correctly initialized with shikho-tech")
+        }
+        
         val sessionManager = SessionManager(applicationContext)
         sessionManager.setFcmToken(token)
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        Log.d(TAG, "From: ${remoteMessage.from}")
-
-        // Check if message contains data payload
-        val dataPayload = remoteMessage.data
-        if (dataPayload.isNotEmpty()) {
-            Log.d(TAG, "Message data payload: $dataPayload")
-        }
+        Log.d(TAG, "📩 From: ${remoteMessage.from}")
+        Log.d(TAG, "📩 Data: ${remoteMessage.data}")
+        
+        val data = remoteMessage.data
 
         // Extract title and body
         val title = remoteMessage.notification?.title
-            ?: dataPayload["title"]
+            ?: data["title"]
             ?: "শিখুন Shikho"
             
         val messageBody = remoteMessage.notification?.body
-            ?: dataPayload["body"]
-            ?: dataPayload["message"]
+            ?: data["body"]
+            ?: data["message"]
             ?: ""
 
+        val imageUrl = remoteMessage.notification?.imageUrl?.toString()
+            ?: data["image"]
+            ?: data["imageUrl"]
+
+        val type = data["type"] ?: data["event"] ?: "live_class"
+        val deepLink = data["deep_link"] ?: data["link"] ?: data["url"]
+
+        val dataJson = try {
+            if (data.isNotEmpty()) {
+                JSONObject(data as Map<*, *>).toString()
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+
+        // Save to Notification History Room Database BEFORE showing notification
+        try {
+            val repository = NotificationHistoryRepository.getInstance(applicationContext)
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val entity = NotificationHistoryEntity(
+                        title = title,
+                        body = messageBody,
+                        imageUrl = imageUrl,
+                        type = type,
+                        dataJson = dataJson,
+                        deepLink = deepLink,
+                        receivedAt = System.currentTimeMillis(),
+                        isRead = false,
+                        isClicked = false
+                    )
+                    val insertedId = repository.save(entity)
+                    Log.d(TAG, "💾 Saved notification to history DB with ID: $insertedId")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Failed to save notification to history DB: ${e.message}", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to initialize repository for notification saving: ${e.message}", e)
+        }
+
         if (messageBody.isNotBlank()) {
-            sendNotification(title, messageBody, dataPayload)
+            sendNotification(title, messageBody, data)
         }
     }
 
@@ -78,7 +133,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(messageBody)
             .setAutoCancel(true)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -109,7 +110,9 @@ fun HomeHeader(
     onAvatarClick: () -> Unit,
     modifier: Modifier = Modifier,
     activeCourseTitle: String? = null,
-    onOpenCourseSwitcher: (() -> Unit)? = null
+    onOpenCourseSwitcher: (() -> Unit)? = null,
+    unreadNotificationCount: Int = 0,
+    onNotificationClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -224,6 +227,50 @@ fun HomeHeader(
             }
 
             Spacer(modifier = Modifier.width(10.dp))
+
+            // Notification Bell with unread badge
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF0F2744).copy(alpha = 0.85f))
+                    .border(
+                        1.dp,
+                        Color(0xFF38BDF8).copy(alpha = 0.35f),
+                        CircleShape
+                    )
+                    .clickable { onNotificationClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = "নোটিফিকেশন",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+
+                if (unreadNotificationCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 2.dp, y = (-2).dp)
+                            .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444))
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (unreadNotificationCount > 9) "9+" else "$unreadNotificationCount",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
 
             // Profile Avatar — animated gradient ring
             val fallbackInitial = remember(userName) {

@@ -13,13 +13,23 @@ object FcmTopicManager {
 
             // 1. General topic
             fm.subscribeToTopic("SHIKHO_ALL")
-                .addOnSuccessListener { Log.d(TAG, "Subscribed to topic: SHIKHO_ALL") }
+                .addOnSuccessListener { 
+                    Log.d(TAG, "✅ Subscribed to topic: SHIKHO_ALL") 
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "❌ Failed to subscribe to SHIKHO_ALL: ${e.message}", e)
+                }
 
             // 2. User specific topic
             val userId = sessionManager.getUserId()
             if (!userId.isNullOrBlank()) {
                 fm.subscribeToTopic(userId)
-                    .addOnSuccessListener { Log.d(TAG, "Subscribed to user topic: $userId") }
+                    .addOnSuccessListener { 
+                        Log.d(TAG, "✅ Subscribed to user topic: $userId") 
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ Failed to subscribe to user topic $userId: ${e.message}", e)
+                    }
             }
 
             // 3. Active program topic
@@ -27,7 +37,12 @@ object FcmTopicManager {
             if (!userId.isNullOrBlank() && !programId.isNullOrBlank()) {
                 val liveUserProgramTopic = "LIVE_ShikhoNotification_UserID_${userId}_Program_${programId}"
                 fm.subscribeToTopic(liveUserProgramTopic)
-                    .addOnSuccessListener { Log.d(TAG, "Subscribed to topic: $liveUserProgramTopic") }
+                    .addOnSuccessListener { 
+                        Log.d(TAG, "✅ Subscribed to topic: $liveUserProgramTopic") 
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ Failed to subscribe to topic $liveUserProgramTopic: ${e.message}", e)
+                    }
             }
 
             // 4. Program + Phase topic
@@ -35,7 +50,12 @@ object FcmTopicManager {
             if (!programId.isNullOrBlank() && !phaseId.isNullOrBlank()) {
                 val liveProgramPhaseTopic = "LIVE_ShikhoNotification_Program_${programId}_Phase_${phaseId}"
                 fm.subscribeToTopic(liveProgramPhaseTopic)
-                    .addOnSuccessListener { Log.d(TAG, "Subscribed to topic: $liveProgramPhaseTopic") }
+                    .addOnSuccessListener { 
+                        Log.d(TAG, "✅ Subscribed to topic: $liveProgramPhaseTopic") 
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ Failed to subscribe to topic $liveProgramPhaseTopic: ${e.message}", e)
+                    }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error subscribing to FCM topics", e)
@@ -50,13 +70,23 @@ object FcmTopicManager {
             if (!userId.isNullOrBlank() && programId.isNotBlank()) {
                 val liveUserProgramTopic = "LIVE_ShikhoNotification_UserID_${userId}_Program_${programId}"
                 fm.subscribeToTopic(liveUserProgramTopic)
-                    .addOnSuccessListener { Log.d(TAG, "Subscribed to topic: $liveUserProgramTopic") }
+                    .addOnSuccessListener { 
+                        Log.d(TAG, "✅ Subscribed to topic: $liveUserProgramTopic") 
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ Failed to subscribe to topic $liveUserProgramTopic: ${e.message}", e)
+                    }
             }
 
             if (programId.isNotBlank() && !phaseId.isNullOrBlank()) {
                 val liveProgramPhaseTopic = "LIVE_ShikhoNotification_Program_${programId}_Phase_${phaseId}"
                 fm.subscribeToTopic(liveProgramPhaseTopic)
-                    .addOnSuccessListener { Log.d(TAG, "Subscribed to topic: $liveProgramPhaseTopic") }
+                    .addOnSuccessListener { 
+                        Log.d(TAG, "✅ Subscribed to topic: $liveProgramPhaseTopic") 
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "❌ Failed to subscribe to topic $liveProgramPhaseTopic: ${e.message}", e)
+                    }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error subscribing to program FCM topics", e)

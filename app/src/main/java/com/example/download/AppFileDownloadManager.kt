@@ -562,7 +562,7 @@ class AppFileDownloadManager private constructor(
         }
 
         val totalSegments = segmentUrls.size
-        Log.d(TAG, "Found $totalSegments TS segments for id: $id. Starting download...")
+        Log.d(TAG, "Found $totalSegments TS segments for id: $id. Starting concurrent download...")
 
         if (targetFile.exists()) {
             targetFile.delete()
@@ -573,26 +573,47 @@ class AppFileDownloadManager private constructor(
         var lastDbUpdateTime = 0L
 
         try {
-            for (index in 0 until totalSegments) {
-                ensureActive() // Check for cancellation
+            // Use controlled concurrency (up to 3 parallel chunk downloads) in batches of sliding window
+            val batchSize = 3
+            val downloadedChunksMap = ConcurrentHashMap<Int, ByteArray>()
 
-                val segmentUrl = segmentUrls[index]
-                val chunkBytes = downloadSegmentWithRetry(segmentUrl)
+            var chunkFetchIndex = 0
+            while (chunkFetchIndex < totalSegments) {
+                ensureActive()
 
-                outputStream.write(chunkBytes)
-                downloadedBytes += chunkBytes.size
+                val windowEnd = (chunkFetchIndex + batchSize).coerceAtMost(totalSegments)
+                val chunkIndicesToFetch = (chunkFetchIndex until windowEnd).filter { !downloadedChunksMap.containsKey(it) }
 
-                val now = System.currentTimeMillis()
-                if (now - lastDbUpdateTime > 400L || index == totalSegments - 1) {
-                    lastDbUpdateTime = now
-                    val estimatedTotal = ((downloadedBytes.toDouble() / (index + 1)) * totalSegments).toLong()
-                    downloadedItemDao.insertOrUpdate(
-                        initialEntity.copy(
-                            downloadedBytes = downloadedBytes,
-                            totalBytes = if (estimatedTotal > 0) estimatedTotal else downloadedBytes,
-                            status = DownloadedItemEntity.STATUS_DOWNLOADING
+                coroutineScope {
+                    chunkIndicesToFetch.map { idx ->
+                        async(Dispatchers.IO) {
+                            ensureActive()
+                            val chunkData = downloadSegmentWithRetry(segmentUrls[idx])
+                            downloadedChunksMap[idx] = chunkData
+                        }
+                    }.awaitAll()
+                }
+
+                // Write chunks in strict sequential order
+                while (downloadedChunksMap.containsKey(chunkFetchIndex)) {
+                    ensureActive()
+                    val chunkData = downloadedChunksMap.remove(chunkFetchIndex) ?: break
+                    outputStream.write(chunkData)
+                    downloadedBytes += chunkData.size
+                    chunkFetchIndex++
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastDbUpdateTime > 400L || chunkFetchIndex == totalSegments) {
+                        lastDbUpdateTime = now
+                        val estimatedTotal = ((downloadedBytes.toDouble() / chunkFetchIndex) * totalSegments).toLong()
+                        downloadedItemDao.insertOrUpdate(
+                            initialEntity.copy(
+                                downloadedBytes = downloadedBytes,
+                                totalBytes = if (estimatedTotal > 0) estimatedTotal else downloadedBytes,
+                                status = DownloadedItemEntity.STATUS_DOWNLOADING
+                            )
                         )
-                    )
+                    }
                 }
             }
 
