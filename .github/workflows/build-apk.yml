@@ -168,6 +168,7 @@ jobs:
         with:
           name: MaxBird-Debug-APK
           path: artifacts/MaxBird-Debug.apk
+          compression-level: 0
           retention-days: 14
 
       - name: Upload Release APK
@@ -176,7 +177,23 @@ jobs:
         with:
           name: MaxBird-Release-APK
           path: artifacts/MaxBird-Release.apk
+          compression-level: 0
           retention-days: 30
+
+      - name: Create or Update GitHub Release
+        if: ${{ hashFiles('artifacts/MaxBird-Release.apk') != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "MaxBird Release (Latest)"
+          body: "Direct APK Download for MaxBird Android App. Download directly to device without zip archive."
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/MaxBird-Release.apk
+            artifacts/MaxBird-Debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Summary
         run: |

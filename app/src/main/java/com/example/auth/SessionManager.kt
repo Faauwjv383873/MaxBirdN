@@ -280,6 +280,43 @@ class SessionManager(context: Context) {
         sharedPreferences.edit().putStringSet("disabled_alarm_ids", current).apply()
     }
 
+    // Custom Alarms Persistence
+    fun getCustomAlarms(): List<CustomAlarmData> {
+        val json = sharedPreferences.getString("custom_alarms_list", "[]") ?: "[]"
+        val list = mutableListOf<CustomAlarmData>()
+        try {
+            val array = org.json.JSONArray(json)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    CustomAlarmData(
+                        id = obj.optString("id"),
+                        title = obj.optString("title"),
+                        message = obj.optString("message"),
+                        triggerTimeMs = obj.optLong("triggerTimeMs"),
+                        isEnabled = obj.optBoolean("isEnabled", true)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    fun saveCustomAlarms(list: List<CustomAlarmData>) {
+        val array = org.json.JSONArray()
+        for (item in list) {
+            val obj = org.json.JSONObject().apply {
+                put("id", item.id)
+                put("title", item.title)
+                put("message", item.message)
+                put("triggerTimeMs", item.triggerTimeMs)
+                put("isEnabled", item.isEnabled)
+            }
+            array.put(obj)
+        }
+        sharedPreferences.edit().putString("custom_alarms_list", array.toString()).apply()
+    }
+
     // Account Completion Status
     fun setAccountComplete(completed: Boolean) {
         sharedPreferences.edit().putBoolean("is_account_completed", completed).apply()
@@ -367,3 +404,11 @@ class SessionManager(context: Context) {
         _userProfileUpdateFlow.value = System.currentTimeMillis()
     }
 }
+
+data class CustomAlarmData(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String,
+    val message: String,
+    val triggerTimeMs: Long,
+    val isEnabled: Boolean = true
+)
