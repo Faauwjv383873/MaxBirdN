@@ -183,6 +183,7 @@ fun CourseProgressSection(
                         ) {
                             QuarterCard(
                                 phase = phase,
+                                index = index,
                                 isCompleted = isCompleted,
                                 isActive = isActive,
                                 isUpcoming = isUpcoming,
@@ -199,6 +200,7 @@ fun CourseProgressSection(
 @Composable
 private fun QuarterCard(
     phase: PhaseItem,
+    index: Int = -1,
     isCompleted: Boolean,
     isActive: Boolean,
     isUpcoming: Boolean,
@@ -290,7 +292,7 @@ private fun QuarterCard(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    val dateRangeText = formatQuarterDateRange(phase.start_date, phase.end_date)
+                    val dateRangeText = formatQuarterDateRange(phase.start_date, phase.end_date, phase.title, index)
                     if (dateRangeText.isNotBlank()) {
                         Text(
                             text = dateRangeText,
@@ -378,10 +380,12 @@ private fun parseDateSafe(dateStr: String?): java.util.Date? {
     return null
 }
 
-private fun formatQuarterDateRange(startDateStr: String?, endDateStr: String?): String {
-    if (startDateStr.isNullOrBlank() && endDateStr.isNullOrBlank()) {
-        return "অক্টোবর'২৫ - ডিসেম্বর'২৫"
-    }
+private fun formatQuarterDateRange(
+    startDateStr: String?,
+    endDateStr: String?,
+    phaseTitle: String? = null,
+    index: Int = -1
+): String {
     val start = parseDateSafe(startDateStr)
     val end = parseDateSafe(endDateStr)
 
@@ -401,21 +405,85 @@ private fun formatQuarterDateRange(startDateStr: String?, endDateStr: String?): 
         val startBn = start?.let { formatSingle(it) } ?: ""
         val endBn = end?.let { formatSingle(it) } ?: ""
 
-        return when {
-            startBn.isNotBlank() && endBn.isNotBlank() -> "$startBn - $endBn"
-            startBn.isNotBlank() -> "শুরু: $startBn"
-            endBn.isNotBlank() -> "পর্যন্ত: $endBn"
-            else -> "অক্টোবর'২৫ - ডিসেম্বর'২৫"
+        if (startBn.isNotBlank() && endBn.isNotBlank()) {
+            return "$startBn - $endBn"
+        } else if (startBn.isNotBlank()) {
+            return "শুরু: $startBn"
+        } else if (endBn.isNotBlank()) {
+            return "পর্যন্ত: $endBn"
         }
     }
 
-    return "অক্টোবর'২৫ - ডিসেম্বর'২৫"
+    // Dynamic fallback based on Quarter name or index so cards NEVER have the same duplicate date
+    return when {
+        phaseTitle?.contains("১") == true || phaseTitle?.contains("1") == true || index == 0 -> "সেপ্টেম্বর'২৫ - ডিসেম্বর'২৫"
+        phaseTitle?.contains("২") == true || phaseTitle?.contains("2") == true || index == 1 -> "জানুয়ারি'২৬ - মার্চ'২৬"
+        phaseTitle?.contains("৩") == true || phaseTitle?.contains("3") == true || index == 2 -> "এপ্রিল'২৬ - জুন'২৬"
+        phaseTitle?.contains("৪") == true || phaseTitle?.contains("4") == true || index == 3 -> "জুলাই'২৬ - সেপ্টেম্বর'২৬"
+        phaseTitle?.contains("৫") == true || phaseTitle?.contains("5") == true || index == 4 -> "অক্টোবর'২৬ - ডিসেম্বর'২৬"
+        else -> "সেপ্টেম্বর'২৫ - ডিসেম্বর'২৫"
+    }
 }
 
 val defaultCoursePhases = listOf(
-    PhaseItem(id = "q1", academic_program_id = "", title = "কোয়ার্টার ১", status = "COMPLETED", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 1.0, start_date = "2025-01-01T00:00:00Z", end_date = "2025-03-31T23:59:59Z"),
-    PhaseItem(id = "q2", academic_program_id = "", title = "কোয়ার্টার ২", status = "COMPLETED", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 6.0, start_date = "2025-04-01T00:00:00Z", end_date = "2025-06-30T23:59:59Z"),
-    PhaseItem(id = "q3", academic_program_id = "", title = "কোয়ার্টার ৩", status = "COMPLETED", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 5.0, start_date = "2025-07-01T00:00:00Z", end_date = "2025-09-30T23:59:59Z"),
-    PhaseItem(id = "q4", academic_program_id = "", title = "কোয়ার্টার ৪", status = "ACTIVE", is_current = true, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 8.0, start_date = "2025-10-01T00:00:00Z", end_date = "2025-12-31T23:59:59Z"),
-    PhaseItem(id = "q5", academic_program_id = "", title = "কোয়ার্টার ৫", status = "UPCOMING", is_current = false, has_enrolment = true, has_free_trial_enrolment = false, course_progress_percentage = 0.0, start_date = "2026-01-01T00:00:00Z", end_date = "2026-03-31T23:59:59Z")
+    PhaseItem(
+        id = "6864d4e806800acba2e270e1",
+        academic_program_id = "6864d3a806800acba2e27099",
+        title = "কোয়ার্টার ১",
+        status = "COMPLETED",
+        is_current = false,
+        has_enrolment = true,
+        has_free_trial_enrolment = false,
+        course_progress_percentage = 0.53,
+        start_date = "2025-08-31T18:00:00Z",
+        end_date = "2025-12-31T17:59:59Z"
+    ),
+    PhaseItem(
+        id = "6864d4e806800acba2e270e2",
+        academic_program_id = "6864d3a806800acba2e27099",
+        title = "কোয়ার্টার ২",
+        status = "COMPLETED",
+        is_current = false,
+        has_enrolment = true,
+        has_free_trial_enrolment = false,
+        course_progress_percentage = 5.90,
+        start_date = "2025-12-31T18:00:00Z",
+        end_date = "2026-03-31T17:59:59Z"
+    ),
+    PhaseItem(
+        id = "6864d4e806800acba2e270e3",
+        academic_program_id = "6864d3a806800acba2e27099",
+        title = "কোয়ার্টার ৩",
+        status = "COMPLETED",
+        is_current = false,
+        has_enrolment = true,
+        has_free_trial_enrolment = false,
+        course_progress_percentage = 4.51,
+        start_date = "2026-03-31T18:00:00Z",
+        end_date = "2026-06-30T17:59:59Z"
+    ),
+    PhaseItem(
+        id = "6864d4e806800acba2e270e4",
+        academic_program_id = "6864d3a806800acba2e27099",
+        title = "কোয়ার্টার ৪",
+        status = "ACTIVE",
+        is_current = true,
+        has_enrolment = true,
+        has_free_trial_enrolment = false,
+        course_progress_percentage = 8.24,
+        start_date = "2026-06-30T18:00:00Z",
+        end_date = "2026-09-30T17:59:59Z"
+    ),
+    PhaseItem(
+        id = "6864d4e806800acba2e270e5",
+        academic_program_id = "6864d3a806800acba2e27099",
+        title = "কোয়ার্টার ৫",
+        status = "UPCOMING",
+        is_current = false,
+        has_enrolment = true,
+        has_free_trial_enrolment = false,
+        course_progress_percentage = 0.0,
+        start_date = "2026-09-30T18:00:00Z",
+        end_date = "2026-12-31T17:59:59Z"
+    )
 )

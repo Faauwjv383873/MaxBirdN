@@ -480,7 +480,25 @@ class HomeViewModel(
                         query ProgramPhasesByStudent(${'$'}program_id: String!, ${'$'}course_progress_percentage: Boolean) {
                           programPhasesByStudent(program_id: ${'$'}program_id, course_progress_percentage: ${'$'}course_progress_percentage) {
                             data {
-                              id academic_program_id title status is_current has_enrolment
+                              academic_program_id
+                              batch_id
+                              end_date
+                              start_date
+                              id
+                              has_enrolment
+                              has_free_trial_enrolment
+                              is_backlog
+                              is_current
+                              title
+                              facebook_group_url
+                              syllabus_attachment_url
+                              is_last_month
+                              is_purchasable
+                              type
+                              report_exists
+                              report_version
+                              course_progress_percentage
+                              status
                             }
                           }
                         }
@@ -489,12 +507,13 @@ class HomeViewModel(
                 )
                 val phaseRes = apiService.getProgramPhases(phaseQuery)
                 val phases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
-                _uiState.value = _uiState.value.copy(programPhases = phases)
+                val finalPhases = if (phases.isNotEmpty()) phases else com.example.ui.components.defaultCoursePhases
+                _uiState.value = _uiState.value.copy(programPhases = finalPhases)
 
                 // ২. কারেন্ট / একটিভ ফেজ সিলেক্ট করা
-                val currentPhase = phases.firstOrNull { it.is_current == true }
-                    ?: phases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
-                    ?: phases.firstOrNull()
+                val currentPhase = finalPhases.firstOrNull { it.is_current == true }
+                    ?: finalPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }
+                    ?: finalPhases.firstOrNull()
 
                 if (currentPhase == null || currentPhase.id.isBlank()) {
                     _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
@@ -584,7 +603,25 @@ class HomeViewModel(
                             query ProgramPhasesByStudent(${'$'}program_id: String!, ${'$'}course_progress_percentage: Boolean) {
                               programPhasesByStudent(program_id: ${'$'}program_id, course_progress_percentage: ${'$'}course_progress_percentage) {
                                 data {
-                                  id academic_program_id title status is_current has_enrolment
+                                  academic_program_id
+                                  batch_id
+                                  end_date
+                                  start_date
+                                  id
+                                  has_enrolment
+                                  has_free_trial_enrolment
+                                  is_backlog
+                                  is_current
+                                  title
+                                  facebook_group_url
+                                  syllabus_attachment_url
+                                  is_last_month
+                                  is_purchasable
+                                  type
+                                  report_exists
+                                  report_version
+                                  course_progress_percentage
+                                  status
                                 }
                               }
                             }
@@ -592,7 +629,8 @@ class HomeViewModel(
                         variables = mapOf("program_id" to programId, "course_progress_percentage" to true)
                     )
                     val phaseRes = apiService.getProgramPhases(phaseQuery)
-                    phases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                    val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                    phases = if (fetchedPhases.isNotEmpty()) fetchedPhases else com.example.ui.components.defaultCoursePhases
                     _uiState.value = _uiState.value.copy(programPhases = phases)
                 }
 

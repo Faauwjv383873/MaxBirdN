@@ -108,9 +108,13 @@ fun CourseEnrollmentDetailsScreen(
                               programPhasesByStudent(program_id: ${'$'}program_id) {
                                 data {
                                   id
+                                  academic_program_id
                                   title
                                   has_enrolment
                                   status
+                                  is_current
+                                  start_date
+                                  end_date
                                 }
                               }
                             }

@@ -131,12 +131,19 @@ class SessionManager(context: Context) {
             .putString("academic_group", group)
             .putString("academic_vendor", vendor ?: "BD")
             .apply()
+        _userProfileUpdateFlow.value = System.currentTimeMillis()
     }
 
     fun getUserBatchId(): String? = sharedPreferences.getString("academic_batch_id", null)
     fun getUserClassName(): String? = sharedPreferences.getString("academic_class_name", "C11")
     fun getUserGroup(): String? = sharedPreferences.getString("academic_group", "Humanities")
     fun getUserVendor(): String? = sharedPreferences.getString("academic_vendor", "BD")
+
+    private val _userAvatarFlow = kotlinx.coroutines.flow.MutableStateFlow(getUserAvatar())
+    val userAvatarFlow: kotlinx.coroutines.flow.StateFlow<String?> = _userAvatarFlow
+
+    private val _userProfileUpdateFlow = kotlinx.coroutines.flow.MutableStateFlow(System.currentTimeMillis())
+    val userProfileUpdateFlow: kotlinx.coroutines.flow.StateFlow<Long> = _userProfileUpdateFlow
 
     fun saveUserProfile(
         firstName: String?,
@@ -156,6 +163,8 @@ class SessionManager(context: Context) {
             editor.putString("user_phone", phone)
         }
         editor.apply()
+        _userAvatarFlow.value = avatar
+        _userProfileUpdateFlow.value = System.currentTimeMillis()
     }
 
     fun saveUserPhone(phone: String?) {
@@ -218,6 +227,57 @@ class SessionManager(context: Context) {
         val validMinutes = if (minutes in listOf(5, 10, 15, 20, 25, 30, 45, 60)) minutes else 25
         sharedPreferences.edit().putInt("class_notification_lead_time_minutes", validMinutes).apply()
         _classNotificationLeadTimeFlow.value = validMinutes
+    }
+
+    // Comprehensive Notification & Alarm Preferences
+    fun isAllNotificationsEnabled(): Boolean {
+        return sharedPreferences.getBoolean("notif_all_enabled", true)
+    }
+
+    fun setAllNotificationsEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("notif_all_enabled", enabled).apply()
+    }
+
+    fun isLiveClassNotificationEnabled(): Boolean {
+        return sharedPreferences.getBoolean("notif_live_class_enabled", true)
+    }
+
+    fun setLiveClassNotificationEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("notif_live_class_enabled", enabled).apply()
+    }
+
+    fun isExamNotificationEnabled(): Boolean {
+        return sharedPreferences.getBoolean("notif_exam_enabled", true)
+    }
+
+    fun setExamNotificationEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("notif_exam_enabled", enabled).apply()
+    }
+
+    fun isNotificationSoundEnabled(): Boolean {
+        return sharedPreferences.getBoolean("notif_sound_enabled", true)
+    }
+
+    fun setNotificationSoundEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("notif_sound_enabled", enabled).apply()
+    }
+
+    fun isNotificationVibrateEnabled(): Boolean {
+        return sharedPreferences.getBoolean("notif_vibrate_enabled", true)
+    }
+
+    fun setNotificationVibrateEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("notif_vibrate_enabled", enabled).apply()
+    }
+
+    fun getDisabledAlarmIds(): Set<String> {
+        return sharedPreferences.getStringSet("disabled_alarm_ids", emptySet()) ?: emptySet()
+    }
+
+    fun setAlarmDisabled(id: String, disabled: Boolean) {
+        val current = getDisabledAlarmIds().toMutableSet()
+        if (disabled) current.add(id) else current.remove(id)
+        sharedPreferences.edit().putStringSet("disabled_alarm_ids", current).apply()
     }
 
     // Account Completion Status
@@ -303,5 +363,7 @@ class SessionManager(context: Context) {
             .remove("user_avatar")
             .remove("just_signed_up")
             .apply()
+        _userAvatarFlow.value = null
+        _userProfileUpdateFlow.value = System.currentTimeMillis()
     }
 }

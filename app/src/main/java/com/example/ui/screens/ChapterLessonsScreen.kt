@@ -2,7 +2,6 @@ package com.example.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,58 +16,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import com.example.utils.toBengaliDigits
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.StudentLessonItem
-import com.example.api.TopicFullItem
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.example.auth.SessionManager
-import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
-import com.example.utils.AcademicLocalizationUtils
+import com.example.ui.components.chapter.*
 import com.example.utils.ClassTypeUtils
-import com.example.utils.EmptyQuestionsCard
+import com.example.utils.toBengaliDigits
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
-
-// Date Formatter helper
-fun formatLessonDate(rawDate: String?): String {
-    if (rawDate.isNullOrBlank()) return ""
-    return try {
-        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-        parser.timeZone = TimeZone.getTimeZone("UTC")
-        val date = parser.parse(rawDate)
-        if (date != null) {
-            val formatter = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-            formatter.timeZone = TimeZone.getTimeZone("Asia/Dhaka")
-            val formatted = formatter.format(date)
-            toBengaliDigits(formatted)
-        } else {
-            rawDate
-        }
-    } catch (_: Exception) {
-        try {
-            val simple = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(rawDate)
-            if (simple != null) {
-                val out = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(simple)
-                toBengaliDigits(out)
-            } else {
-                rawDate
-            }
-        } catch (_: Exception) {
-            rawDate
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,17 +57,34 @@ fun ChapterLessonsScreen(
     val sessionManager = remember { SessionManager(context) }
     var lessonCompletionCounter by remember { mutableIntStateOf(0) }
     val uiState by viewModel.uiState.collectAsState()
-    var selectedFilterTab by remember(initialTab) { mutableIntStateOf(if (initialTab == 1) 1 else 0) }
 
-    val classLessons = remember(uiState.lessons) { uiState.lessons.filter { !it.isExam } }
-    val examLessons = remember(uiState.lessons) { uiState.lessons.filter { it.isExam } }
-    val displayedLessons = remember(uiState.lessons, selectedFilterTab, classLessons, examLessons) {
-        if (examLessons.isEmpty()) {
-            uiState.lessons
-        } else if (selectedFilterTab == 1) {
-            examLessons
-        } else {
-            classLessons
+    var selectedFilter by remember(initialTab) {
+        mutableStateOf(
+            if (initialTab == 1) ChapterContentFilter.EXAM else ChapterContentFilter.ALL
+        )
+    }
+
+    // Explicitly Separate Live Classes, Recorded Classes, and Exams
+    val liveLessons = remember(uiState.lessons) {
+        uiState.lessons.filter { !it.isExam && (it.isLive || it.isLiveNow || it.isUpcoming || it.content_type?.contains("LiveClass", ignoreCase = true) == true) }
+    }
+    val recordedLessons = remember(uiState.lessons) {
+        uiState.lessons.filter {
+            !it.isExam && !it.isLiveNow && !it.isUpcoming &&
+                    (it.isRecorded || it.hasRecording || it.content_type?.contains("Record", ignoreCase = true) == true ||
+                     it.content_type?.contains("Video", ignoreCase = true) == true || it.content_type?.contains("Live", ignoreCase = true) != true)
+        }
+    }
+    val examLessons = remember(uiState.lessons) {
+        uiState.lessons.filter { it.isExam }
+    }
+
+    val displayedLessons = remember(uiState.lessons, selectedFilter, liveLessons, recordedLessons, examLessons) {
+        when (selectedFilter) {
+            ChapterContentFilter.ALL -> uiState.lessons
+            ChapterContentFilter.LIVE -> liveLessons
+            ChapterContentFilter.RECORDED -> recordedLessons
+            ChapterContentFilter.EXAM -> examLessons
         }
     }
 
@@ -166,16 +145,16 @@ fun ChapterLessonsScreen(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = chapterName.ifBlank { "ক্লাস তালিকা" },
+                            text = chapterName.ifBlank { "ক্লাস ও পরীক্ষা তালিকা" },
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (uiState.selectedSubjectTitle.isNotBlank()) {
+                        if (effectiveSubjectTitle.isNotBlank()) {
                             Text(
-                                text = uiState.selectedSubjectTitle,
+                                text = effectiveSubjectTitle,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = subjectColor
@@ -281,77 +260,43 @@ fun ChapterLessonsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Top Shortcuts: Practice Quiz, E-Book
+                        // 1. Top Shortcuts: Practice Quiz & E-Book
                         item {
                             ChapterFeatureShortcuts(
-                                selectedTab = 0,
-                                onTabSelected = { tab ->
-                                    if (tab == 2) {
-                                        onNavigateToPracticeQuiz?.invoke(
-                                            effectiveSubjectCode,
-                                            effectiveSubjectTitle,
-                                            effectiveSubjectColor,
-                                            chapterId,
-                                            chapterName
-                                        )
-                                    } else if (tab == 3) {
-                                        val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
-                                        val altId = matching?.chapter_id?.takeIf { it != chapterId } ?: matching?.id?.takeIf { it != chapterId }
-                                        onNavigateToChapterResources?.invoke(
-                                            chapterId,
-                                            chapterName,
-                                            effectiveSubjectCode,
-                                            uiState.activePhaseId ?: ""
-                                        )
-                                    }
+                                onOpenPracticeQuiz = {
+                                    onNavigateToPracticeQuiz?.invoke(
+                                        effectiveSubjectCode,
+                                        effectiveSubjectTitle,
+                                        effectiveSubjectColor,
+                                        chapterId,
+                                        chapterName
+                                    )
+                                },
+                                onOpenEbook = {
+                                    onNavigateToChapterResources?.invoke(
+                                        chapterId,
+                                        chapterName,
+                                        effectiveSubjectCode,
+                                        uiState.activePhaseId ?: ""
+                                    )
                                 }
                             )
                         }
 
-                        // Filter Chips (when exams exist)
-                        if (examLessons.isNotEmpty()) {
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    FilterChip(
-                                        selected = selectedFilterTab == 0,
-                                        onClick = { selectedFilterTab = 0 },
-                                        label = {
-                                            Text(
-                                                text = "ক্লাস (${toBengaliDigits(classLessons.size)})",
-                                                fontWeight = if (selectedFilterTab == 0) FontWeight.Bold else FontWeight.Medium
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = subjectColor.copy(alpha = 0.15f),
-                                            selectedLabelColor = subjectColor
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    FilterChip(
-                                        selected = selectedFilterTab == 1,
-                                        onClick = { selectedFilterTab = 1 },
-                                        label = {
-                                            Text(
-                                                text = "পরীক্ষা (${toBengaliDigits(examLessons.size)})",
-                                                fontWeight = if (selectedFilterTab == 1) FontWeight.Bold else FontWeight.Medium
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Color(0xFFF59E0B).copy(alpha = 0.15f),
-                                            selectedLabelColor = Color(0xFFD97706)
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
+                        // 2. Distinct Filter Tabs: All, Live Classes, Recorded Classes, Live Exams
+                        item {
+                            ChapterFilterTabs(
+                                selectedFilter = selectedFilter,
+                                onFilterSelected = { selectedFilter = it },
+                                totalCount = uiState.lessons.size,
+                                liveCount = liveLessons.size,
+                                recordedCount = recordedLessons.size,
+                                examCount = examLessons.size,
+                                subjectColor = subjectColor
+                            )
                         }
 
-                        // Section Header
+                        // 3. Section Title with Count
                         item {
                             Row(
                                 modifier = Modifier
@@ -361,12 +306,11 @@ fun ChapterLessonsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (examLessons.isEmpty()) {
-                                        "ক্লাস ও পরীক্ষা তালিকা (${toBengaliDigits(displayedLessons.size)}টি)"
-                                    } else if (selectedFilterTab == 1) {
-                                        "অধ্যায় পরীক্ষা (${toBengaliDigits(displayedLessons.size)}টি)"
-                                    } else {
-                                        "অধ্যায় ক্লাস (${toBengaliDigits(displayedLessons.size)}টি)"
+                                    text = when (selectedFilter) {
+                                        ChapterContentFilter.ALL -> "সকল ক্লাস ও পরীক্ষা (${toBengaliDigits(displayedLessons.size)}টি)"
+                                        ChapterContentFilter.LIVE -> "লাইভ ক্লাসসমূহ (${toBengaliDigits(displayedLessons.size)}টি)"
+                                        ChapterContentFilter.RECORDED -> "রেকর্ড ভিডিও লেকচার (${toBengaliDigits(displayedLessons.size)}টি)"
+                                        ChapterContentFilter.EXAM -> "লাইভ পরীক্ষা ও মডেল টেস্ট (${toBengaliDigits(displayedLessons.size)}টি)"
                                     },
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
@@ -375,19 +319,32 @@ fun ChapterLessonsScreen(
                             }
                         }
 
+                        // 4. Lessons List
                         if (displayedLessons.isEmpty()) {
                             item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(32.dp),
-                                    contentAlignment = Alignment.Center
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
                                 ) {
-                                    Text(
-                                        text = if (selectedFilterTab == 1) "এই অধ্যায়ে কোনো পরীক্ষা নেই" else "এই অধ্যায়ে কোনো ক্লাস নেই",
-                                        fontSize = 14.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(24.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = when (selectedFilter) {
+                                                ChapterContentFilter.LIVE -> "এই অধ্যায়ে বর্তমানে কোনো লাইভ ক্লাস নেই"
+                                                ChapterContentFilter.RECORDED -> "এই অধ্যায়ে কোনো রেকর্ড ক্লাস নেই"
+                                                ChapterContentFilter.EXAM -> "এই অধ্যায়ে কোনো পরীক্ষা নেই"
+                                                ChapterContentFilter.ALL -> "কোনো ক্লাস বা পরীক্ষা পাওয়া যায়নি"
+                                            },
+                                            fontSize = 13.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -395,353 +352,69 @@ fun ChapterLessonsScreen(
                                 items = displayedLessons,
                                 key = { it.id }
                             ) { lesson ->
-                            val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
-                                    completedItemRepository?.isCompletedSync(lesson.id) == true ||
-                                    completedItemRepository?.isCompletedSync(lesson.content_id) == true ||
-                                    lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
-                                    lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
-                            // Reference counter so recomposition occurs when marked completed
-                            val currentCompletionCounter = lessonCompletionCounter
+                                val isCompleted = sessionManager.isLessonCompleted(lesson.id) ||
+                                        completedItemRepository?.isCompletedSync(lesson.id) == true ||
+                                        completedItemRepository?.isCompletedSync(lesson.content_id) == true ||
+                                        lesson.user_activity_state.equals("COMPLETED", ignoreCase = true) ||
+                                        lesson.user_activity_state.equals("ATTENDED", ignoreCase = true)
 
-                            LessonCard(
-                                lesson = lesson,
-                                isCompleted = isCompleted,
-                                subjectName = uiState.selectedSubjectTitle,
-                                subjectColorHex = uiState.selectedSubjectColor,
-                                subjectColor = subjectColor,
-                                onClick = {
-                                    sessionManager.markLessonCompleted(lesson.id)
-                                    if (!lesson.content_id.isNullOrBlank()) sessionManager.markLessonCompleted(lesson.content_id)
-                                    lessonCompletionCounter++
-                                    coroutineScope.launch {
-                                        completedItemRepository?.markCompleted(
-                                            itemId = lesson.id,
-                                            itemType = if (lesson.isExam) "EXAM" else "LESSON",
-                                            title = lesson.title ?: "",
-                                            subjectId = lesson.subject_id ?: "",
-                                            programId = lesson.program_id ?: "",
-                                            chapterId = lesson.chapter_id ?: ""
-                                        )
+                                val currentCounter = lessonCompletionCounter
+
+                                ChapterLessonItemCard(
+                                    lesson = lesson,
+                                    isCompleted = isCompleted,
+                                    subjectColor = subjectColor,
+                                    onClick = {
+                                        sessionManager.markLessonCompleted(lesson.id)
+                                        if (!lesson.content_id.isNullOrBlank()) sessionManager.markLessonCompleted(lesson.content_id)
+                                        lessonCompletionCounter++
+                                        coroutineScope.launch {
+                                            completedItemRepository?.markCompleted(
+                                                itemId = lesson.id,
+                                                itemType = if (lesson.isExam) "EXAM" else "LESSON",
+                                                title = lesson.title ?: "",
+                                                subjectId = lesson.subject_id ?: "",
+                                                programId = lesson.program_id ?: "",
+                                                chapterId = lesson.chapter_id ?: ""
+                                            )
+                                        }
+                                        viewModel.selectLesson(lesson)
+
+                                        val isExamLesson = lesson.isExam ||
+                                                lesson.content_type?.contains("EXAM", ignoreCase = true) == true ||
+                                                lesson.class_type?.contains("EXAM", ignoreCase = true) == true
+
+                                        if (isExamLesson && onNavigateToExam != null) {
+                                            val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
+                                                ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
+                                                ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                                                ?: lesson.id
+                                            val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson.title)
+                                            onNavigateToExam(sessionId, lesson.id, formattedTitle, chapterName)
+                                        } else if (onOpenLessonDetail != null) {
+                                            onOpenLessonDetail(lesson)
+                                        } else {
+                                            val videoUrl = lesson.resolvedVideoUrl
+                                                ?: lesson.live_class?.resolvedVideoUrl
+                                                ?: lesson.live_class?.recording_url
+                                                ?: ""
+                                            val title = ClassTypeUtils.formatLessonTitle(lesson.title)
+                                            val isLive = lesson.isLive && !lesson.isRecorded
+                                            onPlayVideo(
+                                                videoUrl,
+                                                title,
+                                                effectiveSubjectTitle,
+                                                effectiveSubjectColor,
+                                                isLive
+                                            )
+                                        }
                                     }
-                                    viewModel.selectLesson(lesson)
-
-                                    val isExamLesson = lesson.isExam ||
-                                            lesson.content_type?.contains("EXAM", ignoreCase = true) == true ||
-                                            lesson.class_type?.contains("EXAM", ignoreCase = true) == true
-
-                                    if (isExamLesson && onNavigateToExam != null) {
-                                        val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
-                                            ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
-                                            ?: lesson.content_id?.takeIf { it.isNotBlank() }
-                                            ?: lesson.id
-                                        val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson.title)
-                                        onNavigateToExam(sessionId, lesson.id, formattedTitle, chapterName)
-                                    } else if (onOpenLessonDetail != null) {
-                                        onOpenLessonDetail(lesson)
-                                    } else {
-                                        val videoUrl = lesson.resolvedVideoUrl
-                                            ?: lesson.live_class?.resolvedVideoUrl
-                                            ?: lesson.live_class?.recording_url
-                                            ?: ""
-                                        val title = ClassTypeUtils.formatLessonTitle(lesson.title)
-                                        val isLive = lesson.isLive && !lesson.isRecorded
-                                        onPlayVideo(
-                                            videoUrl,
-                                            title,
-                                            uiState.selectedSubjectTitle,
-                                            uiState.selectedSubjectColor,
-                                            isLive
-                                        )
-                                    }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
-    }
-}
-}
-
-@Composable
-fun LessonCard(
-    lesson: StudentLessonItem,
-    isCompleted: Boolean = false,
-    subjectName: String,
-    subjectColorHex: String,
-    subjectColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val isExam = lesson.isExam
-    val isUpcoming = lesson.isUpcoming
-    val isLive = lesson.isLiveNow || lesson.isLive
-    val isRecorded = lesson.isRecorded
-
-    val state = lesson.user_activity_state?.uppercase() ?: ""
-    val isCompletedEffective = isCompleted || state == "COMPLETED" || state == "ATTENDED"
-
-    val (statusText, statusBgColor, statusTextColor) = when {
-        isCompletedEffective -> Triple("সম্পন্ন", Color(0xFF10B981).copy(alpha = 0.14f), Color(0xFF059669))
-        isLive -> Triple("🔴 লাইভ চলছে", Color(0xFFEF4444).copy(alpha = 0.15f), Color(0xFFDC2626))
-        isExam && isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF2563EB))
-        isExam -> Triple("পরীক্ষা", Color(0xFFF59E0B).copy(alpha = 0.14f), Color(0xFFD97706))
-        isUpcoming -> Triple("আপকামিং", Color(0xFF3B82F6).copy(alpha = 0.12f), Color(0xFF2563EB))
-        else -> Triple("রেকর্ড ক্লাস", Color(0xFF6366F1).copy(alpha = 0.12f), Color(0xFF4F46E5))
-    }
-
-    val startTimeFormatted = remember(lesson.live_class?.start_time ?: lesson.start_time) {
-        formatLessonDate(lesson.live_class?.start_time ?: lesson.start_time)
-    }
-
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .border(
-                width = 1.dp,
-                color = if (isCompletedEffective) Color(0xFF10B981).copy(alpha = 0.25f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(16.dp)
-            )
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Icon
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = when {
-                    isCompletedEffective -> Color(0xFF10B981).copy(alpha = 0.14f)
-                    isExam -> Color(0xFFF59E0B).copy(alpha = 0.12f)
-                    isLive -> Color(0xFFEF4444).copy(alpha = 0.12f)
-                    else -> subjectColor.copy(alpha = 0.12f)
-                },
-                modifier = Modifier.size(50.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = when {
-                            isCompletedEffective -> Icons.Default.CheckCircle
-                            isExam -> Icons.Default.Assignment
-                            isLive -> Icons.Default.LiveTv
-                            else -> Icons.Default.PlayCircleFilled
-                        },
-                        contentDescription = "Icon",
-                        tint = when {
-                            isCompletedEffective -> Color(0xFF059669)
-                            isExam -> Color(0xFFD97706)
-                            isLive -> Color(0xFFEF4444)
-                            else -> subjectColor
-                        },
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            // Center: Title, Date, Status Badges
-            Column(modifier = Modifier.weight(1f)) {
-                // Badges Row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Status Badge
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = statusBgColor
-                    ) {
-                        Text(
-                            text = statusText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = statusTextColor,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    if (isLive) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFEF4444)
-                        ) {
-                            Text(
-                                text = "🔴 LIVE",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    // Class Type Badge in Bengali (ডাউট ক্লাস, লেকচার ক্লাস, ওরিয়েনটেশন ক্লাস, এক্সট্রা ক্লাস, সলভিং ক্লাস, কনসেপ্ট ক্লাস, অ্যানালাইসিস ক্লাস)
-                    val classTypeBadge = remember(lesson) {
-                        ClassTypeUtils.getClassTypeBadgeStyle(lesson)
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = classTypeBadge.backgroundColor
-                    ) {
-                        Text(
-                            text = classTypeBadge.label,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = classTypeBadge.textColor,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(5.dp))
-
-                // Lesson Title (formatted with Bengali class type words and digits)
-                val formattedTitle = remember(lesson.title) {
-                    ClassTypeUtils.formatLessonTitle(lesson.title)
-                }
-                Text(
-                    text = formattedTitle,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (startTimeFormatted.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarToday,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Text(
-                            text = startTimeFormatted,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Play Icon Button
-            Surface(
-                shape = CircleShape,
-                color = subjectColor,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ChapterFeatureShortcuts(
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        ChapterShortcutButton(
-            title = AcademicLocalizationUtils.translateContentType("Exam"),
-            icon = Icons.Default.FactCheck,
-            color = Color(0xFF10B981),
-            isSelected = selectedTab == 2,
-            modifier = Modifier.weight(1f),
-            onClick = { onTabSelected(2) }
-        )
-        ChapterShortcutButton(
-            title = "ই-বুক",
-            icon = Icons.Default.MenuBook,
-            color = Color(0xFFF59E0B),
-            isSelected = selectedTab == 3,
-            modifier = Modifier.weight(1f),
-            onClick = { onTabSelected(3) }
-        )
-    }
-}
-
-@Composable
-fun ChapterShortcutButton(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    color: Color,
-    isSelected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (isSelected) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
-        border = androidx.compose.foundation.BorderStroke(
-            width = if (isSelected) 1.5.dp else 1.dp,
-            color = if (isSelected) color else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        ),
-        shadowElevation = if (isSelected) 2.dp else 1.dp,
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = if (isSelected) color.copy(alpha = 0.25f) else color.copy(alpha = 0.12f),
-                modifier = Modifier.size(36.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = color,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = title,
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (isSelected) color else MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }

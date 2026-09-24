@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import android.Manifest
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -13,7 +12,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,28 +32,31 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
-import com.example.api.StudentLessonItem
 import com.example.auth.SessionManager
 import com.example.home.HomeViewModel
 import com.example.notification.ClassAlarmReceiver
 import com.example.notification.ClassAlarmScheduler
+import com.example.utils.toBengaliDigits
 
 data class ClassAlarmItem(
     val id: String,
     val subjectName: String,
     val lessonTitle: String,
-    val dateDisplay: String, // e.g. "২৩ সেপ্টেম্বর ২০২৬"
-    val startTimeDisplay: String, // e.g. "সকাল ০৭:০০ টা"
+    val dateDisplay: String,
+    val startTimeDisplay: String,
     val classTimeHours: Int = 7,
     val classTimeMinutes: Int = 0,
+    val isExam: Boolean = false,
+    val startMs: Long = 0L,
     var isEnabled: Boolean = true
 )
 
@@ -66,6 +67,7 @@ fun triggerClassTestNotification(
     classStartTimeDisplay: String,
     leadTimeMinutes: Int
 ) {
+    val sessionManager = SessionManager(context)
     ClassAlarmScheduler.createNotificationChannel(context)
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -89,42 +91,64 @@ fun triggerClassTestNotification(
         pendingIntentFlags
     )
 
-    val notification = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
+    val soundUri = if (sessionManager.isNotificationSoundEnabled()) {
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+    } else null
+
+    val notificationBuilder = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
+        .setColor(0xFF0072EC.toInt())
         .setContentTitle(title)
         .setContentText(body)
         .setStyle(NotificationCompat.BigTextStyle().bigText(body))
         .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setDefaults(NotificationCompat.DEFAULT_ALL)
         .setAutoCancel(true)
+        .setSound(soundUri)
         .setContentIntent(pendingIntent)
-        .build()
+
+    if (sessionManager.isNotificationVibrateEnabled()) {
+        notificationBuilder.setVibrate(longArrayOf(0, 300, 200, 300))
+    } else {
+        notificationBuilder.setVibrate(longArrayOf(0))
+    }
 
     val notificationId = (System.currentTimeMillis() % 100000).toInt()
-    notificationManager.notify(notificationId, notification)
+    notificationManager.notify(notificationId, notificationBuilder.build())
 
     Toast.makeText(context, "$subjectName রিমাইন্ডার টেস্ট পাঠানো হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
 }
 
 fun triggerGeneralTestNotification(context: Context) {
+    val sessionManager = SessionManager(context)
     ClassAlarmScheduler.createNotificationChannel(context)
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    val title = "MaxBird - নোটিফিকেশন অ্যালার্ম সফল! 🔔"
-    val body = "আপনার ক্লাস অ্যালার্ম ও নোটিফিকেশন সিস্টেম সম্পূর্ণ প্রস্তুত! নির্ধারিত ক্লাস শুরুর আগে আপনাকে স্বয়ংক্রিয়ভাবে রিমাইন্ড দেওয়া হবে।"
+    val leadTime = sessionManager.getClassNotificationLeadTimeMinutes()
+    val title = "MaxBird • ক্লাস রিমাইন্ডার টেস্ট 🔔"
+    val body = "আপনার ক্লাস অ্যালার্ম ও নোটিফিকেশন সিস্টেম প্রস্তুত! নির্ধারিত লাইভ ক্লাস শুরু হওয়ার ${leadTime.toString().toBengaliDigits()} মিনিট পূর্বে আপনি স্বয়ংক্রিয় অ্যালার্ম পাবেন।"
 
-    val notification = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
+    val soundUri = if (sessionManager.isNotificationSoundEnabled()) {
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+    } else null
+
+    val builder = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
+        .setColor(0xFF0072EC.toInt())
         .setContentTitle(title)
         .setContentText(body)
         .setStyle(NotificationCompat.BigTextStyle().bigText(body))
         .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setDefaults(NotificationCompat.DEFAULT_ALL)
         .setAutoCancel(true)
-        .build()
+        .setSound(soundUri)
 
-    notificationManager.notify(101, notification)
-    Toast.makeText(context, "টেস্ট নোটিফিকেশন তৈরি হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
+    if (sessionManager.isNotificationVibrateEnabled()) {
+        builder.setVibrate(longArrayOf(0, 300, 200, 300))
+    } else {
+        builder.setVibrate(longArrayOf(0))
+    }
+
+    notificationManager.notify(101, builder.build())
+    Toast.makeText(context, "টেস্ট নোটিফিকেশন পাঠানো হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -136,16 +160,27 @@ fun NotificationSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var isAllEnabled by remember { mutableStateOf(sessionManager.isAllNotificationsEnabled()) }
+    var isLiveEnabled by remember { mutableStateOf(sessionManager.isLiveClassNotificationEnabled()) }
+    var isExamEnabled by remember { mutableStateOf(sessionManager.isExamNotificationEnabled()) }
+    var isSoundEnabled by remember { mutableStateOf(sessionManager.isNotificationSoundEnabled()) }
+    var isVibrateEnabled by remember { mutableStateOf(sessionManager.isNotificationVibrateEnabled()) }
+
     var selectedLeadTime by remember { mutableIntStateOf(sessionManager.getClassNotificationLeadTimeMinutes()) }
-    var disabledAlarmIds by remember { mutableStateOf(setOf<String>()) }
+    var disabledAlarmIds by remember { mutableStateOf(sessionManager.getDisabledAlarmIds()) }
 
     val homeUiState = homeViewModel?.uiState?.collectAsState()?.value
-
     val selectedSubjectCodes = homeUiState?.selectedSubjectCodes ?: emptySet()
     val courseSubjects = homeUiState?.courseSubjects ?: emptyList()
 
-    // Dynamic Scheduled Alarms - Strictly filtered by routine, subject selection, and excluding past/expired classes
-    val alarmList = remember(homeUiState?.weeklyRoutine, homeUiState?.filteredWeeklyRoutine, selectedSubjectCodes, courseSubjects) {
+    // Dynamic Scheduled Alarms
+    val alarmList = remember(
+        homeUiState?.weeklyRoutine,
+        homeUiState?.filteredWeeklyRoutine,
+        selectedSubjectCodes,
+        courseSubjects,
+        disabledAlarmIds
+    ) {
         val rawLessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine
         val now = System.currentTimeMillis()
 
@@ -154,46 +189,58 @@ fun NotificationSettingsScreen(
                 val startMs = lesson.classStartMs
                 val endMs = lesson.classEndMs
 
-                // Filter out past/expired lessons (classEndMs < now) so they vanish once finished
+                // Filter out past lessons
                 if (startMs == Long.MAX_VALUE || endMs < now) {
                     return@mapNotNull null
                 }
 
                 val subject = lesson.subject_name ?: lesson.live_class?.subject_name ?: "ক্লাস"
                 val title = lesson.title ?: lesson.live_class?.chapter_name ?: "লাইভ ক্লাস / পরীক্ষা"
-                
+                val isExam = lesson.isExam || lesson.content_type?.contains("Exam", ignoreCase = true) == true
+
                 val dateDisplay = com.example.utils.formatLessonDateDetailed(lesson.start_time ?: lesson.live_class?.start_time)
-                
                 val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Dhaka")).apply { timeInMillis = startMs }
                 val hours = cal.get(java.util.Calendar.HOUR_OF_DAY)
                 val mins = cal.get(java.util.Calendar.MINUTE)
-                
+
                 val period = if (hours < 12) "সকাল" else if (hours < 17) "দুপুর" else "সন্ধ্যা/রাত"
                 val displayHour = if (hours % 12 == 0) 12 else hours % 12
-                val timeStr = com.example.utils.toBengaliDigits("$period ${if (displayHour < 10) "০$displayHour" else displayHour}:${if (mins < 10) "০$mins" else mins} টা")
+                val timeStr = "${period} ${if (displayHour < 10) "০$displayHour" else displayHour}:${if (mins < 10) "০$mins" else mins} টা".toBengaliDigits()
+
+                val lessonId = if (lesson.id.isNotBlank()) lesson.id else "lesson_$startMs"
 
                 ClassAlarmItem(
-                    id = if (lesson.id.isNotBlank()) lesson.id else "lesson_$startMs",
+                    id = lessonId,
                     subjectName = subject,
                     lessonTitle = title,
                     dateDisplay = dateDisplay,
                     startTimeDisplay = timeStr,
                     classTimeHours = hours,
-                    classTimeMinutes = mins
+                    classTimeMinutes = mins,
+                    isExam = isExam,
+                    startMs = startMs,
+                    isEnabled = !disabledAlarmIds.contains(lessonId)
                 )
-            }.distinctBy { it.id }.sortedBy { it.id }
+            }.distinctBy { it.id }.sortedBy { it.startMs }
         } else {
             emptyList()
         }
     }
 
-    // Permission launcher for POST_NOTIFICATIONS (Android 13+)
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (!isGranted) {
+        if (isGranted) {
+            triggerGeneralTestNotification(context)
+        } else {
             Toast.makeText(context, "নোটিফিকেশন পারমিশন প্রয়োজন", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    val hasNotificationPermission = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
     }
 
     Scaffold(
@@ -207,7 +254,7 @@ fun NotificationSettingsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "লাইভ ক্লাস রিমাইন্ডার ও সময় সেটিং",
+                            text = "লাইভ ক্লাস ও পরীক্ষার স্মার্ট রিমাইন্ডার",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -229,24 +276,197 @@ fun NotificationSettingsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
             // ==========================================
-            // SECTION 1: Lead Time Selector Card
+            // MASTER SWITCH CARD
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = if (isAllEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(
+                    1.5.dp,
+                    if (isAllEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                ),
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isAllEnabled) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isAllEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                            contentDescription = null,
+                            tint = if (isAllEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "সকল ক্লাস অ্যালার্ম ও নোটিফিকেশন",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isAllEnabled) "🟢 অ্যালার্ম সার্ভিস চালু আছে" else "⚪ অ্যালার্ম সার্ভিস বন্ধ আছে",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isAllEnabled) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = isAllEnabled,
+                        onCheckedChange = { checked ->
+                            isAllEnabled = checked
+                            sessionManager.setAllNotificationsEnabled(checked)
+                            if (checked) {
+                                val lessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine ?: emptyList()
+                                ClassAlarmScheduler.schedule7DayClassAlarms(context, homeUiState?.activeProgram?.id ?: "", lessons)
+                                Toast.makeText(context, "ক্লাস অ্যালার্ম সক্রিয় করা হয়েছে! 🔔", Toast.LENGTH_SHORT).show()
+                            } else {
+                                ClassAlarmScheduler.cancelAllAlarms(context)
+                                Toast.makeText(context, "ক্লাস অ্যালার্ম বন্ধ করা হয়েছে", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
+
+            // ==========================================
+            // SOUND & CATEGORY PREFERENCES
             // ==========================================
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                shadowElevation = 2.dp
+                shadowElevation = 1.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "অ্যালার্ম ও রিমাইন্ডার প্রিফারেন্স",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Sound Toggle
+                    PreferenceSwitchRow(
+                        icon = Icons.Default.VolumeUp,
+                        iconTint = Color(0xFF0284C7),
+                        title = "শব্দ ও রিংটোন (Sound)",
+                        subtitle = "নোটিফিকেশন আসার সাথে রিংটোন বাজবে",
+                        isChecked = isSoundEnabled && isAllEnabled,
+                        enabled = isAllEnabled,
+                        onCheckedChange = {
+                            isSoundEnabled = it
+                            sessionManager.setNotificationSoundEnabled(it)
+                        }
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                    )
+
+                    // Vibration Toggle
+                    PreferenceSwitchRow(
+                        icon = Icons.Default.Vibration,
+                        iconTint = Color(0xFF7C3AED),
+                        title = "ভাইব্রেশন (Vibration)",
+                        subtitle = "নোটিফিকেশনের সময় মোবাইল কেঁপে উঠবে",
+                        isChecked = isVibrateEnabled && isAllEnabled,
+                        enabled = isAllEnabled,
+                        onCheckedChange = {
+                            isVibrateEnabled = it
+                            sessionManager.setNotificationVibrateEnabled(it)
+                        }
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                    )
+
+                    // Live Class Reminder Toggle
+                    PreferenceSwitchRow(
+                        icon = Icons.Default.Videocam,
+                        iconTint = Color(0xFFDC2626),
+                        title = "লাইভ ক্লাস রিমাইন্ডার",
+                        subtitle = "রুটিনের প্রতিটি লাইভ ক্লাসের জন্য অ্যালার্ম",
+                        isChecked = isLiveEnabled && isAllEnabled,
+                        enabled = isAllEnabled,
+                        onCheckedChange = {
+                            isLiveEnabled = it
+                            sessionManager.setLiveClassNotificationEnabled(it)
+                            val lessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine ?: emptyList()
+                            ClassAlarmScheduler.schedule7DayClassAlarms(context, homeUiState?.activeProgram?.id ?: "", lessons)
+                        }
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                    )
+
+                    // Live Exam Reminder Toggle
+                    PreferenceSwitchRow(
+                        icon = Icons.Default.Assignment,
+                        iconTint = Color(0xFFD97706),
+                        title = "লাইভ পরীক্ষা ও মডেল টেস্ট রিমাইন্ডার",
+                        subtitle = "পরীক্ষা শুরু হওয়ার পূর্বে সতর্কবার্তা",
+                        isChecked = isExamEnabled && isAllEnabled,
+                        enabled = isAllEnabled,
+                        onCheckedChange = {
+                            isExamEnabled = it
+                            sessionManager.setExamNotificationEnabled(it)
+                            val lessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine ?: emptyList()
+                            ClassAlarmScheduler.schedule7DayClassAlarms(context, homeUiState?.activeProgram?.id ?: "", lessons)
+                        }
+                    )
+                }
+            }
+
+            // ==========================================
+            // LEAD TIME SELECTOR CARD
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                shadowElevation = 1.dp
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
@@ -273,13 +493,13 @@ fun NotificationSettingsScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "ক্লাস শুরুর কত মিনিট আগে নোটিফিকেশন পেতে চান?",
+                                text = "ক্লাস শুরুর কত মিনিট আগে রিমাইন্ডার চান?",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "ডিফল্ট সময়: ২৫ মিনিট আগে",
+                                text = "বর্তমানে সেট করা: ${selectedLeadTime.toString().toBengaliDigits()} মিনিট আগে",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium
@@ -287,21 +507,13 @@ fun NotificationSettingsScreen(
                         }
                     }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
 
-                    // Lead Time Chips / Radio Buttons
-                    Text(
-                        text = "রিমাইন্ডারের সময় বেছে নিন:",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    val minuteOptions = listOf(10, 15, 20, 25, 30)
+                    val minuteOptions = listOf(5, 10, 15, 20, 25, 30, 45, 60)
 
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         minuteOptions.forEach { mins ->
@@ -310,27 +522,31 @@ fun NotificationSettingsScreen(
 
                             Surface(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable {
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable(enabled = isAllEnabled) {
                                         selectedLeadTime = mins
                                         sessionManager.setClassNotificationLeadTimeMinutes(mins)
+                                        val lessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine ?: emptyList()
+                                        ClassAlarmScheduler.schedule7DayClassAlarms(context, homeUiState?.activeProgram?.id ?: "", lessons)
                                         Toast.makeText(
                                             context,
-                                            "রিমাইন্ডারের সময় $mins মিনিট সেট করা হলো!",
+                                            "রিমাইন্ডারের সময় ${mins.toString().toBengaliDigits()} মিনিট সেট করা হলো!",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     },
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                 border = BorderStroke(
                                     if (isSelected) 1.8.dp else 1.dp,
-                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                 )
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     RadioButton(
                                         selected = isSelected,
@@ -338,401 +554,372 @@ fun NotificationSettingsScreen(
                                             selectedLeadTime = mins
                                             sessionManager.setClassNotificationLeadTimeMinutes(mins)
                                         },
-                                        modifier = Modifier.size(18.dp)
+                                        enabled = isAllEnabled,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = if (isDefault) "$mins মিনিট (ডিফল্ট)" else "$mins মিনিট",
-                                        fontSize = 13.sp,
+                                        text = if (isDefault) "${mins.toString().toBengaliDigits()} মি. (ডিফল্ট)"
+                                        else "${mins.toString().toBengaliDigits()} মি.",
+                                        fontSize = 12.5.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
                         }
                     }
 
-                    // Interactive Live Preview Banner
+                    // Calculation dynamic info banner
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            val reminderMinute = (60 - selectedLeadTime) % 60
-                            val exampleReminderTime = "০৬:${if (reminderMinute < 10) "0$reminderMinute" else reminderMinute}"
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Info,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "উদাহরণ ও প্রিভিউ:",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-
-                            Text(
-                                text = "যেমন: কোনো ক্লাস সকাল ৭:০০ টায় শুরু হলে, $selectedLeadTime মিনিট আগে অর্থাৎ সকাল $exampleReminderTime টায় মেসেজ পাবেন:",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            // Preview Notification Box
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.NotificationsActive,
-                                        contentDescription = null,
-                                        tint = Color(0xFFD97706),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Column {
-                                        Text(
-                                            text = "⏰ পদার্থবিজ্ঞান ১ম পত্র ক্লাস রিমাইন্ডার",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "আপনার পদার্থবিজ্ঞান ১ম পত্র ক্লাস সকাল ০৭:০০ টায় শুরু হবে, রেডি হন! 🚀",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ==========================================
-            // SECTION 2: Scheduled Class Alarms Grouped by Date
-            // ==========================================
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Alarm,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "নির্ধারিত ক্লাস অ্যালার্ম সমূহ",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    if (homeViewModel != null) {
-                        Surface(
-                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable { homeViewModel.openSubjectFilterDialog() },
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(20.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FilterList,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "সাবজেক্ট সাজান",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = "তারিখ অনুযায়ী",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // Subject Filter Sync Banner
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.25f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
                     ) {
                         Row(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.FilterList,
+                                imageVector = Icons.Default.Info,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.tertiary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
+                            val reminderMinute = (60 - selectedLeadTime) % 60
+                            val exampleReminderTime = "০৬:${if (reminderMinute < 10) "0$reminderMinute" else reminderMinute}".toBengaliDigits()
                             Text(
-                                text = if (selectedSubjectCodes.isNotEmpty()) 
-                                    "📌 'সাবজেক্ট সাজাও' অপশনে সিলেক্ট করা ${selectedSubjectCodes.size}টি বিষয়ের ক্লাস অ্যালার্মই নিচে দেখানো হচ্ছে।" 
-                                else 
-                                    "⚠️ কোনো সাবজেক্ট সিলেক্ট করা নেই। ক্লাস অ্যালার্ম দেখতে 'সাবজেক্ট সাজান' বাটন চাপুন।",
+                                text = "উদাহরণ: সন্ধ্যা ০৭:০০ টার ক্লাসের অ্যালার্ম বাজবে ঠিক $exampleReminderTime টায় (${selectedLeadTime.toString().toBengaliDigits()} মিনিট আগে)।",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                fontWeight = FontWeight.Medium
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
                 }
+            }
 
-                val groupedAlarms = remember(alarmList) {
-                    alarmList.groupBy { it.dateDisplay }
-                }
+            // ==========================================
+            // REALISTIC NOTIFICATION PREVIEW CARD
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                shadowElevation = 1.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Preview,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "নোটিফিকেশন প্রিভিউ",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
 
-                if (groupedAlarms.isEmpty()) {
+                        Button(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    triggerGeneralTestNotification(context)
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "টেস্ট নোটিফিকেশন",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Realistic Notification Shell
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        shadowElevation = 1.dp
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.EventAvailable,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(36.dp)
-                            )
+                            // Top Bar of Notification
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                        .border(0.5.dp, Color(0xFFCBD5E1), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_notification),
+                                        contentDescription = null,
+                                        tint = Color(0xFF0072EC),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = "MaxBird • এখন 🔔",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+
+                            // Notification Content
                             Text(
-                                text = "কোনো আসন্ন ক্লাস বা পরীক্ষার অ্যালার্ম নেই",
-                                fontSize = 15.sp,
+                                text = "⏰ পদার্থবিজ্ঞান ১ম পত্র ক্লাস রিমাইন্ডার",
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                textAlign = TextAlign.Center
+                                color = Color(0xFF0F172A)
                             )
                             Text(
-                                text = "অতীতের ক্লাস বা অ্যালার্মসমূহ স্বয়ংক্রিয়ভাবে মুছে গেছে। নতুন কোনো ক্লাস বা পরীক্ষার শিডিউল যুক্ত হলে এখানে অ্যালার্ম দেখাবে।",
+                                text = "আপনার পদার্থবিজ্ঞান (ভেক্টর ও গতিবিদ্যা) ক্লাস সন্ধ্যা ০৭:০০ টা এ শুরু হবে, রেডি হন! 🚀",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
+                                color = Color(0xFF334155),
+                                lineHeight = 17.sp
                             )
                         }
                     }
-                } else {
-                    groupedAlarms.forEach { (dateGroup, items) ->
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                        // Date Group Header Badge
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                }
+            }
+
+            // ==========================================
+            // SCHEDULED ALARMS LIST CARD
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                shadowElevation = 1.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "আসন্ন ক্লাস ও পরীক্ষা শিডিউল",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${alarmList.size.toString().toBengaliDigits()} টি ক্লাসের অ্যালার্ম তালিকাভুক্ত",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        if (homeViewModel != null && courseSubjects.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = { homeViewModel.openSubjectFilterDialog() },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.CalendarToday,
+                                    imageVector = Icons.Default.FilterList,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.size(14.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("বিষয় সাজাও", fontSize = 11.5.sp)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+
+                    if (alarmList.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.EventBusy,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(36.dp)
+                                )
                                 Text(
-                                    text = dateGroup,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.secondary
+                                    text = "আসন্ন কোনো ক্লাস বা পরীক্ষার শিডিউল নেই",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            alarmList.forEach { item ->
+                                val isAlarmActive = item.isEnabled && isAllEnabled
 
-                        // Alarm items under this date
-                        items.forEach { alarm ->
-                            val isAlarmEnabled = !disabledAlarmIds.contains(alarm.id)
-
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isAlarmEnabled) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                ),
-                                shadowElevation = if (isAlarmEnabled) 1.5.dp else 0.dp
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isAlarmActive) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isAlarmActive) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                    )
                                 ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
+                                        // Left Type Icon
                                         Box(
                                             modifier = Modifier
                                                 .size(38.dp)
-                                                .clip(CircleShape)
+                                                .clip(RoundedCornerShape(10.dp))
                                                 .background(
-                                                    if (isAlarmEnabled) MaterialTheme.colorScheme.primaryContainer
-                                                    else MaterialTheme.colorScheme.surfaceVariant
+                                                    if (item.isExam) Color(0xFFFEF3C7)
+                                                    else Color(0xFFFEE2E2)
                                                 ),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Notifications,
+                                                imageVector = if (item.isExam) Icons.Default.Assignment else Icons.Default.LiveTv,
                                                 contentDescription = null,
-                                                tint = if (isAlarmEnabled) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                tint = if (item.isExam) Color(0xFFD97706) else Color(0xFFDC2626),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
 
+                                        // Center Details
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = alarm.subjectName,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isAlarmEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                            )
-                                            Text(
-                                                text = alarm.lessonTitle,
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                    alpha = if (isAlarmEnabled) 1f else 0.5f
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = item.subjectName,
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
-                                            )
-                                        }
-
-                                        // Alarm Toggle Switch
-                                        Switch(
-                                            checked = isAlarmEnabled,
-                                            onCheckedChange = { checked ->
-                                                disabledAlarmIds = if (checked) {
-                                                    disabledAlarmIds - alarm.id
-                                                } else {
-                                                    disabledAlarmIds + alarm.id
-                                                }
-                                                Toast.makeText(
-                                                    context,
-                                                    if (checked) "${alarm.subjectName} অ্যালার্ম চালু করা হলো" else "${alarm.subjectName} অ্যালার্ম বন্ধ করা হলো",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        )
-                                    }
-
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                                    // Schedule Time Row
-                                    val totalMinutes = (alarm.classTimeHours * 60 + alarm.classTimeMinutes - selectedLeadTime + 1440) % 1440
-                                    val triggerHour = totalMinutes / 60
-                                    val triggerMin = totalMinutes % 60
-                                    val period = if (triggerHour < 12) "সকাল" else if (triggerHour < 17) "দুপুর" else "সন্ধ্যা/রাত"
-                                    val displayHour = if (triggerHour % 12 == 0) 12 else triggerHour % 12
-                                    val triggerTimeFormatted = "$period ${if (displayHour < 10) "০$displayHour" else displayHour}:${if (triggerMin < 10) "০$triggerMin" else triggerMin} টা"
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = "⏰ ক্লাস সময়: ${alarm.startTimeDisplay}",
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = "🔔 রিমাইন্ডার: $triggerTimeFormatted ($selectedLeadTime মি. আগে)",
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isAlarmEnabled) Color(0xFFD97706) else Color.Gray
-                                            )
-                                        }
-
-                                        // Test Notification Button for this specific class
-                                        OutlinedButton(
-                                            onClick = {
-                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = if (item.isExam) Color(0xFFFEF3C7) else Color(0xFFFEE2E2)
                                                 ) {
-                                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                                } else {
-                                                    triggerClassTestNotification(
-                                                        context = context,
-                                                        subjectName = alarm.subjectName,
-                                                        lessonTitle = alarm.lessonTitle,
-                                                        classStartTimeDisplay = alarm.startTimeDisplay,
-                                                        leadTimeMinutes = selectedLeadTime
+                                                    Text(
+                                                        text = if (item.isExam) "পরীক্ষা" else "লাইভ",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (item.isExam) Color(0xFFB45309) else Color(0xFFB91C1C),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
                                                 }
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(32.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.PlayArrow,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
+                                            }
+
                                             Text(
-                                                text = "টেস্ট করুন",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
+                                                text = item.lessonTitle,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
+
+                                            Spacer(modifier = Modifier.height(2.dp))
+
+                                            Text(
+                                                text = "📅 ${item.dateDisplay} • ⏰ ${item.startTimeDisplay}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+
+                                        // Right Actions: Test button + Switch
+                                        Column(
+                                            horizontalAlignment = Alignment.End,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Switch(
+                                                checked = isAlarmActive,
+                                                onCheckedChange = { checked ->
+                                                    sessionManager.setAlarmDisabled(item.id, !checked)
+                                                    disabledAlarmIds = sessionManager.getDisabledAlarmIds()
+                                                    val lessons = homeUiState?.filteredWeeklyRoutine ?: homeUiState?.weeklyRoutine ?: emptyList()
+                                                    ClassAlarmScheduler.schedule7DayClassAlarms(context, homeUiState?.activeProgram?.id ?: "", lessons)
+                                                },
+                                                enabled = isAllEnabled,
+                                                modifier = Modifier.height(26.dp)
+                                            )
+
+                                            TextButton(
+                                                onClick = {
+                                                    triggerClassTestNotification(
+                                                        context = context,
+                                                        subjectName = item.subjectName,
+                                                        lessonTitle = item.lessonTitle,
+                                                        classStartTimeDisplay = item.startTimeDisplay,
+                                                        leadTimeMinutes = selectedLeadTime
+                                                    )
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                                modifier = Modifier.height(24.dp)
+                                            ) {
+                                                Text("টেস্ট", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
                                 }
@@ -743,69 +930,45 @@ fun NotificationSettingsScreen(
             }
 
             // ==========================================
-            // SECTION 3: System Push Notification Test Card
+            // RELIABILITY & BATTERY OPTIMIZATION GUIDE
             // ==========================================
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFE0F2FE)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PhoneAndroid,
-                            contentDescription = null,
-                            tint = Color(0xFF0284C7),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "সিস্টেম টেস্ট নোটিফিকেশন",
-                            fontSize = 14.sp,
+                            text = "অ্যালার্ম মিস হওয়া এড়াতে প্রয়োজনীয় টিপস",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "মোবাইলে নোটিফিকেশন সুবিধা সঠিকভাবে কাজ করছে কিনা পরীক্ষা করুন",
+                            text = "Xiaomi/Realme/Vivo ফোনে সময়মতো অ্যালার্ম পেতে অ্যাপটিকে সেটিংস থেকে 'Autostart' চালু রাখুন এবং ব্যাটারি অপ্টিমাইজেশন 'No restrictions' দিন।",
                             fontSize = 11.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
                         )
-                    }
-
-                    Button(
-                        onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                            ) {
-                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                triggerGeneralTestNotification(context)
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(text = "টেস্ট", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(30.dp))
         }
 
         if (homeViewModel != null && homeUiState?.showSubjectFilterDialog == true) {
@@ -824,6 +987,56 @@ fun NotificationSettingsScreen(
         }
     }
 }
-}
-}
 
+@Composable
+private fun PreferenceSwitchRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String,
+    isChecked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(iconTint.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) iconTint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+            Text(
+                text = subtitle,
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+            )
+        }
+
+        Switch(
+            checked = isChecked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            modifier = Modifier.height(28.dp)
+        )
+    }
+}

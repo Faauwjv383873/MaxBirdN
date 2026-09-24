@@ -924,15 +924,24 @@ data class ProgramPhasesInnerData(
 @JsonClass(generateAdapter = true)
 data class PhaseItem(
     val id: String = "",
-    val academic_program_id: String?,
-    val title: String?,
-    val status: String?, // "ACTIVE", "COMPLETED", "UPCOMING", "UNENROLLED"
+    val academic_program_id: String? = null,
+    val batch_id: String? = null,
+    val title: String? = null,
+    val status: String? = null, // "ACTIVE", "COMPLETED", "UPCOMING", "UNENROLLED"
     val is_current: Boolean? = false,
     val has_enrolment: Boolean? = false,
     val has_free_trial_enrolment: Boolean? = false,
+    val is_backlog: Boolean? = false,
+    val is_last_month: Boolean? = false,
+    val is_purchasable: Boolean? = false,
+    val type: String? = null,
+    val facebook_group_url: String? = null,
+    val syllabus_attachment_url: String? = null,
+    val report_exists: Boolean? = false,
+    val report_version: String? = null,
     val course_progress_percentage: Double? = 0.0,
-    val start_date: String?,
-    val end_date: String?
+    val start_date: String? = null,
+    val end_date: String? = null
 )
 
 // ==========================================

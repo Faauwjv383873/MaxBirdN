@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Palette
 import com.example.MainActivity
 import com.example.auth.SessionManager
+import com.example.utils.AvatarUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,31 +71,29 @@ fun SettingsScreen(
     val currentLeadTime by sessionManager.classNotificationLeadTimeFlow.collectAsState()
     var showThemeDialog by remember { mutableStateOf(false) }
 
-    val userName = remember { sessionManager.getUserFullName() ?: "শিক্ষার্থী" }
-    val userClass = remember { sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "একাদশ শ্রেণি" }
-    val userGroup = remember { sessionManager.getUserGroup() ?: "মানবিক" }
-    val userBatch = remember { sessionManager.getUserBatchId() ?: "" }
-    val userAvatar = remember { sessionManager.getUserAvatar() }
+    val profileUpdated by sessionManager.userProfileUpdateFlow.collectAsState()
+    val userAvatarFlowValue by sessionManager.userAvatarFlow.collectAsState()
+    val userAvatar = userAvatarFlowValue ?: sessionManager.getUserAvatar()
+    val userName = remember(profileUpdated) { sessionManager.getUserFullName() ?: "শিক্ষার্থী" }
+    val userClass = remember(profileUpdated) { sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "একাদশ শ্রেণি" }
+    val userGroup = remember(profileUpdated) { sessionManager.getUserGroup() ?: "মানবিক" }
+    val userBatch = remember(profileUpdated) { sessionManager.getUserBatchId() ?: "" }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            sendTestPushNotification(context)
-        } else {
-            Toast.makeText(context, "নোটিফিকেশন পারমিশন প্রয়োজন", Toast.LENGTH_SHORT).show()
+    val classDisplay = remember(userClass) {
+        when (userClass) {
+            "C11", "Class 11" -> "একাদশ শ্রেণি"
+            "C12", "Class 12" -> "দ্বাদশ শ্রেণি"
+            "C10", "Class 10" -> "দশম শ্রেণি"
+            "C9", "Class 9" -> "নবম শ্রেণি"
+            else -> userClass.ifBlank { "একাদশ শ্রেণি" }
         }
     }
-
-    val onTestNotificationClick = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                sendTestPushNotification(context)
-            } else {
-                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        } else {
-            sendTestPushNotification(context)
+    val groupDisplay = remember(userGroup) {
+        when (userGroup.lowercase()) {
+            "humanities", "humanities_group", "hum" -> "মানবিক"
+            "science", "science_group", "sci" -> "বিজ্ঞান"
+            "business", "business_studies", "commerce", "bs" -> "ব্যবসায় শিক্ষা"
+            else -> userGroup
         }
     }
 
@@ -153,26 +152,66 @@ fun SettingsScreen(
                                         MaterialTheme.colorScheme.secondary
                                     )
                                 )
-                            ),
+                            )
+                            .padding(2.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        val isValidUrl = !userAvatar.isNullOrBlank() && (userAvatar.startsWith("http://") || userAvatar.startsWith("https://"))
-                        if (isValidUrl) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface)
+                        ) {
+                            val fallbackInitial = remember(userName) {
+                                userName.trim().firstOrNull()?.toString()?.uppercase() ?: "U"
+                            }
+                            val imageRequest = remember(userAvatar, userName, context) {
+                                AvatarUtils.buildImageRequest(context, userAvatar, userName)
+                            }
+
                             SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(userAvatar)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = "Avatar",
+                                model = imageRequest,
+                                contentDescription = "User Avatar",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,
-                                error = {
+                                loading = {
                                     Box(
-                                        modifier = Modifier.fillMaxSize(),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        MaterialTheme.colorScheme.primary,
+                                                        MaterialTheme.colorScheme.secondary
+                                                    )
+                                                )
+                                            ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
+                                            text = fallbackInitial,
+                                            color = Color.White,
+                                            fontSize = 24.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                },
+                                error = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        MaterialTheme.colorScheme.primary,
+                                                        MaterialTheme.colorScheme.secondary
+                                                    )
+                                                )
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = fallbackInitial,
                                             color = Color.White,
                                             fontSize = 24.sp,
                                             fontWeight = FontWeight.Bold
@@ -180,18 +219,6 @@ fun SettingsScreen(
                                     }
                                 }
                             )
-                        } else {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = userName.firstOrNull()?.toString()?.uppercase() ?: "U",
-                                    color = Color.White,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
                         }
                     }
 
@@ -204,7 +231,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = listOf(userClass, userGroup).filter { it.isNotBlank() }.joinToString(" • "),
+                            text = listOf(classDisplay, groupDisplay).filter { it.isNotBlank() }.joinToString(" • "),
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -240,7 +267,7 @@ fun SettingsScreen(
                     iconTint = MaterialTheme.colorScheme.primary,
                     iconBg = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                     title = "সিলেবাস পরিবর্তন",
-                    subtitle = listOf(userClass, userGroup, userBatch).filter { it.isNotBlank() }.joinToString(" • "),
+                    subtitle = listOf(classDisplay, groupDisplay, userBatch).filter { it.isNotBlank() }.joinToString(" • "),
                     badge = "পরিবর্তন",
                     onClick = onNavigateToChangeSyllabus
                 )
@@ -345,18 +372,6 @@ fun SettingsScreen(
 
             // Account & Preferences Section
             SettingsSection(title = "অ্যাকাউন্ট ও নিরাপত্তা") {
-                SettingsRowItem(
-                    icon = Icons.Default.NotificationsActive,
-                    iconTint = Color(0xFFD97706),
-                    iconBg = Color(0xFFFEF3C7),
-                    title = "টেস্ট পুশ নোটিফিকেশন",
-                    subtitle = "লাইভ কোর্স নোটিফিকেশন সাবস্ক্রিপশন পরোক্ষভাবে টেস্ট করুন",
-                    badge = "টেস্ট করুন",
-                    onClick = onTestNotificationClick
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
                 // Logout
                 SettingsRowItem(
                     icon = Icons.AutoMirrored.Filled.ExitToApp,
@@ -559,51 +574,4 @@ private fun SettingsRowItem(
             modifier = Modifier.size(14.dp)
         )
     }
-}
-
-private fun sendTestPushNotification(context: Context) {
-    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    val channelId = "shikho_push_notifications"
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val channel = NotificationChannel(
-            channelId,
-            "MaxBird Course Notifications",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Live class and course updates notifications"
-            enableVibration(true)
-            enableLights(true)
-        }
-        notificationManager.createNotificationChannel(channel)
-    }
-
-    val intent = Intent(context, MainActivity::class.java).apply {
-        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-    }
-    val pendingIntent = PendingIntent.getActivity(
-        context,
-        0,
-        intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val notification = NotificationCompat.Builder(context, channelId)
-        .setSmallIcon(android.R.drawable.ic_dialog_info)
-        .setContentTitle("MaxBird - টেস্ট পুশ নোটিফিকেশন 🔔")
-        .setContentText("আপনার কোর্স নোটিফিকেশন সাবস্ক্রিপশন সক্রিয় আছে!")
-        .setStyle(
-            NotificationCompat.BigTextStyle()
-                .bigText("আপনার কোর্সের নোটিফিকেশন সাবস্ক্রিপশন সফলভাবে সক্রিয় রয়েছে! লাইভ ক্লাস শুরু হওয়ার সময়ে এবং কোর্সের গুরুত্বপূর্ণ আপডেটের সাথে সাথে সরাসরি আপনার মোবাইলে পুশ নোটিফিকেশন চলে আসবে।")
-        )
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setDefaults(NotificationCompat.DEFAULT_ALL)
-        .setAutoCancel(true)
-        .setContentIntent(pendingIntent)
-        .build()
-
-    val notificationId = (System.currentTimeMillis() % 10000).toInt()
-    notificationManager.notify(notificationId, notification)
-
-    Toast.makeText(context, "টেস্ট পুশ নোটিফিকেশন পাঠানো হয়েছে! 🔔", Toast.LENGTH_LONG).show()
 }

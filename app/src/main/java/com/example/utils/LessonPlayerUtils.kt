@@ -65,6 +65,10 @@ fun toBengaliDigits(input: Any?): String {
     return sb.toString()
 }
 
+@JvmName("toBengaliDigitsExt")
+fun Any?.toBengaliDigits(): String = toBengaliDigits(this)
+
+
 fun calculateTimeDifference(startTimeStr: String?): Long {
     if (startTimeStr.isNullOrBlank()) return 0L
     return try {

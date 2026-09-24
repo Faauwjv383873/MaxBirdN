@@ -46,17 +46,32 @@ class ClassAlarmReceiver : BroadcastReceiver() {
             pendingIntentFlags
         )
 
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val sessionManager = com.example.auth.SessionManager(context)
+        if (!sessionManager.isAllNotificationsEnabled()) {
+            Log.d("ClassAlarmReceiver", "Notification disabled globally by user.")
+            return
+        }
+
+        val soundUri = if (sessionManager.isNotificationSoundEnabled()) {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        } else null
+
         val builder = NotificationCompat.Builder(context, ClassAlarmScheduler.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFF0072EC.toInt())
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setSound(soundUri)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
+
+        if (sessionManager.isNotificationVibrateEnabled()) {
+            builder.setVibrate(longArrayOf(0, 300, 200, 300))
+        } else {
+            builder.setVibrate(longArrayOf(0))
+        }
 
         val notificationId = (System.currentTimeMillis() % 100000).toInt()
         try {

@@ -53,8 +53,16 @@ object ClassAlarmScheduler {
         val currentTime = System.currentTimeMillis()
 
         val sessionManager = com.example.auth.SessionManager(context)
+        if (!sessionManager.isAllNotificationsEnabled()) {
+            Log.d(TAG, "All notifications are turned off by user. Skipping alarms.")
+            return
+        }
+
         val leadTimeMinutes = sessionManager.getClassNotificationLeadTimeMinutes()
         val leadTimeMillis = leadTimeMinutes * 60 * 1000L
+        val disabledAlarmIds = sessionManager.getDisabledAlarmIds()
+        val isLiveEnabled = sessionManager.isLiveClassNotificationEnabled()
+        val isExamEnabled = sessionManager.isExamNotificationEnabled()
 
         val timeFormatBn = SimpleDateFormat("hh:mm a", Locale("bn", "BD"))
 
@@ -63,6 +71,11 @@ object ClassAlarmScheduler {
             val lessonTitle = lesson.title ?: lesson.live_class?.chapter_name ?: "লাইভ ক্লাস"
             val subjectName = lesson.subject_name ?: lesson.live_class?.subject_name ?: "কোর্স"
             val lessonId = lesson.id.ifBlank { lesson.live_class?.id ?: "lesson_$index" }
+
+            val isExam = lesson.isExam || lesson.content_type?.contains("Exam", ignoreCase = true) == true
+            if (isExam && !isExamEnabled) continue
+            if (!isExam && !isLiveEnabled) continue
+            if (disabledAlarmIds.contains(lessonId)) continue
 
             try {
                 val date = isoFormat.parse(startTimeStr) ?: continue
