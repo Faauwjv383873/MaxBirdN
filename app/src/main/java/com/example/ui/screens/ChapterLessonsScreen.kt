@@ -67,14 +67,10 @@ fun ChapterLessonsScreen(
 
     // Explicitly Separate Live Classes, Recorded Classes, and Exams
     val liveLessons = remember(uiState.lessons) {
-        uiState.lessons.filter { !it.isExam && (it.isLive || it.isLiveNow || it.isUpcoming || it.content_type?.contains("LiveClass", ignoreCase = true) == true) }
+        uiState.lessons.filter { !it.isExam && (it.isLiveNow || it.isUpcoming) }
     }
     val recordedLessons = remember(uiState.lessons) {
-        uiState.lessons.filter {
-            !it.isExam && !it.isLiveNow && !it.isUpcoming &&
-                    (it.isRecorded || it.hasRecording || it.content_type?.contains("Record", ignoreCase = true) == true ||
-                     it.content_type?.contains("Video", ignoreCase = true) == true || it.content_type?.contains("Live", ignoreCase = true) != true)
-        }
+        uiState.lessons.filter { !it.isExam && !it.isLiveNow && !it.isUpcoming }
     }
     val examLessons = remember(uiState.lessons) {
         uiState.lessons.filter { it.isExam }

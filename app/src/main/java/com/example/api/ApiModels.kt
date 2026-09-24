@@ -520,16 +520,47 @@ data class StudentLessonItem(
     val isLiveNow: Boolean
         get() {
             if (isExam) return false
+
+            // Explicitly not live if completed, ended, recorded, attended, or missed
+            if (user_activity_state.equals("COMPLETED", true) ||
+                user_activity_state.equals("ENDED", true) ||
+                user_activity_state.equals("RECORDED", true) ||
+                user_activity_state.equals("ATTENDED", true) ||
+                user_activity_state.equals("MISSED", true)
+            ) {
+                return false
+            }
+
+            // If live_class object explicitly says ongoing is false
+            if (live_class?.is_on_going == false) {
+                return false
+            }
+
+            // If content type is recorded class or video
+            if (content_type?.equals("RecordedClass", ignoreCase = true) == true ||
+                content_type?.equals("Video", ignoreCase = true) == true ||
+                content_type?.equals("Record", ignoreCase = true) == true
+            ) {
+                return false
+            }
+
+            if (hasRecording) {
+                return false
+            }
+
             if (live_class?.is_on_going == true || user_activity_state.equals("LIVE", ignoreCase = true)) {
                 return true
             }
+
             val startMs = classStartMs
             val endMs = classEndMs
-            if (startMs != Long.MAX_VALUE) {
+            if (startMs != Long.MAX_VALUE && endMs != Long.MAX_VALUE) {
                 val now = System.currentTimeMillis()
-                // Active from 5 mins before start time until the official end time
-                return now >= (startMs - 5 * 60 * 1000L) && now <= endMs
+                if (now in (startMs - 5 * 60 * 1000L)..endMs) {
+                    return live_class?.is_on_going != false
+                }
             }
+
             return false
         }
 
@@ -537,6 +568,15 @@ data class StudentLessonItem(
         get() {
             if (isExam) return false
             if (isLiveNow) return false
+            if (user_activity_state.equals("COMPLETED", true) ||
+                user_activity_state.equals("ENDED", true) ||
+                user_activity_state.equals("RECORDED", true) ||
+                user_activity_state.equals("ATTENDED", true) ||
+                user_activity_state.equals("MISSED", true) ||
+                live_class?.is_on_going == false
+            ) {
+                return false
+            }
             val startMs = classStartMs
             if (startMs != Long.MAX_VALUE) {
                 return System.currentTimeMillis() < (startMs - 5 * 60 * 1000L)
@@ -547,6 +587,13 @@ data class StudentLessonItem(
     val isLive: Boolean
         get() {
             if (isExam) return false
+            if (live_class?.is_on_going == false) return false
+            if (user_activity_state.equals("COMPLETED", true) ||
+                user_activity_state.equals("ENDED", true) ||
+                user_activity_state.equals("RECORDED", true) ||
+                user_activity_state.equals("ATTENDED", true) ||
+                user_activity_state.equals("MISSED", true)
+            ) return false
             val endMs = classEndMs
             if (endMs != Long.MAX_VALUE && System.currentTimeMillis() > endMs) {
                 return false
@@ -555,15 +602,7 @@ data class StudentLessonItem(
         }
 
     val isRecorded: Boolean
-        get() = !isExam && !isLiveNow && !isUpcoming && (
-            System.currentTimeMillis() > classEndMs ||
-            hasRecording ||
-            content_type?.equals("RecordedClass", ignoreCase = true) == true ||
-            content_type?.equals("Video", ignoreCase = true) == true ||
-            user_activity_state.equals("COMPLETED", true) ||
-            user_activity_state.equals("ATTENDED", true) ||
-            user_activity_state.equals("MISSED", true)
-        )
+        get() = !isExam && !isLiveNow && !isUpcoming
     val candidateStreamUrls: List<String>
         get() {
             val list = mutableListOf<String>()

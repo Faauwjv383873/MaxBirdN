@@ -500,7 +500,7 @@ fun ShikhoRoutineCard(
     val nowMs = System.currentTimeMillis()
     val startMs = startCal?.timeInMillis ?: Long.MAX_VALUE
     val endMs = endCal?.timeInMillis ?: (if (startMs != Long.MAX_VALUE) startMs + (90 * 60 * 1000L) else Long.MAX_VALUE)
-    val isLiveNow = lesson.isLiveNow || (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs && !isExam)
+    val isLiveNow = lesson.isLiveNow
     val isExamNow = isExam && (startMs != Long.MAX_VALUE && nowMs in (startMs - 5 * 60 * 1000L)..endMs)
 
     val classTypeBadge = ClassTypeUtils.getClassTypeBadgeStyle(lesson)
@@ -613,7 +613,6 @@ fun ShikhoRoutineCard(
                         color = when {
                             isLiveNow -> Color(0xFFFEE2E2)
                             isExamNow || isExam -> Color(0xFFFEF3C7)
-                            isLive -> Color(0xFFFEE2E2)
                             else -> classTypeBadge.backgroundColor
                         }
                     ) {
@@ -656,17 +655,6 @@ fun ShikhoRoutineCard(
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFD97706),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            isLive -> {
-                                Text(
-                                    text = "🔴 লাইভ ক্লাস",
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFDC2626),
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
