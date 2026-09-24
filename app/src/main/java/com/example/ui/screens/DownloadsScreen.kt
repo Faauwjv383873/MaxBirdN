@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.ui.components.SlideViewerDialog
+import com.example.utils.NetworkUtils
+import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,15 +40,47 @@ import java.io.File
 fun DownloadsScreen(
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
+    isOfflineOnly: Boolean = false,
+    onNavigateOnline: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
     val allDownloads by downloadManager.getAllDownloads().collectAsState(initial = emptyList())
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Video, 1: PDF
     var itemToDelete by remember { mutableStateOf<DownloadedItemEntity?>(null) }
     var activePdfViewerItem by remember { mutableStateOf<DownloadedItemEntity?>(null) }
+    var isCheckingNetworkManually by remember { mutableStateOf(false) }
+
+    // Real-time network detection while in offline mode
+    var autoDetectedOnline by remember { mutableStateOf(false) }
+    LaunchedEffect(isOfflineOnly) {
+        if (isOfflineOnly) {
+            NetworkUtils.observeNetworkConnectivity(context).collect { isConnected ->
+                if (isConnected) {
+                    val reachable = NetworkUtils.isInternetReachable(context, timeoutMs = 2000)
+                    autoDetectedOnline = reachable
+                } else {
+                    autoDetectedOnline = false
+                }
+            }
+        }
+    }
+
+    // In offline mode, user cannot navigate to normal online screens
+    // Double back to exit the app
+    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+    BackHandler(enabled = isOfflineOnly) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastBackPressTime < 2000L) {
+            (context as? Activity)?.finish()
+        } else {
+            lastBackPressTime = currentTime
+            Toast.makeText(context, "অ্যাপ থেকে বের হতে আবার ব্যাক চাপুন", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val videoDownloads = remember(allDownloads) {
         allDownloads.filter { it.fileType.equals(DownloadedItemEntity.FILE_TYPE_VIDEO, ignoreCase = true) }
@@ -117,36 +154,74 @@ fun DownloadsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .testTag("downloads_back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
+                        if (isOfflineOnly) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFEE2E2)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudOff,
+                                    contentDescription = "Offline Mode",
+                                    tint = Color(0xFFDC2626),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = onBack,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .testTag("downloads_back_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "অফলাইন ডাউনলোড",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                if (isOfflineOnly) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFFEE2E2)
+                                    ) {
+                                        Text(
+                                            text = "অফলাইন মোড",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFB91C1C),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             Text(
-                                text = "অফলাইন ডাউনলোড",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "অ্যাপের ভেতর সুরক্ষিতভাবে সংরক্ষিত",
+                                text = if (isOfflineOnly) "ইন্টারনেট ছাড়া সংরক্ষিত কন্টেন্ট উপভোগ করুন" else "অ্যাপের ভেতর সুরক্ষিতভাবে সংরক্ষিত",
                                 fontSize = 12.sp,
-                                color = Color(0xFF10B981),
+                                color = if (isOfflineOnly) Color(0xFFE11D48) else Color(0xFF10B981),
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -155,7 +230,7 @@ fun DownloadsScreen(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(end = 8.dp)
+                            modifier = Modifier.padding(end = 4.dp)
                         ) {
                             Text(
                                 text = "${allDownloads.size} টি ফাইল",
@@ -176,7 +251,7 @@ fun DownloadsScreen(
                         Surface(
                             shape = RoundedCornerShape(30.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            border = androidx.compose.foundation.BorderStroke(
+                            border = BorderStroke(
                                 width = 1.dp,
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                             ),
@@ -253,42 +328,201 @@ fun DownloadsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (currentList.isEmpty()) {
-                EmptyDownloadsView(
-                    isVideosTab = selectedTab == 0,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
+            Column(modifier = Modifier.fillMaxSize()) {
+
+                // ==========================================
+                // REAL-TIME AUTO RESTORE BANNER (IF ONLINE)
+                // ==========================================
+                AnimatedVisibility(
+                    visible = isOfflineOnly && autoDetectedOnline,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
                 ) {
-                    items(currentList, key = { it.id }) { item ->
-                        DownloadedItemCard(
-                            item = item,
-                            downloadManager = downloadManager,
-                            onOpen = {
-                                if (item.fileType.equals(DownloadedItemEntity.FILE_TYPE_VIDEO, ignoreCase = true)) {
-                                    onPlayVideo(
-                                        item.localFilePath,
-                                        item.title,
-                                        item.subtitle ?: "অফলাইন ভিডিও",
-                                        "#0072EC",
-                                        false
-                                    )
-                                } else {
-                                    activePdfViewerItem = item
-                                }
-                            },
-                            onCancel = {
-                                downloadManager.cancelDownload(item.id)
-                                Toast.makeText(context, "ডাউনলোড বাতিল করা হয়েছে", Toast.LENGTH_SHORT).show()
-                            },
-                            onDelete = {
-                                itemToDelete = item
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFDCFCE7),
+                        border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                        shadowElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Wifi,
+                                contentDescription = null,
+                                tint = Color(0xFF16A34A),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ইন্টারনেট সংযোগ পাওয়া গেছে!",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF14532D)
+                                )
+                                Text(
+                                    text = "অনলাইন মোডে ফিরে যেতে ট্যাপ করুন",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF166534)
+                                )
                             }
-                        )
+                            Button(
+                                onClick = { onNavigateOnline?.invoke() },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF16A34A),
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("অনলাইনে যান", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // OFFLINE MODE INFORMATIVE BANNER CARD
+                // ==========================================
+                if (isOfflineOnly) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFFFF1F2),
+                        border = BorderStroke(1.dp, Color(0xFFFECDD3)),
+                        shadowElevation = 1.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFEE2E2)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.WifiOff,
+                                        contentDescription = null,
+                                        tint = Color(0xFFE11D48),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "ইন্টারনেট সংযোগ নেই",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF9F1239)
+                                    )
+                                    Text(
+                                        text = "আপনি বর্তমানে অফলাইন মোডে আছেন। আপনার ডাউনলোড করা ফাইলগুলো ইন্টারনেট ছাড়াই উপভোগ করতে পারবেন।",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFF881337),
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+
+                            // Retry Button
+                            Button(
+                                onClick = {
+                                    if (!isCheckingNetworkManually) {
+                                        isCheckingNetworkManually = true
+                                        coroutineScope.launch {
+                                            val reachable = NetworkUtils.isInternetReachable(context, timeoutMs = 2500)
+                                            isCheckingNetworkManually = false
+                                            if (reachable) {
+                                                Toast.makeText(context, "✅ ইন্টারনেট সংযোগ সচল হয়েছে!", Toast.LENGTH_SHORT).show()
+                                                onNavigateOnline?.invoke()
+                                            } else {
+                                                Toast.makeText(context, "⚠️ এখনও কোনো ইন্টারনেট সংযোগ পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFBE123C),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier.fillMaxWidth().height(38.dp),
+                                enabled = !isCheckingNetworkManually
+                            ) {
+                                if (isCheckingNetworkManually) {
+                                    CircularProgressIndicator(
+                                        strokeWidth = 2.dp,
+                                        color = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("যাচাই করা হচ্ছে...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("ইন্টারনেট সংযোগ চেক করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // DOWNLOADS LIST
+                // ==========================================
+                if (currentList.isEmpty()) {
+                    EmptyDownloadsView(
+                        isVideosTab = selectedTab == 0,
+                        isOfflineOnly = isOfflineOnly,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+                    ) {
+                        items(currentList, key = { it.id }) { item ->
+                            DownloadedItemCard(
+                                item = item,
+                                onClick = {
+                                    if (item.fileType.equals(DownloadedItemEntity.FILE_TYPE_VIDEO, ignoreCase = true)) {
+                                        onPlayVideo(
+                                            item.localFilePath,
+                                            item.title,
+                                            item.subtitle ?: "সাধারণ",
+                                            "#0072EC",
+                                            false
+                                        )
+                                    } else {
+                                        activePdfViewerItem = item
+                                    }
+                                },
+                                onDelete = { itemToDelete = item }
+                            )
+                        }
                     }
                 }
             }
@@ -299,141 +533,110 @@ fun DownloadsScreen(
 @Composable
 fun DownloadedItemCard(
     item: DownloadedItemEntity,
-    downloadManager: AppFileDownloadManager,
-    onOpen: () -> Unit,
-    onCancel: () -> Unit,
+    onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
     val isVideo = item.fileType.equals(DownloadedItemEntity.FILE_TYPE_VIDEO, ignoreCase = true)
-    val isCompleted = item.status == DownloadedItemEntity.STATUS_COMPLETED
     val isDownloading = item.status == DownloadedItemEntity.STATUS_DOWNLOADING
+    val isFailed = item.status == DownloadedItemEntity.STATUS_FAILED
+
+    val subjectLabel = item.subtitle?.takeIf { it.isNotBlank() } ?: if (isVideo) "ভিডিও" else "পিডিএফ"
+    val sizeText = remember(item.totalBytes) {
+        if (item.totalBytes > 0) downloadManager.formatFileSize(item.totalBytes) else ""
+    }
 
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 2.dp,
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        border = BorderStroke(
+            1.dp,
+            if (isFailed) MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
+        shadowElevation = 1.dp,
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = isCompleted, onClick = onOpen)
-            .testTag("download_card_${item.id}")
+            .clickable(enabled = !isDownloading, onClick = onClick)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
-        ) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Type Icon Box
+                // Type Icon / Status Icon
                 Box(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
-                            if (isVideo) Color(0xFF0072EC).copy(alpha = 0.12f)
-                            else Color(0xFFE53935).copy(alpha = 0.12f)
+                            if (isVideo) Color(0xFFE0F2FE) else Color(0xFFFEF3C7)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isVideo) Icons.Default.PlayCircleFilled else Icons.Default.PictureAsPdf,
                         contentDescription = null,
-                        tint = if (isVideo) Color(0xFF0072EC) else Color(0xFFE53935),
-                        modifier = Modifier.size(26.dp)
+                        tint = if (isVideo) Color(0xFF0284C7) else Color(0xFFD97706),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
-
+                // File Details
                 Column(modifier = Modifier.weight(1f)) {
+                    // Subject & Size pill
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Text(
+                                text = subjectLabel,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        if (sizeText.isNotBlank()) {
+                            Text(
+                                text = "•  $sizeText",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
                     Text(
-                        text = item.title.ifBlank { if (isVideo) "ভিডিও লেকচার" else "নোট" },
-                        fontSize = 14.sp,
+                        text = item.title,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (!item.subtitle.isNullOrBlank()) {
-                            Text(
-                                text = item.subtitle,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "•",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-
-                        if (isCompleted) {
-                            Text(
-                                text = downloadManager.formatFileSize(item.totalBytes),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF10B981)
-                            )
-                        } else if (isDownloading) {
-                            Text(
-                                text = "${downloadManager.formatFileSize(item.downloadedBytes)} / ${downloadManager.formatFileSize(item.totalBytes)}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Text(
-                                text = "ব্যর্থ হয়েছে",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Action Buttons
-                if (isDownloading) {
-                    IconButton(
-                        onClick = onCancel,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Cancel,
-                            contentDescription = "Cancel Download",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Delete Download",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                // Right Delete Action
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
 
@@ -469,6 +672,7 @@ fun DownloadedItemCard(
 @Composable
 fun EmptyDownloadsView(
     isVideosTab: Boolean,
+    isOfflineOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -503,7 +707,11 @@ fun EmptyDownloadsView(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "ক্লাস বা স্মার্ট নোট দেখার সময় অফলাইন ডাউনলোড বাটনে চাপ দিয়ে ইন্টারনেট ছাড়াই দেখার জন্য সংরক্ষণ করুন।",
+            text = if (isOfflineOnly) {
+                "বর্তমানে আপনার অফলাইন স্টোরেজে কোনো ডাউনলোড নেই। ইন্টারনেট সংযোগ চালু করে ক্লাস বা নোট ডাউনলোড করতে পারবেন।"
+            } else {
+                "ক্লাস বা স্মার্ট নোট দেখার সময় অফলাইন ডাউনলোড বাটনে চাপ দিয়ে ইন্টারনেট ছাড়াই দেখার জন্য সংরক্ষণ করুন।"
+            },
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

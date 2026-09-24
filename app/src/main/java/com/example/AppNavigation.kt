@@ -62,6 +62,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 object Routes {
+    const val SPLASH = "splash"
     const val LOGIN = "login"
     const val PIN = "pin/{phone}"
     const val OTP = "otp/{phone}/{authType}"
@@ -72,7 +73,8 @@ object Routes {
     const val EDIT_PROFILE = "edit_profile"
     const val CHANGE_SYLLABUS = "change_syllabus"
     const val SAVED_ITEMS = "saved_items"
-    const val DOWNLOADS = "downloads"
+    const val DOWNLOADS = "downloads?isOfflineOnly={isOfflineOnly}"
+    fun downloadsRoute(isOfflineOnly: Boolean = false) = "downloads?isOfflineOnly=$isOfflineOnly"
     const val REPORT_CARD = "report_card?programId={programId}&programTitle={programTitle}&phaseId={phaseId}"
     const val SMART_NOTES = "smart_notes/{subjectCode}?title={title}&color={color}&phaseId={phaseId}"
     const val CHAPTER_RESOURCES = "chapter_resources/{chapterId}?name={name}&subjectCode={subjectCode}&phaseId={phaseId}"
@@ -89,6 +91,9 @@ object Routes {
     const val PRACTICE_QUIZ_RESULT = "practice_quiz_result/{sessionId}"
     const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
     const val NOTIFICATION_SETTINGS = "notification_settings"
+    const val ANIMATED_LESSON_CHAPTERS = "animated_lesson_chapters/{subjectId}?title={title}&color={color}&programId={programId}&phaseId={phaseId}"
+    const val ANIMATED_LESSON_LIST = "animated_lesson_list/{chapterId}?chapterName={chapterName}&subjectColor={subjectColor}"
+    const val ANIMATED_LESSON_PLAYER = "animated_lesson_player?url={url}&title={title}"
 }
 
 // ============================================================
@@ -240,17 +245,30 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         }
     }
 
-    val startDestination = if (sessionManager.getAccessToken() != null) {
-        Routes.HOME
-    } else {
-        Routes.LOGIN
-    }
+    val startDestination = Routes.SPLASH
 
     NavHost(
         navController = navController,
         startDestination = startDestination,
         modifier = modifier
     ) {
+        animatedComposable(Routes.SPLASH, anim = NavAnim.auth) {
+            SplashScreen(
+                sessionManager = sessionManager,
+                onNavigateOnline = { isLoggedIn ->
+                    val destination = if (isLoggedIn) Routes.HOME else Routes.LOGIN
+                    navController.navigate(destination) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                },
+                onNavigateOffline = {
+                    navController.navigate(Routes.downloadsRoute(isOfflineOnly = true)) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         animatedComposable(Routes.LOGIN, anim = NavAnim.auth) {
             LoginScreen(
                 viewModel = authViewModel,
@@ -371,7 +389,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate(Routes.SAVED_ITEMS)
                 },
                 onNavigateToDownloads = {
-                    navController.navigate(Routes.DOWNLOADS)
+                    navController.navigate(Routes.downloadsRoute(false))
                 },
                 onNavigateToReportCard = { programId, programTitle, phaseId ->
                     val encTitle = if (!programTitle.isNullOrBlank()) URLEncoder.encode(programTitle, "UTF-8") else ""
@@ -532,6 +550,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val ph = phId ?: ""
                     navController.navigate("smart_notes/$sCode?title=$encodedTitle&color=$encodedColor&phaseId=$ph")
                 },
+                onNavigateToAnimatedLessons = { sCode, sTitle, sColor, pId, phId ->
+                    val encodedTitle = URLEncoder.encode(sTitle, "UTF-8")
+                    val encodedColor = URLEncoder.encode(sColor ?: "", "UTF-8")
+                    val encodedProgId = URLEncoder.encode(pId ?: "", "UTF-8")
+                    val encodedPhaseId = URLEncoder.encode(phId ?: "", "UTF-8")
+                    navController.navigate("animated_lesson_chapters/$sCode?title=$encodedTitle&color=$encodedColor&programId=$encodedProgId&phaseId=$encodedPhaseId")
+                },
                 onChapterClick = { chapterId, chapterName, chapterStatus, initialTab ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedStatus = URLEncoder.encode(chapterStatus, "UTF-8")
@@ -602,6 +627,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedPhase = URLEncoder.encode(phId, "UTF-8")
                     navController.navigate("chapter_resources/$cId?name=$encodedName&subjectCode=$encodedSubCode&phaseId=$encodedPhase")
                 },
+                onNavigateToAnimatedLessons = { cId, cName ->
+                    val encodedName = URLEncoder.encode(cName, "UTF-8")
+                    val encodedColor = URLEncoder.encode(subjectColor ?: "", "UTF-8")
+                    navController.navigate("animated_lesson_list/$cId?chapterName=$encodedName&subjectColor=$encodedColor")
+                },
                 onOpenLessonDetail = { lesson ->
                     courseViewModel.selectLesson(lesson)
                     navController.navigate(Routes.LESSON_DETAIL_PLAYER)
@@ -662,10 +692,93 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                         popUpTo(Routes.LESSON_DETAIL_PLAYER) { inclusive = true }
                     }
                 },
+                onPlayAnimatedLesson = { videoUrl, title ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    navController.navigate("animated_lesson_player?url=$encodedUrl&title=$encodedTitle")
+                },
                 onBack = {
                     courseViewModel.disconnectLiveSocket()
                     navController.popBackStack()
                 }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.ANIMATED_LESSON_CHAPTERS,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("subjectId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("color") { type = NavType.StringType; defaultValue = "" },
+                navArgument("programId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("phaseId") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val subjectId = backStackEntry.arguments?.getString("subjectId") ?: ""
+            val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val color = backStackEntry.arguments?.getString("color")?.let { URLDecoder.decode(it, "UTF-8") }
+            val programId = backStackEntry.arguments?.getString("programId")?.let { URLDecoder.decode(it, "UTF-8") }
+            val phaseId = backStackEntry.arguments?.getString("phaseId")?.let { URLDecoder.decode(it, "UTF-8") }
+
+            AnimatedLessonChaptersScreen(
+                subjectId = subjectId,
+                subjectTitle = title,
+                subjectColorHex = color,
+                programId = programId,
+                phaseId = phaseId,
+                viewModel = courseViewModel,
+                onBack = { navController.popBackStack() },
+                onChapterClick = { chapterId, chapterName ->
+                    val encodedName = URLEncoder.encode(chapterName, "UTF-8")
+                    val encodedColor = URLEncoder.encode(color ?: "", "UTF-8")
+                    navController.navigate("animated_lesson_list/$chapterId?chapterName=$encodedName&subjectColor=$encodedColor")
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.ANIMATED_LESSON_LIST,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("chapterId") { type = NavType.StringType },
+                navArgument("chapterName") { type = NavType.StringType; defaultValue = "" },
+                navArgument("subjectColor") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
+            val chapterName = backStackEntry.arguments?.getString("chapterName")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val subjectColor = backStackEntry.arguments?.getString("subjectColor")?.let { URLDecoder.decode(it, "UTF-8") }
+
+            AnimatedLessonListScreen(
+                chapterId = chapterId,
+                chapterName = chapterName,
+                subjectColorHex = subjectColor,
+                viewModel = courseViewModel,
+                onBack = { navController.popBackStack() },
+                onPlayVideo = { videoUrl, videoTitle ->
+                    val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+                    val encodedTitle = URLEncoder.encode(videoTitle, "UTF-8")
+                    navController.navigate("animated_lesson_player?url=$encodedUrl&title=$encodedTitle")
+                }
+            )
+        }
+
+        animatedComposable(
+            route = Routes.ANIMATED_LESSON_PLAYER,
+            anim = NavAnim.immersive,
+            arguments = listOf(
+                navArgument("url") { type = NavType.StringType; defaultValue = "" },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val url = backStackEntry.arguments?.getString("url")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+            val title = backStackEntry.arguments?.getString("title")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+
+            AnimatedLessonPlayerScreen(
+                videoUrl = url,
+                title = title,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -710,7 +823,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate(Routes.SAVED_ITEMS)
                 },
                 onNavigateToDownloads = {
-                    navController.navigate(Routes.DOWNLOADS)
+                    navController.navigate(Routes.downloadsRoute(false))
                 },
                 onLogout = {
                     authViewModel.logout()
@@ -848,10 +961,28 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             )
         }
 
-        animatedComposable(Routes.DOWNLOADS, anim = NavAnim.forward) {
+        animatedComposable(
+            route = Routes.DOWNLOADS,
+            anim = NavAnim.forward,
+            arguments = listOf(
+                navArgument("isOfflineOnly") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { backStackEntry ->
+            val isOfflineOnly = backStackEntry.arguments?.getBoolean("isOfflineOnly") ?: false
             DownloadsScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                isOfflineOnly = isOfflineOnly,
+                onNavigateOnline = {
+                    val isLoggedIn = sessionManager.getAccessToken() != null
+                    val destination = if (isLoggedIn) Routes.HOME else Routes.LOGIN
+                    navController.navigate(destination) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 },
                 onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->
                     val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")

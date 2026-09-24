@@ -50,6 +50,7 @@ fun ChapterLessonsScreen(
     onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?, chapterId: String, chapterName: String) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapterName: String) -> Unit)? = null,
     onNavigateToChapterResources: ((chapterId: String, chapterName: String, subjectCode: String, phaseId: String) -> Unit)? = null,
+    onNavigateToAnimatedLessons: ((chapterId: String, chapterName: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -260,7 +261,7 @@ fun ChapterLessonsScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // 1. Top Shortcuts: Practice Quiz & E-Book
+                        // 1. Top Shortcuts: Practice Quiz, E-Book, Animated Lessons
                         item {
                             ChapterFeatureShortcuts(
                                 onOpenPracticeQuiz = {
@@ -278,6 +279,12 @@ fun ChapterLessonsScreen(
                                         chapterName,
                                         effectiveSubjectCode,
                                         uiState.activePhaseId ?: ""
+                                    )
+                                },
+                                onOpenAnimatedLessons = {
+                                    onNavigateToAnimatedLessons?.invoke(
+                                        chapterId,
+                                        chapterName
                                     )
                                 }
                             )

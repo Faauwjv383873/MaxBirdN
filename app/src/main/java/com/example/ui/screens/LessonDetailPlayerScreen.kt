@@ -89,7 +89,10 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.api.LessonAttachmentItem
+import com.example.api.ShikhoApiService
 import com.example.api.StudentLessonItem
+import com.example.api.TopicFullItem
+import com.example.course.CourseRepository
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
@@ -118,6 +121,7 @@ fun LessonDetailPlayerScreen(
     onRefreshLesson: (() -> Unit)? = null,
     onJoinLiveClass: ((StudentLessonItem) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
+    onPlayAnimatedLesson: ((videoUrl: String, title: String) -> Unit)? = null,
     onBack: () -> Unit
 ) {
     val isExamLesson = lesson?.isExam == true ||
@@ -163,6 +167,7 @@ fun LessonDetailPlayerScreen(
 
     val context = LocalContext.current
     val sessionManager = remember(context) { com.example.auth.SessionManager(context) }
+    val courseRepository = remember(sessionManager) { CourseRepository(ShikhoApiService.create(sessionManager)) }
 
     LaunchedEffect(lesson?.id, lesson?.content_id) {
         val lId = lesson?.id ?: ""
@@ -1135,6 +1140,22 @@ fun LessonDetailPlayerScreen(
                     }
                 )
 
+                // 5. "🎬 অ্যানিমেটেড লেসন" (Horizontal Scroll)
+                val topicIdsForAnimated = remember(lesson?.topics) {
+                    lesson?.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() } ?: emptyList()
+                }
+                val chapterIdForAnimated = lesson?.chapter_id ?: ""
+
+                LessonAnimatedLessonsSection(
+                    chapterId = chapterIdForAnimated,
+                    topicIds = topicIdsForAnimated,
+                    repository = courseRepository,
+                    themeColor = subjectThemeColor,
+                    onPlayAnimatedLesson = { vUrl, vTitle ->
+                        onPlayAnimatedLesson?.invoke(vUrl, vTitle)
+                    }
+                )
+
                 Spacer(modifier = Modifier.height(40.dp))
             }
         }
@@ -1195,6 +1216,239 @@ fun LessonDetailPlayerScreen(
             title = slide.displayTitle,
             onDismiss = { viewingSlideItem = null }
         )
+    }
+}
+
+/**
+ * Horizontal scrolling "🎬 অ্যানিমেটেড লেসন" section.
+ * Automatically fetches topics corresponding to the lecture class's topics array,
+ * skips items without videos, hides if topic_ids is empty.
+ */
+@Composable
+fun LessonAnimatedLessonsSection(
+    chapterId: String,
+    topicIds: List<String>,
+    repository: CourseRepository,
+    themeColor: Color,
+    onPlayAnimatedLesson: (videoUrl: String, title: String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (topicIds.isEmpty() || chapterId.isBlank()) {
+        return
+    }
+
+    var animatedTopics by remember(chapterId, topicIds) { mutableStateOf<List<TopicFullItem>>(emptyList()) }
+    var isLoading by remember(chapterId, topicIds) { mutableStateOf(true) }
+
+    LaunchedEffect(chapterId, topicIds) {
+        isLoading = true
+        try {
+            val res = repository.getTopics(chapterId, topicIds)
+            // Filter out topics with empty videos or blank playback URLs
+            animatedTopics = res.filter { topic ->
+                val vList = topic.videos?.data
+                !vList.isNullOrEmpty() && vList.any { !it.playback_url.isNullOrBlank() }
+            }
+        } catch (e: Exception) {
+            animatedTopics = emptyList()
+        } finally {
+            isLoading = false
+        }
+    }
+
+    // Hide completely if no animated lessons found and not loading
+    if (!isLoading && animatedTopics.isEmpty()) {
+        return
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "🎬 অ্যানিমেটেড লেসন",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                if (animatedTopics.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = themeColor.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = "${toBengaliDigits(animatedTopics.size)}টি",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColor,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (isLoading) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.5.dp,
+                    color = themeColor
+                )
+                Text(
+                    text = "অ্যানিমেটেড লেসন লোড হচ্ছে...",
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(animatedTopics) { topic ->
+                    val video = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }
+                    val playbackUrl = video?.playback_url ?: ""
+                    val thumbnail = video?.video_thumbnail_url?.firstOrNull()
+                    val topicTitle = topic.name ?: "অ্যানিমেটেড লেসন"
+                    val serialText = topic.no?.let { toBengaliDigits(it) } ?: ""
+
+                    AnimatedLessonMiniCard(
+                        serialNo = serialText,
+                        title = topicTitle,
+                        thumbnailUrl = thumbnail,
+                        themeColor = themeColor,
+                        onClick = {
+                            if (playbackUrl.isNotBlank()) {
+                                onPlayAnimatedLesson(playbackUrl, topicTitle)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AnimatedLessonMiniCard(
+    serialNo: String,
+    title: String,
+    thumbnailUrl: String?,
+    themeColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = modifier
+            .width(200.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color(0xFF1E293B))
+            ) {
+                if (!thumbnailUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = thumbnailUrl,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Dark overlay gradient
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))
+                            )
+                        )
+                )
+
+                // Serial badge
+                if (serialNo.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(bottomEnd = 10.dp, topStart = 14.dp),
+                        color = themeColor,
+                        modifier = Modifier.align(Alignment.TopStart)
+                    ) {
+                        Text(
+                            text = serialNo,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                // Center Play Icon
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.6f),
+                    border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.85f)),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .align(Alignment.Center)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp
+                )
+            }
+        }
     }
 }
 

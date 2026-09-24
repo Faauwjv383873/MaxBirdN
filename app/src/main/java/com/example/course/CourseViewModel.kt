@@ -15,9 +15,38 @@ import kotlinx.coroutines.flow.update
 class CourseViewModel(
     private val apiService: ShikhoApiService,
     private val sessionManager: SessionManager,
-    private val repository: CourseRepository = CourseRepository(apiService),
+    val repository: CourseRepository = CourseRepository(apiService),
     private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModel() {
+
+    suspend fun getTopics(chapterId: String, topicIds: List<String>? = null): List<TopicFullItem> {
+        return try {
+            repository.getTopics(chapterId, topicIds)
+        } catch (e: Exception) {
+            android.util.Log.e("CourseViewModel", "Error fetching topics for $chapterId", e)
+            emptyList()
+        }
+    }
+
+    suspend fun getPhaseWiseChapters(programId: String, phaseId: String, subjectCode: String): List<AcademicChapterItem> {
+        return try {
+            val effectiveProgId = programId.ifBlank { "6864d3a806800acba2e27099" }
+            val effectivePhaseId = phaseId.ifBlank { "6864d62506800acba2e27111" }
+            val list = repository.getPhaseWiseChapters(effectiveProgId, effectivePhaseId, subjectCode)
+            if (list.isNotEmpty()) {
+                list
+            } else {
+                repository.getChaptersBySubjectCode(subjectCode)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CourseViewModel", "Error fetching chapters for $subjectCode", e)
+            try {
+                repository.getChaptersBySubjectCode(subjectCode)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
 
     // Caching for instant sub-second loading
     private val chaptersCache = java.util.concurrent.ConcurrentHashMap<String, List<AcademicChapterItem>>()

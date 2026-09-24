@@ -49,6 +49,7 @@ fun SubjectChaptersScreen(
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit,
     onNavigateToPracticeQuiz: ((subjectCode: String, subjectTitle: String, subjectColor: String?) -> Unit)? = null,
     onNavigateToSmartNotes: ((subjectCode: String, subjectTitle: String, subjectColor: String?, phaseId: String?) -> Unit)? = null,
+    onNavigateToAnimatedLessons: ((subjectCode: String, subjectTitle: String, subjectColor: String?, programId: String?, phaseId: String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -269,7 +270,7 @@ fun SubjectChaptersScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Top Shortcuts: Practice Quiz, E-Book
+                        // Top Shortcuts: Practice Quiz, E-Book, Animated Lessons
                         item {
                             CourseFeatureShortcuts(
                                 subjectColor = subjectColor,
@@ -279,6 +280,8 @@ fun SubjectChaptersScreen(
                                         onNavigateToPracticeQuiz?.invoke(subjectCode, subjectTitle, subjectColorHex)
                                     } else if (mode == 3) {
                                         onNavigateToSmartNotes?.invoke(subjectCode, subjectTitle, subjectColorHex, uiState.activePhaseId)
+                                    } else if (mode == 4) {
+                                        onNavigateToAnimatedLessons?.invoke(subjectCode, subjectTitle, subjectColorHex, uiState.programId, uiState.activePhaseId)
                                     }
                                 }
                             )
@@ -402,6 +405,14 @@ fun CourseFeatureShortcuts(
             isSelected = selectedMode == 3,
             modifier = Modifier.weight(1f),
             onClick = { onSelectMode(3) }
+        )
+        ShortcutButton(
+            title = "অ্যানিমেটেড লেসনস",
+            icon = Icons.Default.SmartDisplay,
+            color = Color(0xFF8B5CF6),
+            isSelected = selectedMode == 4,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelectMode(4) }
         )
     }
 }
