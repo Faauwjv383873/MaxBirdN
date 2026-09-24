@@ -48,6 +48,7 @@ import com.example.syllabus.ChangeSyllabusViewModel
 import com.example.syllabus.ChangeSyllabusViewModelFactory
 import com.example.quiz.PracticeQuizViewModel
 import com.example.quiz.PracticeQuizViewModelFactory
+import com.example.utils.ClassTypeUtils
 import com.example.database.AppDatabase
 import com.example.database.SavedItemRepository
 import com.example.reportcard.ReportCardViewModel
@@ -87,6 +88,7 @@ object Routes {
     const val PRACTICE_QUIZ_PLAYER = "practice_quiz_player/{sessionId}"
     const val PRACTICE_QUIZ_RESULT = "practice_quiz_result/{sessionId}"
     const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
+    const val NOTIFICATION_SETTINGS = "notification_settings"
 }
 
 // ============================================================
@@ -203,7 +205,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
     val completedItemRepository = remember { com.example.database.CompletedItemRepository(appDatabase.completedItemDao(), sessionManager) }
 
     val homeViewModel: HomeViewModel = viewModel(
-        factory = HomeViewModelFactory(apiService, sessionManager, completedItemRepository)
+        factory = HomeViewModelFactory(context.applicationContext as android.app.Application, apiService, sessionManager, completedItemRepository)
     )
 
     val courseViewModel: CourseViewModel = viewModel(
@@ -378,8 +380,25 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate("report_card?programId=$pId&programTitle=$encTitle&phaseId=$phId")
                 },
                 onOpenLessonDetail = { lesson ->
-                    courseViewModel.selectLesson(lesson)
-                    navController.navigate(Routes.LESSON_DETAIL_PLAYER)
+                    if (lesson.isExam) {
+                        val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
+                            ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
+                            ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                            ?: lesson.id
+                        val title = ClassTypeUtils.formatLessonTitle(lesson.title ?: "পরীক্ষা")
+                        val chapter = lesson.subject_name ?: ""
+                        val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                        val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
+                        navController.navigate("chapter_exam/$sessionId?lessonId=${lesson.id}&title=$encodedTitle&chapter=$encodedChapter")
+                    } else {
+                        courseViewModel.selectLesson(lesson)
+                        navController.navigate(Routes.LESSON_DETAIL_PLAYER)
+                    }
+                },
+                onNavigateToExam = { sessionId, lessonId, title, chapter ->
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
+                    navController.navigate("chapter_exam/$sessionId?lessonId=$lessonId&title=$encodedTitle&chapter=$encodedChapter")
                 },
                 onPlayVideo = { videoUrl, title, subjectName, subjectColor, isLive ->
                     val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
@@ -388,11 +407,27 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedColor = URLEncoder.encode(subjectColor, "UTF-8")
                     navController.navigate("video_player?url=$encodedUrl&title=$encodedTitle&subject=$encodedSubject&color=$encodedColor&isLive=$isLive")
                 },
+                onNavigateToNotificationHistory = {
+                    navController.navigate(Routes.NOTIFICATION_SETTINGS)
+                },
+                onNavigateToNotification = {
+                    navController.navigate(Routes.NOTIFICATION_SETTINGS)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        animatedComposable(Routes.NOTIFICATION_SETTINGS, anim = NavAnim.forward) {
+            NotificationSettingsScreen(
+                sessionManager = sessionManager,
+                homeViewModel = homeViewModel,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }
@@ -404,8 +439,25 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.popBackStack()
                 },
                 onOpenLessonDetail = { lesson ->
-                    courseViewModel.selectLesson(lesson)
-                    navController.navigate(Routes.LESSON_DETAIL_PLAYER)
+                    if (lesson.isExam) {
+                        val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
+                            ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
+                            ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                            ?: lesson.id
+                        val title = ClassTypeUtils.formatLessonTitle(lesson.title ?: "পরীক্ষা")
+                        val chapter = lesson.subject_name ?: ""
+                        val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                        val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
+                        navController.navigate("chapter_exam/$sessionId?lessonId=${lesson.id}&title=$encodedTitle&chapter=$encodedChapter")
+                    } else {
+                        courseViewModel.selectLesson(lesson)
+                        navController.navigate(Routes.LESSON_DETAIL_PLAYER)
+                    }
+                },
+                onNavigateToExam = { sessionId, lessonId, title, chapter ->
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
+                    navController.navigate("chapter_exam/$sessionId?lessonId=$lessonId&title=$encodedTitle&chapter=$encodedChapter")
                 }
             )
         }
@@ -602,6 +654,13 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 },
                 onJoinLiveClass = { lesson ->
                     courseViewModel.joinLiveClass(lesson)
+                },
+                onNavigateToExam = { sessionId, lessonId, title, chapter ->
+                    val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                    val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
+                    navController.navigate("chapter_exam/$sessionId?lessonId=$lessonId&title=$encodedTitle&chapter=$encodedChapter") {
+                        popUpTo(Routes.LESSON_DETAIL_PLAYER) { inclusive = true }
+                    }
                 },
                 onBack = {
                     courseViewModel.disconnectLiveSocket()

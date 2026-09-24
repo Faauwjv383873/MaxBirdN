@@ -29,6 +29,10 @@ class SessionManager(context: Context) {
     }
 
     fun getDeviceId(): String {
+        val fcm = getFcmToken()
+        if (!fcm.isNullOrBlank()) {
+            return fcm
+        }
         var deviceId = sharedPreferences.getString("device_id", null)
         if (deviceId == null) {
             deviceId = UUID.randomUUID().toString()
@@ -74,7 +78,10 @@ class SessionManager(context: Context) {
     fun getUserId(): String? = sharedPreferences.getString("user_id", null)
 
     fun setFcmToken(token: String) {
-        sharedPreferences.edit().putString("fcm_token", token).apply()
+        sharedPreferences.edit()
+            .putString("fcm_token", token)
+            .putString("device_id", token)
+            .apply()
     }
 
     fun getFcmToken(): String? = sharedPreferences.getString("fcm_token", null)
@@ -199,6 +206,20 @@ class SessionManager(context: Context) {
         _themeModeFlow.value = mode
     }
 
+    // Class Notification Lead Time (Default 25 minutes)
+    private val _classNotificationLeadTimeFlow = kotlinx.coroutines.flow.MutableStateFlow(getClassNotificationLeadTimeMinutes())
+    val classNotificationLeadTimeFlow: kotlinx.coroutines.flow.StateFlow<Int> = _classNotificationLeadTimeFlow
+
+    fun getClassNotificationLeadTimeMinutes(): Int {
+        return sharedPreferences.getInt("class_notification_lead_time_minutes", 25)
+    }
+
+    fun setClassNotificationLeadTimeMinutes(minutes: Int) {
+        val validMinutes = if (minutes in listOf(5, 10, 15, 20, 25, 30, 45, 60)) minutes else 25
+        sharedPreferences.edit().putInt("class_notification_lead_time_minutes", validMinutes).apply()
+        _classNotificationLeadTimeFlow.value = validMinutes
+    }
+
     // Account Completion Status
     fun setAccountComplete(completed: Boolean) {
         sharedPreferences.edit().putBoolean("is_account_completed", completed).apply()
@@ -254,6 +275,16 @@ class SessionManager(context: Context) {
 
     fun resetUnauthorizedNotified() {
         isUnauthorizedNotified = false
+    }
+
+    fun getSubscribedTopics(): Set<String> {
+        return sharedPreferences.getStringSet("subscribed_fcm_topics", emptySet()) ?: emptySet()
+    }
+
+    fun setSubscribedTopics(topics: Set<String>) {
+        sharedPreferences.edit()
+            .putStringSet("subscribed_fcm_topics", topics)
+            .apply()
     }
 
     fun clearSession() {

@@ -114,7 +114,7 @@ class AuthViewModel(
                 val verifyRes = apiService.verifyOtp(VerifyOtpRequest(phone = phone, otp = otp))
                 if (verifyRes.code == 200 || verifyRes.code == 201) {
                     // Login to receive temporary access token
-                    val deviceId = sessionManager.getDeviceId()
+                    val deviceId = sessionManager.getFcmToken() ?: sessionManager.getDeviceId()
                     val adsId = sessionManager.getGoogleAdsId()
                     val loginReq = LoginRequest(
                         phone = phone,
@@ -122,6 +122,7 @@ class AuthViewModel(
                         profile = ProfileDevice(device_id = deviceId),
                         google_ads_id = adsId
                     )
+                    android.util.Log.d("AuthViewModel", "Logging in with device_id (FCM token): $deviceId")
                     val loginRes = apiService.login(loginReq)
                     sessionManager.saveTokens(
                         accessToken = loginRes.tokens.access_token,
@@ -181,7 +182,7 @@ class AuthViewModel(
         _authState.value = AuthState.Loading
         viewModelScope.launch {
             try {
-                val deviceId = sessionManager.getDeviceId()
+                val deviceId = sessionManager.getFcmToken() ?: sessionManager.getDeviceId()
                 val adsId = sessionManager.getGoogleAdsId()
                 
                 val request = LoginRequest(
@@ -190,6 +191,7 @@ class AuthViewModel(
                     profile = ProfileDevice(device_id = deviceId),
                     google_ads_id = adsId
                 )
+                android.util.Log.d("AuthViewModel", "Logging in with PIN, device_id (FCM token): $deviceId")
                 
                 val response = apiService.login(request)
                 

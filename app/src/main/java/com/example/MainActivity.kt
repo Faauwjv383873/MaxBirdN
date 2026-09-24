@@ -22,6 +22,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import com.example.notification.ClassAlarmScheduler
 import com.example.auth.SessionManager
 import com.example.ui.theme.MyApplicationTheme
 
@@ -34,6 +36,26 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // 1. Immediately create notification channel on startup
+        ClassAlarmScheduler.createNotificationChannel(this)
+
+        // 2. Verify Firebase is initialized correctly
+        try {
+            val apps = com.google.firebase.FirebaseApp.getApps(this)
+            if (apps.isEmpty()) {
+                android.util.Log.e("MainActivity", "❌ Firebase NOT initialized!")
+            } else {
+                val projectId = com.google.firebase.FirebaseApp.getInstance().options.projectId
+                android.util.Log.d("MainActivity", "✅ Firebase Project: $projectId")
+                if (projectId != "shikho-tech") {
+                    android.util.Log.e("MainActivity", "❌ Wrong Firebase project! Expected: shikho-tech, Got: $projectId")
+                }
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "Firebase check failed: ${e.message}", e)
+        }
+
         requestNotificationPermissionOnStartup()
         fetchAndRegisterFcmToken()
 
@@ -86,7 +108,6 @@ class MainActivity : ComponentActivity() {
                     android.util.Log.d("MainActivity", "Fetched FCM Token: $token")
                     val sessionManager = SessionManager(applicationContext)
                     sessionManager.setFcmToken(token)
-                    com.example.notification.FcmTopicManager.subscribeAllTopics(sessionManager)
                 } else {
                     android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
                 }
@@ -94,6 +115,10 @@ class MainActivity : ComponentActivity() {
         } catch (e: Throwable) {
             android.util.Log.e("MainActivity", "Error fetching FCM token: ${e.message}", e)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
     }
 
     override fun onPictureInPictureModeChanged(

@@ -60,6 +60,7 @@ fun DownloadsScreen(
         SlideViewerDialog(
             slideUrl = pdfItem.localFilePath,
             title = pdfItem.title,
+            initialRemoteUrl = pdfItem.remoteUrl,
             onDismiss = { activePdfViewerItem = null }
         )
     }

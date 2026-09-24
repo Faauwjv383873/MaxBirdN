@@ -27,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,11 +51,14 @@ fun HomeScreen(
     onOpenCourse: (phaseId: String?) -> Unit = {},
     onOpenFullRoutine: () -> Unit = {},
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
+    onNavigateToNotificationHistory: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
 
     // ===== LOGIC: Scroll-driven collapsible header (unchanged) =====
     var isHeaderVisible by remember { mutableStateOf(true) }
@@ -164,7 +168,11 @@ fun HomeScreen(
                 isPremium = uiState.isPremium,
                 activeCourseTitle = uiState.activeProgram?.title_bn ?: "কোর্স নির্বাচন করো",
                 onOpenCourseSwitcher = { viewModel.setCourseSwitcherVisible(true) },
-                onAvatarClick = { onNavigateToProfile() }
+                onAvatarClick = { onNavigateToProfile() },
+                unreadNotificationCount = 0,
+                onNotificationClick = {
+                    android.widget.Toast.makeText(context, "আগামী ৭ দিনের ক্লাসের এলার্ম ও নোটিফিকেশন সেট করা আছে!", android.widget.Toast.LENGTH_SHORT).show()
+                }
             )
 
             Column(
@@ -216,7 +224,8 @@ fun HomeScreen(
                             selectedSubjectNames = selectedSubjectNames,
                             onSeeAllClick = { onOpenFullRoutine() },
                             onCustomizeSubjectsClick = { viewModel.openSubjectFilterDialog() },
-                            onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) }
+                            onOpenLessonDetail = { lesson -> onOpenLessonDetail?.invoke(lesson) },
+                            onNavigateToExam = onNavigateToExam
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))

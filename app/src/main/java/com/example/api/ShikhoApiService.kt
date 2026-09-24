@@ -202,18 +202,18 @@ interface ShikhoApiService {
 
             val headerInterceptor = Interceptor { chain ->
                 val token = sessionManager.getAccessToken()
-                val authHeader = if (!token.isNullOrBlank()) "Bearer $token" else "Bearer "
-                
-                val request = chain.request().newBuilder()
+                val reqBuilder = chain.request().newBuilder()
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
                     .header("X-User-Timezone", "Asia/Dhaka")
                     .header("Build-Version", "(607) 6.0.7")
                     .header("User-Agent", "Shikho/(607) 6.0.7 (Android 12; V2029; vivo 2027; en; WIFI; edac7970-6299-4e14-9b98-8c64d3ca4c09)")
-                    .header("Authorization", authHeader)
-                    .build()
                 
-                chain.proceed(request)
+                if (!token.isNullOrBlank()) {
+                    reqBuilder.header("Authorization", "Bearer $token")
+                }
+                
+                chain.proceed(reqBuilder.build())
             }
 
             val enrolmentMockInterceptor = Interceptor { chain ->

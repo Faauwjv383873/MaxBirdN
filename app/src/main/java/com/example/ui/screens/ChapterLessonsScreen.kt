@@ -444,10 +444,7 @@ fun ChapterLessonsScreen(
                                             ?: lesson.live_class?.recording_url
                                             ?: ""
                                         val title = ClassTypeUtils.formatLessonTitle(lesson.title)
-                                        val isLive = lesson.isLiveNow ||
-                                                lesson.live_class?.is_on_going == true ||
-                                                lesson.isLive ||
-                                                lesson.content_type?.contains("LIVE", ignoreCase = true) == true
+                                        val isLive = lesson.isLive && !lesson.isRecorded
                                         onPlayVideo(
                                             videoUrl,
                                             title,

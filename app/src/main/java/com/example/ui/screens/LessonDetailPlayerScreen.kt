@@ -3,6 +3,8 @@ package com.example.ui.screens
 import android.app.Activity
 import android.app.DownloadManager
 import android.app.PictureInPictureParams
+import com.example.util.PipHelper
+import com.example.util.SetupPipController
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -32,6 +34,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -113,8 +117,40 @@ fun LessonDetailPlayerScreen(
     socketManager: HmsLiveSocketManager? = null,
     onRefreshLesson: (() -> Unit)? = null,
     onJoinLiveClass: ((StudentLessonItem) -> Unit)? = null,
+    onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onBack: () -> Unit
 ) {
+    val isExamLesson = lesson?.isExam == true ||
+            lesson?.content_type?.contains("EXAM", ignoreCase = true) == true ||
+            lesson?.class_type?.contains("EXAM", ignoreCase = true) == true
+
+    if (isExamLesson) {
+        val sessionId = lesson?.session_id?.takeIf { it.isNotBlank() }
+            ?: lesson?.live_class?.session_id?.takeIf { it.isNotBlank() }
+            ?: lesson?.content_id?.takeIf { it.isNotBlank() }
+            ?: lesson?.id ?: ""
+        val formattedTitle = ClassTypeUtils.formatLessonTitle(lesson?.title ?: "পরীক্ষা")
+        val chapterName = lesson?.subject_name ?: subjectName
+
+        LaunchedEffect(sessionId) {
+            if (onNavigateToExam != null && sessionId.isNotBlank()) {
+                onNavigateToExam(sessionId, lesson?.id ?: "", formattedTitle, chapterName)
+            }
+        }
+
+        ExamRedirectScreen(
+            title = formattedTitle,
+            subjectName = chapterName,
+            onStartExam = {
+                if (onNavigateToExam != null && sessionId.isNotBlank()) {
+                    onNavigateToExam(sessionId, lesson?.id ?: "", formattedTitle, chapterName)
+                }
+            },
+            onBack = onBack
+        )
+        return
+    }
+
     if (lesson?.isUpcoming == true) {
         UpcomingCountdownScreen(
             lesson = lesson,
@@ -610,19 +646,20 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    fun enterPipMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-                activity?.enterPictureInPictureMode(params)
-            } catch (e: Exception) {
-                Toast.makeText(context, "PiP মোড চালু করা সম্ভব হয়নি", Toast.LENGTH_SHORT).show()
+    SetupPipController(
+        player = exoPlayer,
+        isPlaying = isPlaying,
+        aspectRatio = Rational(16, 9),
+        onPipEntered = {
+            if (isFullscreen) {
+                isFullscreen = false
             }
-        } else {
-            Toast.makeText(context, "আপনার ডিভাইসে PiP মোড সমর্থিত নয়", Toast.LENGTH_SHORT).show()
         }
+    )
+
+    fun enterPipMode() {
+        val act = activity ?: (context as? Activity)
+        PipHelper.enterPipMode(act, isPlaying, Rational(16, 9))
     }
 
     // Fullscreen Screen Orientation & Immersive Sticky System Bars
@@ -674,6 +711,22 @@ fun LessonDetailPlayerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
+                .pointerInput(totalDuration) {
+                    val componentWidth = size.width
+                    detectTapGestures(
+                        onDoubleTap = { offset ->
+                            if (offset.x < componentWidth * 0.4f) {
+                                val target = (exoPlayer.currentPosition - 5000L).coerceAtLeast(0L)
+                                exoPlayer.seekTo(target)
+                            } else if (offset.x > componentWidth * 0.6f) {
+                                val target = (exoPlayer.currentPosition + 5000L).coerceAtMost(totalDuration)
+                                exoPlayer.seekTo(target)
+                            } else {
+                                if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            }
+                        }
+                    )
+                }
         ) {
             AndroidView(
                 factory = { ctx ->
@@ -1142,6 +1195,127 @@ fun LessonDetailPlayerScreen(
             title = slide.displayTitle,
             onDismiss = { viewingSlideItem = null }
         )
+    }
+}
+
+@Composable
+private fun ExamRedirectScreen(
+    title: String,
+    subjectName: String,
+    onStartExam: () -> Unit,
+    onBack: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
+                color = Color.White,
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color(0xFF1E293B)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "পরীক্ষা (Exam)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = Color(0xFF1E293B)
+                    )
+                }
+            }
+        },
+        containerColor = Color(0xFFF8FAFC)
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFFFEF3C7),
+                modifier = Modifier.size(84.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("✍️", fontSize = 40.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFFFEDD5)
+            ) {
+                Text(
+                    text = "লাইভ পরীক্ষা / এক্সাম",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFEA580C),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0F172A),
+                textAlign = TextAlign.Center
+            )
+
+            if (subjectName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "বিষয়: $subjectName",
+                    fontSize = 14.sp,
+                    color = Color(0xFF64748B),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "এটি একটি লাইভ পরীক্ষা (Exam), কোনো রেকর্ডেড ক্লাস বা ভিডিও লেকচার নয়। সরাসরি পরীক্ষায় অংশ নিতে নিচের বাটনে চাপ দিন।",
+                fontSize = 14.sp,
+                color = Color(0xFF475569),
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Button(
+                onClick = onStartExam,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0072EC)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text("✍️ পরীক্ষায় অংশ নিন", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
     }
 }
 

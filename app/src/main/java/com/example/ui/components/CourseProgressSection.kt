@@ -41,149 +41,154 @@ fun CourseProgressSection(
     onPhaseClick: (PhaseItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val displayPhases = if (phases.isNotEmpty()) phases else defaultCoursePhases
+    val displayPhases = phases
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 12.dp)
     ) {
-        // Section Title — NEW: gradient icon badge
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
+        if (displayPhases.isEmpty()) {
+            // Option: Show a small "No data" message or just do nothing
+            // For now, let's keep it clean if no data.
+        } else {
+            // Section Title — NEW: gradient icon badge
+            Row(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xFF10B981), Color(0xFF34D399)))),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF10B981), Color(0xFF34D399)))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "কোর্স প্রগ্রেস",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "কোর্স প্রগ্রেস",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
 
-        // Timeline Items — LOGIC: status determination হুবহু সেম
-        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            displayPhases.forEachIndexed { index, phase ->
-                val isLast = index == displayPhases.size - 1
+            // Timeline Items — LOGIC: status determination হুবহু সেম
+            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                displayPhases.forEachIndexed { index, phase ->
+                    val isLast = index == displayPhases.size - 1
 
-                val isCompleted = phase.status.equals("COMPLETED", ignoreCase = true) ||
-                        ((phase.course_progress_percentage ?: 0.0) > 0.0 && phase.is_current != true && !phase.status.equals("UPCOMING", ignoreCase = true))
-                val isActive = phase.is_current == true || phase.status.equals("ACTIVE", ignoreCase = true)
-                val isUpcoming = phase.status.equals("UPCOMING", ignoreCase = true) || (!isCompleted && !isActive)
+                    val isCompleted = phase.status.equals("COMPLETED", ignoreCase = true) ||
+                            ((phase.course_progress_percentage ?: 0.0) > 0.0 && phase.is_current != true && !phase.status.equals("UPCOMING", ignoreCase = true))
+                    val isActive = phase.is_current == true || phase.status.equals("ACTIVE", ignoreCase = true)
+                    val isUpcoming = phase.status.equals("UPCOMING", ignoreCase = true) || (!isCompleted && !isActive)
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    // Left Timeline Node & Connecting Line
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                    Row(
                         modifier = Modifier
-                            .width(42.dp)
-                            .fillMaxHeight()
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(42.dp)) {
-                            // NEW: pulsing halo for active node
-                            if (isActive) {
-                                val pulse = rememberInfiniteTransition(label = "nodePulse")
-                                val pulseScale by pulse.animateFloat(
-                                    initialValue = 1f, targetValue = 1.3f,
-                                    animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                                    label = "pulseScale"
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
-                                        .border(3.dp, Color(0xFF3B82F6).copy(alpha = 0.3f), CircleShape)
-                                )
-                            }
-
-                            when {
-                                isCompleted -> {
-                                    Surface(shape = CircleShape, color = Color(0xFF22C55E), modifier = Modifier.size(32.dp)) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Check, "Completed", tint = Color.White, modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                }
-                                isActive -> {
+                        // Left Timeline Node & Connecting Line
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .width(42.dp)
+                                .fillMaxHeight()
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(42.dp)) {
+                                // NEW: pulsing halo for active node
+                                if (isActive) {
+                                    val pulse = rememberInfiniteTransition(label = "nodePulse")
+                                    val pulseScale by pulse.animateFloat(
+                                        initialValue = 1f, targetValue = 1.3f,
+                                        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                                        label = "pulseScale"
+                                    )
                                     Box(
-                                        contentAlignment = Alignment.Center,
                                         modifier = Modifier
                                             .size(34.dp)
-                                            .border(3.dp, Color(0xFF3B82F6), CircleShape)
-                                            .background(Color.White, CircleShape)
-                                    ) {
-                                        Box(Modifier.size(16.dp).background(Color(0xFF3B82F6), CircleShape))
-                                    }
+                                            .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
+                                            .border(3.dp, Color(0xFF3B82F6).copy(alpha = 0.3f), CircleShape)
+                                    )
                                 }
-                                else -> {
-                                    Surface(shape = CircleShape, color = Color(0xFFE2E8F0), modifier = Modifier.size(32.dp)) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Lock, "Locked", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+
+                                when {
+                                    isCompleted -> {
+                                        Surface(shape = CircleShape, color = Color(0xFF22C55E), modifier = Modifier.size(32.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Check, "Completed", tint = Color.White, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
+                                    isActive -> {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .border(3.dp, Color(0xFF3B82F6), CircleShape)
+                                                .background(Color.White, CircleShape)
+                                        ) {
+                                            Box(Modifier.size(16.dp).background(Color(0xFF3B82F6), CircleShape))
+                                        }
+                                    }
+                                    else -> {
+                                        Surface(shape = CircleShape, color = Color(0xFFE2E8F0), modifier = Modifier.size(32.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Lock, "Locked", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        if (!isLast) {
-                            if (isCompleted) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(3.dp)
-                                        .weight(1f)
-                                        .background(Color(0xFF22C55E))
-                                )
-                            } else {
-                                Canvas(modifier = Modifier.width(3.dp).weight(1f)) {
-                                    val pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                                    drawLine(
-                                        color = Color(0xFFCBD5E1),
-                                        start = Offset(size.width / 2, 0f),
-                                        end = Offset(size.width / 2, size.height),
-                                        strokeWidth = 3.dp.toPx(),
-                                        pathEffect = pathEffect
+                            if (!isLast) {
+                                if (isCompleted) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .weight(1f)
+                                            .background(Color(0xFF22C55E))
                                     )
+                                } else {
+                                    Canvas(modifier = Modifier.width(3.dp).weight(1f)) {
+                                        val pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                                        drawLine(
+                                            color = Color(0xFFCBD5E1),
+                                            start = Offset(size.width / 2, 0f),
+                                            end = Offset(size.width / 2, size.height),
+                                            strokeWidth = 3.dp.toPx(),
+                                            pathEffect = pathEffect
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(bottom = if (isLast) 0.dp else 16.dp)
-                    ) {
-                        QuarterCard(
-                            phase = phase,
-                            isCompleted = isCompleted,
-                            isActive = isActive,
-                            isUpcoming = isUpcoming,
-                            onClick = { onPhaseClick(phase) }
-                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(bottom = if (isLast) 0.dp else 16.dp)
+                        ) {
+                            QuarterCard(
+                                phase = phase,
+                                isCompleted = isCompleted,
+                                isActive = isActive,
+                                isUpcoming = isUpcoming,
+                                onClick = { onPhaseClick(phase) }
+                            )
+                        }
                     }
                 }
             }

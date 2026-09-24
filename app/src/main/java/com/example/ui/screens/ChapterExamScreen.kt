@@ -163,6 +163,42 @@ fun ExamIntroBottomSheet(
     val chapterText = info?.chapters?.firstOrNull()?.name ?: defaultChapter
     val totalQ = info?.total_number_of_question ?: 25
 
+    val startCal = remember(info?.start_time) { com.example.ui.components.parseIsoToDhakaCalendar(info?.start_time) }
+    val endCal = remember(info?.end_time) { com.example.ui.components.parseIsoToDhakaCalendar(info?.end_time) }
+
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000L)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+
+    val startMs = startCal?.timeInMillis ?: 0L
+    val endMs = endCal?.timeInMillis ?: Long.MAX_VALUE
+
+    val isUpcoming = startMs > 0L && nowMs < startMs
+    val isOngoing = (startMs == 0L || nowMs >= startMs) && nowMs <= endMs
+    val isEnded = endMs != Long.MAX_VALUE && nowMs > endMs
+
+    val remainingDiff = if (isUpcoming) {
+        (startMs - nowMs).coerceAtLeast(0L)
+    } else if (isOngoing && endMs != Long.MAX_VALUE) {
+        (endMs - nowMs).coerceAtLeast(0L)
+    } else {
+        0L
+    }
+
+    val days = (remainingDiff / (1000 * 60 * 60 * 24)).toInt()
+    val hours = ((remainingDiff / (1000 * 60 * 60)) % 24).toInt()
+    val minutes = ((remainingDiff / (1000 * 60)) % 60).toInt()
+    val seconds = ((remainingDiff / 1000) % 60).toInt()
+
+    val daysStr = toBengaliDigits(String.format(Locale.US, "%02d", days))
+    val hoursStr = toBengaliDigits(String.format(Locale.US, "%02d", hours))
+    val minutesStr = toBengaliDigits(String.format(Locale.US, "%02d", minutes))
+    val secondsStr = toBengaliDigits(String.format(Locale.US, "%02d", seconds))
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -208,14 +244,26 @@ fun ExamIntroBottomSheet(
                 // Status Badge
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFEE2E2),
+                    color = when {
+                        isOngoing -> Color(0xFFD1FAE5)
+                        isUpcoming -> Color(0xFFE0F2FE)
+                        else -> Color(0xFFFEE2E2)
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "টেস্ট শেষ হয়ে গেছে",
+                        text = when {
+                            isOngoing -> "🔴 পরীক্ষা চলছে! দ্রুত অংশ নিন"
+                            isUpcoming -> "⏳ পরীক্ষা শুরু হতে বাকি"
+                            else -> "টেস্ট শেষ হয়ে গেছে (অনুশীলন করুন)"
+                        },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFEF4444),
+                        color = when {
+                            isOngoing -> Color(0xFF059669)
+                            isUpcoming -> Color(0xFF0284C7)
+                            else -> Color(0xFFEF4444)
+                        },
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
@@ -223,15 +271,15 @@ fun ExamIntroBottomSheet(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Countdown Box Row (00 | 00 | 00 | 00)
+                // Countdown Box Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    ExamCountdownBox("০০", "দিন")
-                    ExamCountdownBox("০০", "ঘণ্টা")
-                    ExamCountdownBox("০০", "মিনিট")
-                    ExamCountdownBox("০০", "সেকেন্ড")
+                    ExamCountdownBox(daysStr, "দিন")
+                    ExamCountdownBox(hoursStr, "ঘণ্টা")
+                    ExamCountdownBox(minutesStr, "মিনিট")
+                    ExamCountdownBox(secondsStr, "সেকেন্ড")
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -276,7 +324,7 @@ fun ExamIntroBottomSheet(
                         .height(50.dp)
                 ) {
                     Text(
-                        text = "টেস্ট শুরু করো",
+                        text = if (isOngoing) "টেস্ট শুরু করো" else if (isEnded) "অনুশীলন শুরু করো" else "টেস্ট শুরু করো",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White

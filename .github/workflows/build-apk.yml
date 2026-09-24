@@ -1,42 +1,186 @@
-name: Build Android APK
+name: Build MaxBird Android App
 
 on:
   push:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Choose build target (Push automatically builds Debug only)"
+        required: true
+        default: "debug"
+        type: choice
+        options:
+          - "debug"
+          - "release"
+          - "bundle"
+          - "all"
 
 jobs:
   build:
-    name: Build Release APK
+    name: Build Android App
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      JAVA_OPTS: "-Djava.awt.headless=true"
+      GRADLE_OPTS: "-Djava.awt.headless=true -Dorg.gradle.daemon=false"
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: "17"
           distribution: "temurin"
-          cache: gradle
+          cache: "gradle"
 
-      - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $GITHUB_WORKSPACE/my-upload-key.jks
-
-      - name: Grant execute permission for gradlew
+      - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Setup Google Services Configuration
+        run: |
+          mkdir -p app
+          echo "ewogICJwcm9qZWN0X2luZm8iOiB7CiAgICAicHJvamVjdF9udW1iZXIiOiAiMTczNjk2MTk4NjM4IiwKICAgICJwcm9qZWN0X2lkIjogInNoaWtoby10ZWNoIiwKICAgICJzdG9yYWdlX2J1Y2tldCI6ICJzaGlraG8tdGVjaC5hcHBzcG90LmNvbSIKICB9LAogICJjbGllbnQiOiBbCiAgICB7CiAgICAgICJjbGllbnRfaW5mbyI6IHsKICAgICAgICAibW9iaWxlc2RrX2FwcF9pZCI6ICIxOjE3MzY5NjE5ODYzODphbmRyb2lkOmE3ZGQxNzJmYzQ0ZDA5MjE2YzUwZmYiLAogICAgICAgICJhbmRyb2lkX2NsaWVudF9pbmZvIjogewogICAgICAgICAgInBhY2thZ2VfbmFtZSI6ICJjb20ubWF4YmlyZC5mZi5hcHAiCiAgICAgICAgfQogICAgICB9LAogICAgICAib2F1dGhfY2xpZW50IjogW10sCiAgICAgICJhcGlfa2V5IjogWwogICAgICAgIHsKICAgICAgICAgICJjdXJyZW50X2tleSI6ICJBSXphU3lBVmptUEF5S1Z0T2F6cGFwLVhyeTgzUEZjOHE1SjFzOE0iCiAgICAgICAgfQogICAgICBdLAogICAgICAic2VydmljZXMiOiB7CiAgICAgICAgImFwcGludml0ZV9zZXJ2aWNlIjogewogICAgICAgICAgIm90aGVyX3BsYXRmb3JtX29hdXRoX2NsaWVudCI6IFtdCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXSwKICAiY29uZmlndXJhdGlvbl92ZXJzaW9uIjogIjEiCn0K" | base64 -d > app/google-services.json
+          echo "✅ app/google-services.json generated successfully."
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v5
+      # -----------------------------------------------------------
+      # 1. PREPARE ENVIRONMENT & KEYSTORES (MANDATORY BEFORE ANY BUILD)
+      # -----------------------------------------------------------
+      - name: Prepare Signing & Config
+        env:
+          KEYSTORE_BASE64_SECRET: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # 1. Prepare Debug Keystore (Required for validateSigningDebug)
+          if [ -f "$GITHUB_WORKSPACE/debug.keystore.base64" ]; then
+            echo "Decoding debug.keystore.base64..."
+            base64 --decode "$GITHUB_WORKSPACE/debug.keystore.base64" > "$GITHUB_WORKSPACE/debug.keystore"
+          fi
+
+          if [ ! -f "$GITHUB_WORKSPACE/debug.keystore" ]; then
+            echo "Generating fallback debug.keystore..."
+            keytool -genkeypair -v \
+              -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+              -alias "androiddebugkey" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "android" \
+              -keypass "android" \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+
+          # 2. Prepare Release Keystore (Only if Release / Bundle is requested)
+          SHOULD_BUILD_RELEASE="${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'bundle' || github.event.inputs.build_type == 'all') }}"
+          if [ "$SHOULD_BUILD_RELEASE" = "true" ]; then
+            STORE_PWD="$STORE_PASSWORD_SECRET"
+            KEY_PWD="$KEY_PASSWORD_SECRET"
+            if [ -z "$STORE_PWD" ]; then STORE_PWD="android"; fi
+            if [ -z "$KEY_PWD" ]; then KEY_PWD="android"; fi
+
+            if [ -n "$KEYSTORE_BASE64_SECRET" ]; then
+              echo "Decoding KEYSTORE_BASE64 from GitHub secret..."
+              echo "$KEYSTORE_BASE64_SECRET" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+              echo "Decoding keystore_base64.txt..."
+              base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+              echo "Generating fallback upload keystore..."
+              keytool -genkeypair -v \
+                -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
+                -alias "upload" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -storepass "$STORE_PWD" \
+                -keypass "$KEY_PWD" \
+                -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
+            fi
+
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=$STORE_PWD" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$KEY_PWD" >> $GITHUB_ENV
+          fi
+
+      # -----------------------------------------------------------
+      # 2. DEBUG APK (Auto on Push/PR, or manual 'debug' / 'all')
+      # -----------------------------------------------------------
+      - name: Build Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'all' }}
+        run: ./gradlew assembleDebug --no-daemon -Djava.awt.headless=true --stacktrace
+
+      # -----------------------------------------------------------
+      # 3. RELEASE APK (Build on push)
+      # -----------------------------------------------------------
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon -Djava.awt.headless=true --stacktrace
+
+      # -----------------------------------------------------------
+      # 4. RELEASE BUNDLE (AAB) (Build on push)
+      # -----------------------------------------------------------
+      - name: Build Release Bundle (AAB for Play Store)
+        run: ./gradlew bundleRelease --no-daemon -Djava.awt.headless=true --stacktrace
+
+      # -----------------------------------------------------------
+      # 5. ORGANIZE & UPLOAD ARTIFACTS
+      # -----------------------------------------------------------
+      - name: Organize Artifacts
+        run: |
+          mkdir -p artifacts
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk artifacts/MaxBird-Debug.apk
+          fi
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk artifacts/MaxBird-Release.apk
+          fi
+          if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
+            cp app/build/outputs/bundle/release/app-release.aab artifacts/MaxBird-Release.aab
+          fi
+
+      - name: Upload Debug APK
+        if: ${{ hashFiles('artifacts/MaxBird-Debug.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaxBird-Debug-APK
+          path: artifacts/MaxBird-Debug.apk
+          retention-days: 14
+
+      - name: Upload Release APK
+        if: ${{ hashFiles('artifacts/MaxBird-Release.apk') != '' }}
+        uses: actions/upload-artifact@v4
         with:
           name: MaxBird-Release-APK
-          path: app/build/outputs/apk/release/app-release.apk
+          path: artifacts/MaxBird-Release.apk
+          retention-days: 30
+
+      - name: Upload Release Bundle (AAB)
+        if: ${{ hashFiles('artifacts/MaxBird-Release.aab') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaxBird-Release-AAB
+          path: artifacts/MaxBird-Release.aab
+          retention-days: 30
+
+      - name: Build Summary
+        run: |
+          echo "### 🚀 MaxBird Android Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Target | File | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          if [ -f artifacts/MaxBird-Debug.apk ]; then
+            echo "| Debug APK | \`MaxBird-Debug.apk\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f artifacts/MaxBird-Release.apk ]; then
+            echo "| Release APK | \`MaxBird-Release.apk\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f artifacts/MaxBird-Release.aab ]; then
+            echo "| Release Bundle | \`MaxBird-Release.aab\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Package Name:** \`com.maxbird.ff.app\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY

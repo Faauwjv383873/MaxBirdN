@@ -29,13 +29,15 @@ fun Context.findActivity(): Activity? {
 fun formatBanglaDateTime(isoDateStr: String?): String {
     if (isoDateStr.isNullOrBlank()) return "১ সেপ্টেম্বর ২০২৬ • ১৭:০০ pm"
     return try {
+        val cleanStr = if (isoDateStr.length >= 19) isoDateStr.substring(0, 19) else isoDateStr
         val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-        val date = parser.parse(isoDateStr) ?: return isoDateStr
+        parser.timeZone = TimeZone.getTimeZone("UTC")
+        val date = parser.parse(cleanStr) ?: return isoDateStr
 
-        val dayFormat = SimpleDateFormat("d", Locale.getDefault())
-        val monthFormat = SimpleDateFormat("MMMM", Locale("bn"))
-        val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault())
-        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+        val dayFormat = SimpleDateFormat("d", Locale.getDefault()).apply { timeZone = TimeZone.getTimeZone("Asia/Dhaka") }
+        val monthFormat = SimpleDateFormat("MMMM", Locale("bn")).apply { timeZone = TimeZone.getTimeZone("Asia/Dhaka") }
+        val yearFormat = SimpleDateFormat("yyyy", Locale.getDefault()).apply { timeZone = TimeZone.getTimeZone("Asia/Dhaka") }
+        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault()).apply { timeZone = TimeZone.getTimeZone("Asia/Dhaka") }
 
         val day = toBengaliDigits(dayFormat.format(date))
         val month = monthFormat.format(date)
