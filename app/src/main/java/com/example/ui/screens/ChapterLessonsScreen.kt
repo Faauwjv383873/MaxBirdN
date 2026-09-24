@@ -387,13 +387,12 @@ fun ChapterLessonsScreen(
                                                 chapterId = lesson.chapter_id ?: ""
                                             )
                                         }
-                                        viewModel.selectLesson(lesson)
-
                                         val isExamLesson = lesson.isExam ||
                                                 lesson.content_type?.contains("EXAM", ignoreCase = true) == true ||
                                                 lesson.class_type?.contains("EXAM", ignoreCase = true) == true
 
                                         if (isExamLesson && onNavigateToExam != null) {
+                                            viewModel.selectLesson(lesson)
                                             val sessionId = lesson.session_id?.takeIf { it.isNotBlank() }
                                                 ?: lesson.live_class?.session_id?.takeIf { it.isNotBlank() }
                                                 ?: lesson.content_id?.takeIf { it.isNotBlank() }
@@ -403,6 +402,7 @@ fun ChapterLessonsScreen(
                                         } else if (onOpenLessonDetail != null) {
                                             onOpenLessonDetail(lesson)
                                         } else {
+                                            viewModel.selectLesson(lesson)
                                             val videoUrl = lesson.resolvedVideoUrl
                                                 ?: lesson.live_class?.resolvedVideoUrl
                                                 ?: lesson.live_class?.recording_url

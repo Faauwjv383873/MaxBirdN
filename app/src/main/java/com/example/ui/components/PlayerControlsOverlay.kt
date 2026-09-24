@@ -260,9 +260,6 @@ fun PlayerControlsOverlay(
                                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                         )
                                     }
-                                    if (viewerCount != null && viewerCount > 0) {
-                                        LiveViewerBadge(viewerCount = viewerCount)
-                                    }
                                 }
                                 com.example.player.PlayerClassType.ANIMATED -> {
                                     Surface(

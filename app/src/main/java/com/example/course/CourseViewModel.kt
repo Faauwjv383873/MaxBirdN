@@ -55,23 +55,8 @@ class CourseViewModel(
     private val _uiState = MutableStateFlow(CourseUiState())
     val uiState: StateFlow<CourseUiState> = _uiState.asStateFlow()
 
-    // 100ms Live Class Interactive WebSocket Manager
-    val liveSocketManager = com.example.player.HmsLiveSocketManager()
-
-    fun connectLiveSocket(token: String, roomId: String?) {
-        val userName = sessionManager.getUserFullName()
-            ?: sessionManager.getUserFirstName()
-            ?: "Student"
-        liveSocketManager.connect(token, roomId, userName)
-    }
-
-    fun disconnectLiveSocket() {
-        liveSocketManager.disconnect()
-    }
-
     override fun onCleared() {
         super.onCleared()
-        liveSocketManager.disconnect()
     }
 
     init {
@@ -163,10 +148,13 @@ class CourseViewModel(
 
     fun selectLesson(lesson: StudentLessonItem) {
         val hasDirectStream = lesson.candidateStreamUrls.any { it.isNotBlank() && it != "null" }
-        val liveClassId = lesson.live_class?.id?.takeIf { it.isNotBlank() }
-            ?: lesson.content_id?.takeIf { it.isNotBlank() }
-            ?: lesson.id
-        val needsFetch = liveClassId.isNotBlank() && (!hasDirectStream || lesson.attachments.isNullOrEmpty())
+        val candidateIds = listOfNotNull(
+            lesson.content_id?.takeIf { it.isNotBlank() },
+            lesson.live_class?.id?.takeIf { it.isNotBlank() },
+            lesson.id.takeIf { it.isNotBlank() },
+            lesson.session_id?.takeIf { it.isNotBlank() }
+        ).distinct()
+        val needsFetch = candidateIds.isNotEmpty() && (!hasDirectStream || lesson.attachments.isNullOrEmpty())
 
         _uiState.update {
             it.copy(
@@ -175,37 +163,80 @@ class CourseViewModel(
             )
         }
 
-        android.util.Log.d("LectureDebug", "selectLesson: ${lesson.title}, liveClassId: $liveClassId, hasDirectStream: $hasDirectStream, needsFetch: $needsFetch")
+        android.util.Log.d("LectureDebug", "selectLesson: ${lesson.title}, candidateIds: $candidateIds, hasDirectStream: $hasDirectStream, needsFetch: $needsFetch")
 
-        if (liveClassId.isNotBlank()) {
+        if (candidateIds.isNotEmpty()) {
             viewModelScope.launch {
                 try {
-                    val liveClassData = repository.getLiveClassDetails(liveClassId)
-                    android.util.Log.d("LectureDebug", "api response: $liveClassData")
+                    var liveClassData: AcademicProgramLiveClassItem? = null
+                    var foundWorkingId: String? = null
+
+                    // Try candidate IDs until we find one that returns valid live class details
+                    for (cid in candidateIds) {
+                        val details = repository.getLiveClassDetails(cid)
+                        if (details != null) {
+                            if (liveClassData == null) {
+                                liveClassData = details
+                                foundWorkingId = cid
+                            }
+                            // If this candidate ID gave us playback_url, prioritize it!
+                            if (!details.playback_url.isNullOrBlank()) {
+                                liveClassData = details
+                                foundWorkingId = cid
+                                break
+                            }
+                        }
+                    }
+
+                    android.util.Log.d("LectureDebug", "api response (chosen id=$foundWorkingId): $liveClassData")
                     android.util.Log.d("LectureDebug", "playback_url: ${liveClassData?.playback_url}")
 
-                    if (liveClassData != null) {
-                        val pbUrl = liveClassData.playback_url?.takeIf { it.isNotBlank() }
-                            ?: liveClassData.recording_url?.takeIf { it.isNotBlank() }
-                            ?: liveClassData.stream_url?.takeIf { it.isNotBlank() }
-                            ?: liveClassData.video_url?.takeIf { it.isNotBlank() }
-                            ?: liveClassData.url?.takeIf { it.isNotBlank() }
-                            ?: liveClassData.hls_url?.takeIf { it.isNotBlank() }
+                    var pbUrl = liveClassData?.playback_url?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: liveClassData?.recording_url?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: liveClassData?.stream_url?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: liveClassData?.video_url?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: liveClassData?.url?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: liveClassData?.hls_url?.takeIf { it.isNotBlank() && it != "null" }
 
+                    // If liveClassData didn't have playback_url directly, check topics videos
+                    if (pbUrl.isNullOrBlank()) {
+                        val topicIds = liveClassData?.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() }
+                            ?: lesson.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() }
+                            ?: emptyList()
+                        val chapterId = lesson.chapter_id ?: _uiState.value.selectedChapterId
+                        if (topicIds.isNotEmpty() || chapterId.isNotBlank()) {
+                            try {
+                                val topicsWithVideos = repository.getTopics(chapterId, topicIds.ifEmpty { null })
+                                val topicVideoUrl = topicsWithVideos.firstNotNullOfOrNull { top ->
+                                    top.videos?.data?.firstNotNullOfOrNull { v ->
+                                        v.playback_url?.takeIf { it.isNotBlank() && it != "null" }
+                                    }
+                                }
+                                if (!topicVideoUrl.isNullOrBlank()) {
+                                    pbUrl = topicVideoUrl
+                                    android.util.Log.d("LectureDebug", "Found playback_url from topics: $pbUrl")
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("LectureDebug", "Failed to fetch topic videos: ${e.message}")
+                            }
+                        }
+                    }
+
+                    if (liveClassData != null || !pbUrl.isNullOrBlank()) {
                         val updatedLiveClass = (lesson.live_class ?: LiveClassDetails()).copy(
-                            id = liveClassData.id ?: lesson.live_class?.id,
+                            id = liveClassData?.id ?: lesson.live_class?.id ?: foundWorkingId,
                             playback_url = pbUrl ?: lesson.live_class?.playback_url,
                             recording_url = pbUrl ?: lesson.live_class?.recording_url,
-                            stream_url = liveClassData.stream_url ?: lesson.live_class?.stream_url,
-                            video_url = liveClassData.video_url ?: lesson.live_class?.video_url,
-                            start_time = liveClassData.start_time ?: lesson.live_class?.start_time,
-                            end_time = liveClassData.end_time ?: lesson.live_class?.end_time,
-                            teacher = liveClassData.teacher ?: liveClassData.instructor ?: lesson.live_class?.teacher,
-                            topics = if (!liveClassData.topics.isNullOrEmpty()) liveClassData.topics else lesson.live_class?.topics
+                            stream_url = pbUrl ?: lesson.live_class?.stream_url,
+                            video_url = pbUrl ?: lesson.live_class?.video_url,
+                            start_time = liveClassData?.start_time ?: lesson.live_class?.start_time,
+                            end_time = liveClassData?.end_time ?: lesson.live_class?.end_time,
+                            teacher = liveClassData?.teacher ?: liveClassData?.instructor ?: lesson.live_class?.teacher,
+                            topics = if (!liveClassData?.topics.isNullOrEmpty()) liveClassData.topics else lesson.live_class?.topics
                         )
 
                         val newAttachments = mutableListOf<LessonAttachmentItem>()
-                        liveClassData.study_materials?.forEach { mat ->
+                        liveClassData?.study_materials?.forEach { mat ->
                             if (!mat.file_url.isNullOrBlank()) {
                                 newAttachments.add(LessonAttachmentItem(id = mat.id, title = mat.name ?: "লেকচার স্লাইড (PDF)", url = mat.file_url, file_type = "pdf"))
                             }
@@ -213,20 +244,20 @@ class CourseViewModel(
                         lesson.attachments?.let { newAttachments.addAll(it) }
 
                         val chapterIdResolved = lesson.chapter_id?.takeIf { it.isNotBlank() }
-                            ?: liveClassData.chapter?.id?.takeIf { it.isNotBlank() }
+                            ?: liveClassData?.chapter?.id?.takeIf { it.isNotBlank() }
 
                         val updatedLesson = lesson.copy(
                             live_class = updatedLiveClass,
                             attachments = newAttachments.distinctBy { it.downloadUrl },
                             chapter_id = chapterIdResolved,
-                            topics = if (!liveClassData.topics.isNullOrEmpty()) liveClassData.topics else lesson.topics
+                            topics = if (!liveClassData?.topics.isNullOrEmpty()) liveClassData.topics else lesson.topics
                         )
 
                         var currentLessonState = updatedLesson
                         android.util.Log.d("LectureDebug", "resolved video url: ${currentLessonState.resolvedVideoUrl}")
 
                         // 1. Fetch Teacher Details if teacher_id exists
-                        val teacherId = liveClassData.teacher?.id
+                        val teacherId = liveClassData?.teacher?.id
                         if (!teacherId.isNullOrBlank()) {
                             try {
                                 val fullTeacher = repository.getTeacherDetails(teacherId)
@@ -238,7 +269,7 @@ class CourseViewModel(
                         }
 
                         val cur = _uiState.value.selectedLesson
-                        if (cur == null || cur.id == lesson.id || cur.content_id == lesson.content_id || cur.live_class?.id == liveClassId) {
+                        if (cur == null || cur.id == lesson.id || cur.content_id == lesson.content_id || candidateIds.contains(cur.live_class?.id)) {
                             _uiState.update { 
                                 it.copy(
                                     selectedLesson = currentLessonState,
@@ -246,9 +277,6 @@ class CourseViewModel(
                                 ) 
                             }
                         }
-
-                        // 2. Attempt to fetch live room & meeting link via JoinLiveClass mutation
-                        joinLiveClass(currentLessonState)
                     } else {
                         _uiState.update { it.copy(isLessonDetailLoading = false) }
                     }
@@ -259,64 +287,6 @@ class CourseViewModel(
             }
         } else {
             _uiState.update { it.copy(isLessonDetailLoading = false) }
-        }
-    }
-
-    /**
-     * Executes the GraphQL mutation JoinLiveClass to obtain live room ID, join link, and streaming credentials.
-     */
-    fun joinLiveClass(lesson: StudentLessonItem, onResult: ((JoinLiveClassPayload?) -> Unit)? = null) {
-        val liveClassId = lesson.live_class?.id ?: lesson.content_id ?: lesson.id
-        val lessonId = lesson.id.ifBlank { lesson.content_id ?: liveClassId }
-
-        if (liveClassId.isBlank()) {
-            onResult?.invoke(null)
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                val payload = repository.joinLiveClass(liveClassId, lessonId)
-                if (payload != null) {
-                    var hmsToken: String? = null
-                    var isChatBlocked: Boolean? = false
-
-                    // Extract room_id (from hms_room_id field or parsed from join_link)
-                    val effectiveRoomId = payload.hms_room_id?.trim()
-                        ?: payload.join_link?.substringAfterLast("/meeting/")?.substringAfterLast("/")?.trim()
-
-                    if (!effectiveRoomId.isNullOrBlank()) {
-                        try {
-                            val tokenResp = repository.getHmsToken(effectiveRoomId)
-                            hmsToken = tokenResp.token
-                            isChatBlocked = tokenResp.blocked_chat
-                        } catch (_: Exception) {
-                            // Non-fatal if token call fails, fallback to join_link
-                        }
-                    }
-
-                    val currentSelected = _uiState.value.selectedLesson
-                    if (currentSelected != null && (currentSelected.id == lesson.id || currentSelected.content_id == lesson.content_id || currentSelected.live_class?.id == liveClassId)) {
-                        val updatedLiveClass = (currentSelected.live_class ?: LiveClassDetails()).copy(
-                            join_link = payload.join_link ?: currentSelected.live_class?.join_link,
-                            provider = payload.provider ?: currentSelected.live_class?.provider,
-                            hms_room_id = effectiveRoomId ?: currentSelected.live_class?.hms_room_id,
-                            hms_token = hmsToken ?: currentSelected.live_class?.hms_token,
-                            blocked_chat = isChatBlocked ?: currentSelected.live_class?.blocked_chat
-                        )
-                        _uiState.update {
-                            it.copy(selectedLesson = currentSelected.copy(live_class = updatedLiveClass))
-                        }
-
-                        if (!hmsToken.isNullOrBlank()) {
-                            connectLiveSocket(hmsToken, effectiveRoomId)
-                        }
-                    }
-                }
-                onResult?.invoke(payload)
-            } catch (_: Exception) {
-                onResult?.invoke(null)
-            }
         }
     }
 

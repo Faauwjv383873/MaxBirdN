@@ -409,7 +409,8 @@ data class UpcomingLessonsPhaseWisePayload(
 
 @JsonClass(generateAdapter = true)
 data class StudentSpecificLessonsResponse(
-    val data: StudentSpecificLessonsData?
+    val data: StudentSpecificLessonsData? = null,
+    val errors: List<GraphQlError>? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -1123,36 +1124,6 @@ data class GraphQlError(
 // 8.1. Join Live Class Mutation Models
 // ==========================================
 @JsonClass(generateAdapter = true)
-data class JoinLiveClassResponse(
-    val data: JoinLiveClassData? = null,
-    val errors: List<GraphQlError>? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class JoinLiveClassData(
-    val joinLiveCLass: JoinLiveClassPayload? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class JoinLiveClassPayload(
-    val join_link: String? = null,
-    val provider: String? = null,
-    val hms_room_id: String? = null
-)
-
-@JsonClass(generateAdapter = true)
-data class HmsTokenRequest(
-    val room_id: String,
-    val type: String = "android"
-)
-
-@JsonClass(generateAdapter = true)
-data class HmsTokenResponse(
-    val token: String? = null,
-    val blocked_chat: Boolean? = null
-)
-
-@JsonClass(generateAdapter = true)
 data class ChangeSyllabusResponse(
     val data: ChangeSyllabusData? = null,
     val errors: List<GraphQlError>? = null
@@ -1191,7 +1162,8 @@ data class UpdateProfilePayload(
 // ==========================================
 @JsonClass(generateAdapter = true)
 data class AcademicLiveClassDetailsResponse(
-    val data: AcademicLiveClassDetailsData? = null
+    val data: AcademicLiveClassDetailsData? = null,
+    val errors: List<GraphQlError>? = null
 )
 
 @JsonClass(generateAdapter = true)

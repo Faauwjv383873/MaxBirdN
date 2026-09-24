@@ -97,7 +97,6 @@ import com.example.course.CourseRepository
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.player.ShikhoPlayerManager
-import com.example.player.HmsLiveSocketManager
 import com.example.player.PlayerClassType
 import com.example.player.VideoTrackQuality
 import com.example.ui.components.*
@@ -118,9 +117,7 @@ fun LessonDetailPlayerScreen(
     subjectName: String,
     subjectColorHex: String?,
     isLessonLoading: Boolean = false,
-    socketManager: HmsLiveSocketManager? = null,
     onRefreshLesson: (() -> Unit)? = null,
-    onJoinLiveClass: ((StudentLessonItem) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onPlayAnimatedLesson: ((videoUrl: String, title: String) -> Unit)? = null,
     onBack: () -> Unit
@@ -181,66 +178,7 @@ fun LessonDetailPlayerScreen(
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Live Class Detection & Info
-    val isLive = remember(lesson) {
-        lesson?.isLive == true
-    }
-    val isLiveOngoing = remember(lesson) {
-        lesson?.live_class?.is_on_going == true || lesson?.content_type?.contains("LIVE", ignoreCase = true) == true
-    }
-    val joinLink = lesson?.live_class?.join_link
-    val hmsRoomId = lesson?.live_class?.hms_room_id
-    val liveProvider = lesson?.live_class?.provider ?: "100ms Live"
-
-    val effectiveMeetingUrl = remember(lesson?.live_class?.liveMeetingUrl, joinLink, hmsRoomId, lesson?.live_class?.hms_token, lesson?.id) {
-        val classId = lesson?.live_class?.id ?: lesson?.content_id ?: lesson?.id ?: ""
-        val lessonId = lesson?.id ?: ""
-
-        when {
-            // ১. Shikho সার্ভার থেকে সরাসরি পাওয়া আসল join_link
-            !joinLink.isNullOrBlank() && !joinLink.contains("live.shikho.com") -> {
-                val separator = if (joinLink.contains("?")) "&" else "?"
-                if (!lesson?.live_class?.hms_token.isNullOrBlank() && !joinLink.contains("token=")) {
-                    "$joinLink${separator}token=${lesson.live_class.hms_token}"
-                } else {
-                    joinLink
-                }
-            }
-            // ২. Shikho-র আসল ওয়েব লাইভ ক্লাস পেজ (যেখানে লাইভ ফ্রন্টএন্ড রান হয়)
-            classId.isNotBlank() -> {
-                "https://app.shikho.com/student/live-class/$classId?lesson_id=$lessonId"
-            }
-            // ৩. 100ms রুম আইডি থাকলে অফিসিয়াল 100ms মিটিং লিংক
-            !hmsRoomId.isNullOrBlank() -> {
-                val tokenParam = if (!lesson?.live_class?.hms_token.isNullOrBlank()) "?token=${lesson.live_class.hms_token}" else ""
-                "https://app.100ms.live/meeting/${hmsRoomId.trim()}$tokenParam"
-            }
-            else -> ""
-        }
-    }
-
-    // Live Join State
-    var isLiveJoined by remember(lesson?.id) { mutableStateOf(true) }
-
-    // Auto trigger joinLiveClass if it's a live class and joinLink or hmsRoomId is missing
-    LaunchedEffect(lesson?.id, isLive) {
-        if (isLive && lesson != null && (lesson.live_class?.join_link.isNullOrBlank() || lesson.live_class?.hms_room_id.isNullOrBlank()) && onJoinLiveClass != null) {
-            onJoinLiveClass.invoke(lesson)
-        }
-    }
-
-    // Auto bypass LiveGetStartedScreen directly into live stream
-    if (isLive && !isLiveJoined) {
-        isLiveJoined = true
-    }
-
-    var livePlayerMode by remember(isLive) { mutableStateOf("STREAM") }
-
-    val effectiveSocketManager = socketManager ?: remember { HmsLiveSocketManager() }
-    val viewerCount by effectiveSocketManager.viewerCount.collectAsState()
-    val isHandRaised by effectiveSocketManager.isHandRaised.collectAsState()
-    val pinnedMessage by effectiveSocketManager.pinnedMessage.collectAsState()
-    val activePoll by effectiveSocketManager.activePoll.collectAsState()
+    var livePlayerMode by remember { mutableStateOf("STREAM") }
 
     // Parse Subject Color
     val subjectThemeColor = remember(subjectColorHex) {
@@ -255,17 +193,11 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    val candidateStreams = remember(lesson, lesson?.live_class?.hms_room_id, lesson?.live_class?.recording_url, lesson?.live_class?.playback_url, isLive) {
+    val candidateStreams = remember(lesson, lesson?.live_class?.recording_url, lesson?.live_class?.playback_url) {
         val raw = lesson?.candidateStreamUrls?.filter { it.isNotBlank() && it != "null" } ?: emptyList()
-        if (isLive) {
-            val liveHls = raw.filter { it.contains("100ms.live") }
-            val other = raw.filterNot { it.contains("100ms.live") }
-            (liveHls + other).distinct()
-        } else {
-            raw.distinct()
-        }
+        raw.distinct()
     }
-    var currentStreamIndex by remember(lesson?.id, lesson?.live_class?.hms_room_id) { mutableIntStateOf(0) }
+    var currentStreamIndex by remember(lesson?.id) { mutableIntStateOf(0) }
     var activeStreamUrl by remember(candidateStreams, currentStreamIndex) {
         mutableStateOf(
             candidateStreams.getOrNull(currentStreamIndex)
@@ -275,30 +207,15 @@ fun LessonDetailPlayerScreen(
         )
     }
 
-    // Resolve class type: Animated vs Recorded Lecture vs Live
-    val classType = remember(lesson, activeStreamUrl, isLive) {
+    // Resolve class type: Animated vs Recorded Lecture
+    val classType = remember(lesson, activeStreamUrl) {
         PlayerClassType.resolve(
-            isLive = isLive,
+            isLive = false,
             contentType = lesson?.content_type,
             classType = lesson?.class_type ?: lesson?.live_class?.class_type,
             title = lesson?.title,
             url = activeStreamUrl
         )
-    }
-
-    // Connect 100ms WebSocket when Live Class is active with valid HMS token
-    LaunchedEffect(isLive, lesson?.live_class?.hms_token, lesson?.live_class?.hms_room_id) {
-        val token = lesson?.live_class?.hms_token
-        val roomId = lesson?.live_class?.hms_room_id
-        if (isLive && !token.isNullOrBlank()) {
-            effectiveSocketManager.connect(token, roomId)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            effectiveSocketManager.disconnect()
-        }
     }
 
     LaunchedEffect(candidateStreams) {
@@ -425,11 +342,11 @@ fun LessonDetailPlayerScreen(
     }
 
     // Initialize media source when activeStreamUrl or mode changes
-    LaunchedEffect(activeStreamUrl, isLive, livePlayerMode) {
+    LaunchedEffect(activeStreamUrl, livePlayerMode) {
         android.util.Log.d("LectureDebug", "calling player with URL: $activeStreamUrl")
         playbackError = null
         playbackErrorDetails = null
-        if (livePlayerMode == "MEETING" || livePlayerMode == "WEB_PLAYER") {
+        if (livePlayerMode == "WEB_PLAYER") {
             // When in WebView mode, stop ExoPlayer to prevent background stream fetching
             try {
                 exoPlayer.stop()
@@ -461,7 +378,7 @@ fun LessonDetailPlayerScreen(
 
             isBuffering = true
             try {
-                val mediaSource = ShikhoPlayerManager.createMediaSource(urlToPlay, isLive = isLive)
+                val mediaSource = ShikhoPlayerManager.createMediaSource(urlToPlay, isLive = false)
                 exoPlayer.setMediaSource(mediaSource)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
@@ -758,25 +675,13 @@ fun LessonDetailPlayerScreen(
 
     // UI Structure
     if (isFullscreen) {
-        // FULLSCREEN VIDEO PLAYER / MEETING
+        // FULLSCREEN VIDEO PLAYER
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            if (isLive && effectiveMeetingUrl.isNotBlank()) {
-                LiveMeetingWebView(
-                    meetingUrl = effectiveMeetingUrl,
-                    studentName = sessionManager.getUserFirstName() ?: "Student",
-                    authToken = sessionManager.getAccessToken(),
-                    onStreamDiscovered = { discoveredM3u8 ->
-                        activeStreamUrl = discoveredM3u8
-                        livePlayerMode = "STREAM"
-                    },
-                    modifier = if (activeStreamUrl.isNotBlank() && livePlayerMode == "STREAM") Modifier.size(1.dp) else Modifier.fillMaxSize()
-                )
-            }
-            if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
+            if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -809,14 +714,7 @@ fun LessonDetailPlayerScreen(
                     areControlsVisible = areControlsVisible,
                     isFullscreen = true,
                     playbackSpeed = playbackSpeed,
-                    isLive = isLive,
-                    viewerCount = if (isLive) viewerCount else null,
                     classType = classType,
-                    hasMeeting = effectiveMeetingUrl.isNotBlank(),
-                    onSwitchToMeeting = {
-                        exoPlayer.pause()
-                        livePlayerMode = "MEETING"
-                    },
                     onTogglePlayPause = {
                         if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                     },
@@ -900,18 +798,6 @@ fun LessonDetailPlayerScreen(
                         .aspectRatio(16f / 9f)
                         .background(Color.Black)
                 ) {
-                    if (isLive && effectiveMeetingUrl.isNotBlank()) {
-                        LiveMeetingWebView(
-                            meetingUrl = effectiveMeetingUrl,
-                            studentName = sessionManager.getUserFirstName() ?: "Student",
-                            authToken = sessionManager.getAccessToken(),
-                            onStreamDiscovered = { discoveredM3u8 ->
-                                activeStreamUrl = discoveredM3u8
-                                livePlayerMode = "STREAM"
-                            },
-                            modifier = if (activeStreamUrl.isNotBlank() && livePlayerMode == "STREAM") Modifier.size(1.dp) else Modifier.fillMaxSize()
-                        )
-                    }
                     if (livePlayerMode == "WEB_PLAYER") {
                         val webStreamUrl = activeStreamUrl
                         if (webStreamUrl.isNotBlank()) {
@@ -929,7 +815,7 @@ fun LessonDetailPlayerScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                    } else if (activeStreamUrl.isNotBlank() || (!isLive && candidateStreams.isNotEmpty())) {
+                    } else if (activeStreamUrl.isNotBlank() || candidateStreams.isNotEmpty()) {
                         AndroidView(
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
@@ -956,7 +842,6 @@ fun LessonDetailPlayerScreen(
                             PlayerErrorOverlay(
                                 playbackError = playbackError ?: "ক্লাস লোড ব্যর্থ হয়েছে",
                                 playbackErrorDetails = playbackErrorDetails,
-                                isLive = isLive,
                                 slideUrl = slideUrlForError,
                                 onRefreshLesson = onRefreshLesson,
                                 onRetryPlayback = {
@@ -985,14 +870,7 @@ fun LessonDetailPlayerScreen(
                                 areControlsVisible = areControlsVisible,
                                 isFullscreen = false,
                                 playbackSpeed = playbackSpeed,
-                                isLive = isLive,
-                                viewerCount = if (isLive) viewerCount else null,
                                 classType = classType,
-                                hasMeeting = effectiveMeetingUrl.isNotBlank(),
-                                onSwitchToMeeting = {
-                                    exoPlayer.pause()
-                                    livePlayerMode = "MEETING"
-                                },
                                 onTogglePlayPause = {
                                     if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                                 },
@@ -1071,41 +949,18 @@ fun LessonDetailPlayerScreen(
                                 )
                             }
                         }
-                    } else if (!isLive) {
+                    } else {
                         // Empty / No Direct Stream State Placeholder with Diagnostics
                         val slideUrlForEmpty = lesson?.resolvedSlideUrl
                             ?: lesson?.live_class?.lectureSlideUrl
                         LessonStreamPlaceholder(
-                            isLive = false,
                             lesson = lesson,
                             slideUrl = slideUrlForEmpty,
-                            onJoinLiveClass = onJoinLiveClass,
                             onRefreshLesson = onRefreshLesson,
                             onViewSlide = { item -> viewingSlideItem = item },
                             onBack = onBack
                         )
                     }
-                }
-
-                // Live Class Active Room Banner & Control Card (if live)
-                if (isLive) {
-                    LiveClassRoomBanner(
-                        isLiveOngoing = isLiveOngoing,
-                        liveProvider = liveProvider,
-                        hmsRoomId = hmsRoomId,
-                        livePlayerMode = livePlayerMode,
-                        effectiveMeetingUrl = effectiveMeetingUrl,
-                        onTogglePlayerMode = {
-                            if (livePlayerMode == "MEETING") {
-                                livePlayerMode = "STREAM"
-                                exoPlayer.play()
-                            } else {
-                                exoPlayer.pause()
-                                livePlayerMode = "MEETING"
-                            }
-                        },
-                        onRefreshLesson = onRefreshLesson
-                    )
                 }
 
                 // 2. Class Header & Info Section

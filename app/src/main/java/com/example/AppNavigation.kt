@@ -678,12 +678,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 isLessonLoading = courseUiState.isLessonDetailLoading,
                 subjectName = courseUiState.selectedSubjectTitle,
                 subjectColorHex = courseUiState.selectedSubjectColor,
-                socketManager = courseViewModel.liveSocketManager,
                 onRefreshLesson = {
                     courseViewModel.reloadSelectedLesson()
-                },
-                onJoinLiveClass = { lesson ->
-                    courseViewModel.joinLiveClass(lesson)
                 },
                 onNavigateToExam = { sessionId, lessonId, title, chapter ->
                     val encodedTitle = URLEncoder.encode(title, "UTF-8")
@@ -698,7 +694,6 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate("animated_lesson_player?url=$encodedUrl&title=$encodedTitle")
                 },
                 onBack = {
-                    courseViewModel.disconnectLiveSocket()
                     navController.popBackStack()
                 }
             )
