@@ -426,6 +426,7 @@ fun LessonDetailPlayerScreen(
 
     // Initialize media source when activeStreamUrl or mode changes
     LaunchedEffect(activeStreamUrl, isLive, livePlayerMode) {
+        android.util.Log.d("LectureDebug", "calling player with URL: $activeStreamUrl")
         playbackError = null
         playbackErrorDetails = null
         if (livePlayerMode == "MEETING" || livePlayerMode == "WEB_PLAYER") {

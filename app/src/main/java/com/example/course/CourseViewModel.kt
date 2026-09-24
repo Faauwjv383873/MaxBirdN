@@ -163,7 +163,9 @@ class CourseViewModel(
 
     fun selectLesson(lesson: StudentLessonItem) {
         val hasDirectStream = lesson.candidateStreamUrls.any { it.isNotBlank() && it != "null" }
-        val liveClassId = lesson.live_class?.id ?: lesson.content_id ?: lesson.id
+        val liveClassId = lesson.live_class?.id?.takeIf { it.isNotBlank() }
+            ?: lesson.content_id?.takeIf { it.isNotBlank() }
+            ?: lesson.id
         val needsFetch = liveClassId.isNotBlank() && (!hasDirectStream || lesson.attachments.isNullOrEmpty())
 
         _uiState.update {
@@ -173,19 +175,32 @@ class CourseViewModel(
             )
         }
 
+        android.util.Log.d("LectureDebug", "selectLesson: ${lesson.title}, liveClassId: $liveClassId, hasDirectStream: $hasDirectStream, needsFetch: $needsFetch")
+
         if (liveClassId.isNotBlank()) {
             viewModelScope.launch {
                 try {
                     val liveClassData = repository.getLiveClassDetails(liveClassId)
+                    android.util.Log.d("LectureDebug", "api response: $liveClassData")
+                    android.util.Log.d("LectureDebug", "playback_url: ${liveClassData?.playback_url}")
+
                     if (liveClassData != null) {
-                        val pbUrl = liveClassData.playback_url
+                        val pbUrl = liveClassData.playback_url?.takeIf { it.isNotBlank() }
+                            ?: liveClassData.recording_url?.takeIf { it.isNotBlank() }
+                            ?: liveClassData.stream_url?.takeIf { it.isNotBlank() }
+                            ?: liveClassData.video_url?.takeIf { it.isNotBlank() }
+                            ?: liveClassData.url?.takeIf { it.isNotBlank() }
+                            ?: liveClassData.hls_url?.takeIf { it.isNotBlank() }
+
                         val updatedLiveClass = (lesson.live_class ?: LiveClassDetails()).copy(
                             id = liveClassData.id ?: lesson.live_class?.id,
                             playback_url = pbUrl ?: lesson.live_class?.playback_url,
                             recording_url = pbUrl ?: lesson.live_class?.recording_url,
+                            stream_url = liveClassData.stream_url ?: lesson.live_class?.stream_url,
+                            video_url = liveClassData.video_url ?: lesson.live_class?.video_url,
                             start_time = liveClassData.start_time ?: lesson.live_class?.start_time,
                             end_time = liveClassData.end_time ?: lesson.live_class?.end_time,
-                            teacher = liveClassData.teacher ?: lesson.live_class?.teacher,
+                            teacher = liveClassData.teacher ?: liveClassData.instructor ?: lesson.live_class?.teacher,
                             topics = if (!liveClassData.topics.isNullOrEmpty()) liveClassData.topics else lesson.live_class?.topics
                         )
 
@@ -208,6 +223,7 @@ class CourseViewModel(
                         )
 
                         var currentLessonState = updatedLesson
+                        android.util.Log.d("LectureDebug", "resolved video url: ${currentLessonState.resolvedVideoUrl}")
 
                         // 1. Fetch Teacher Details if teacher_id exists
                         val teacherId = liveClassData.teacher?.id
@@ -221,7 +237,8 @@ class CourseViewModel(
                             } catch (_: Exception) {}
                         }
 
-                        if (_uiState.value.selectedLesson?.id == lesson.id) {
+                        val cur = _uiState.value.selectedLesson
+                        if (cur == null || cur.id == lesson.id || cur.content_id == lesson.content_id || cur.live_class?.id == liveClassId) {
                             _uiState.update { 
                                 it.copy(
                                     selectedLesson = currentLessonState,
@@ -235,7 +252,8 @@ class CourseViewModel(
                     } else {
                         _uiState.update { it.copy(isLessonDetailLoading = false) }
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    android.util.Log.e("LectureDebug", "Error in selectLesson: ${e.message}", e)
                     _uiState.update { it.copy(isLessonDetailLoading = false) }
                 }
             }

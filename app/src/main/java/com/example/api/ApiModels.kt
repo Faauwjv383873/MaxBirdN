@@ -1205,12 +1205,18 @@ data class AcademicProgramLiveClassItem(
     val title: String? = null,
     val class_type: String? = null,
     val playback_url: String? = null,
+    val recording_url: String? = null,
+    val stream_url: String? = null,
+    val video_url: String? = null,
+    val url: String? = null,
+    val hls_url: String? = null,
     val start_time: String? = null,
     val end_time: String? = null,
     val on_going: Boolean? = false,
     val chapter: HierarchyChapterItem? = null,
     val study_materials: List<StudyMaterialItem>? = emptyList(),
     val teacher: TeacherItem? = null,
+    val instructor: TeacherItem? = null,
     val topics: List<TopicItem>? = emptyList()
 )
 

@@ -601,63 +601,158 @@ class CourseRepository(
     }
 
     suspend fun getLiveClassDetails(liveClassId: String): AcademicProgramLiveClassItem? {
-        val query = GraphQlQuery(
-            operationName = "academicProgramLiveClass",
-            query = """
-                query academicProgramLiveClass(${'$'}id: String!) {
-                  academicProgramLiveClass(id: ${'$'}id) {
-                    academic_program_id
-                    batch_ids
-                    chapter {
-                      id
-                      name
-                      no
-                      __typename
-                    }
-                    class_type
-                    end_time
-                    id
-                    on_going
-                    playback_url
-                    start_time
-                    study_materials {
-                      file_url
-                      id
-                      name
-                    }
-                    subject {
-                      attr
-                      class
-                      code
-                      color_code
-                      display
-                      display_bn
-                      group
-                      icon
-                      __typename
-                    }
-                    teacher {
-                      id
-                      name
-                      first_name
-                      last_name
-                      avatar
-                      marketing_avatar
-                    }
-                    topics {
-                      id
-                      name
-                      title
-                      description
-                    }
-                    __typename
-                  }
+        val standardQueryStr = """
+            query GetAcademicLiveClassDetails(${'$'}id: String!) {
+              academicProgramLiveClass(id: ${'$'}id) {
+                id
+                academic_program_id
+                batch_ids
+                class_type
+                playback_url
+                recording_url
+                stream_url
+                video_url
+                start_time
+                end_time
+                on_going
+                chapter {
+                  id
+                  name
+                  no
                 }
-            """.trimIndent(),
-            variables = mapOf("id" to liveClassId)
-        )
-        val res = apiService.getAcademicLiveClassDetails(query)
-        return res.data?.academicProgramLiveClass
+                study_materials {
+                  id
+                  name
+                  file_url
+                }
+                subject {
+                  code
+                  color_code
+                  display
+                  display_bn
+                  icon
+                }
+                teacher {
+                  id
+                  name
+                  first_name
+                  last_name
+                  avatar
+                  marketing_avatar
+                }
+                topics {
+                  id
+                  name
+                  title
+                  description
+                }
+              }
+            }
+        """.trimIndent()
+
+        // 1. Try standard GetAcademicLiveClassDetails
+        try {
+            val query = GraphQlQuery(
+                operationName = "GetAcademicLiveClassDetails",
+                query = standardQueryStr,
+                variables = mapOf("id" to liveClassId)
+            )
+            val res = apiService.getAcademicLiveClassDetails(query)
+            android.util.Log.d("LectureDebug", "api response: $res")
+            android.util.Log.d("LectureDebug", "playback_url: ${res.data?.academicProgramLiveClass?.playback_url}")
+            if (res.data?.academicProgramLiveClass != null) {
+                return res.data.academicProgramLiveClass
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LectureDebug", "GetAcademicLiveClassDetails failed: ${e.message}")
+        }
+
+        // 2. Try operationName = academicProgramLiveClass
+        try {
+            val query = GraphQlQuery(
+                operationName = "academicProgramLiveClass",
+                query = """
+                    query academicProgramLiveClass(${'$'}id: String!) {
+                      academicProgramLiveClass(id: ${'$'}id) {
+                        id
+                        playback_url
+                        recording_url
+                        stream_url
+                        video_url
+                        start_time
+                        end_time
+                        on_going
+                        class_type
+                        study_materials {
+                          id
+                          name
+                          file_url
+                        }
+                        teacher {
+                          id
+                          name
+                          first_name
+                          last_name
+                          avatar
+                          marketing_avatar
+                        }
+                        topics {
+                          id
+                          name
+                          title
+                          description
+                        }
+                        chapter {
+                          id
+                          name
+                          no
+                        }
+                      }
+                    }
+                """.trimIndent(),
+                variables = mapOf("id" to liveClassId)
+            )
+            val res = apiService.getAcademicLiveClassDetails(query)
+            android.util.Log.d("LectureDebug", "api response (fallback 1): $res")
+            android.util.Log.d("LectureDebug", "playback_url: ${res.data?.academicProgramLiveClass?.playback_url}")
+            if (res.data?.academicProgramLiveClass != null) {
+                return res.data.academicProgramLiveClass
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LectureDebug", "academicProgramLiveClass failed: ${e.message}")
+        }
+
+        // 3. Minimal fallback (just stream URLs and study materials)
+        try {
+            val query = GraphQlQuery(
+                operationName = "GetAcademicLiveClassDetails",
+                query = """
+                    query GetAcademicLiveClassDetails(${'$'}id: String!) {
+                      academicProgramLiveClass(id: ${'$'}id) {
+                        id
+                        playback_url
+                        recording_url
+                        stream_url
+                        video_url
+                        study_materials {
+                          id
+                          name
+                          file_url
+                        }
+                      }
+                    }
+                """.trimIndent(),
+                variables = mapOf("id" to liveClassId)
+            )
+            val res = apiService.getAcademicLiveClassDetails(query)
+            android.util.Log.d("LectureDebug", "api response (minimal): $res")
+            android.util.Log.d("LectureDebug", "playback_url: ${res.data?.academicProgramLiveClass?.playback_url}")
+            return res.data?.academicProgramLiveClass
+        } catch (e: Exception) {
+            android.util.Log.e("LectureDebug", "Minimal GetAcademicLiveClassDetails failed: ${e.message}")
+        }
+
+        return null
     }
 
     suspend fun getTeacherDetails(teacherId: String): TeacherItem? {
