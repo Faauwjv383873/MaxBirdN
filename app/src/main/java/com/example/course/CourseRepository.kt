@@ -598,32 +598,48 @@ class CourseRepository(
     suspend fun getLiveClassDetails(liveClassId: String): AcademicProgramLiveClassItem? {
         if (liveClassId.isBlank()) return null
 
-        // 1. Standard GetAcademicLiveClassDetails (valid schema fields)
+        // 1. Standard GetAcademicLiveClassDetails (exact schema from Shikho API)
         val standardQueryStr = """
             query GetAcademicLiveClassDetails(${'$'}id: String!) {
               academicProgramLiveClass(id: ${'$'}id) {
-                id
-                playback_url
-                recording_url
-                start_time
-                end_time
-                on_going
-                class_type
-                study_materials {
-                  id
-                  name
-                  file_url
-                }
-                topics {
-                  id
-                  name
-                  title
-                  description
-                }
+                batch_ids
+                create_practice_mcq
                 chapter {
                   id
                   name
                   no
+                }
+                class_type
+                end_time
+                id
+                on_going
+                playback_url
+                start_time
+                study_materials {
+                  file_url
+                  id
+                  name
+                }
+                subject {
+                  code
+                  color_code
+                  display
+                  display_bn
+                  icon
+                }
+                teacher {
+                  bio
+                  id
+                  marketing_avatar
+                  marketing_points
+                  name
+                  subjects
+                  university_degree
+                }
+                title
+                topics {
+                  id
+                  name
                 }
               }
             }
@@ -647,17 +663,21 @@ class CourseRepository(
             android.util.Log.w("LectureDebug", "GetAcademicLiveClassDetails standard failed: ${e.message}")
         }
 
-        // 2. Minimal fallback with just playback_url, recording_url and study_materials
+        // 2. Minimal fallback with playback_url, study_materials and topics
         val minimalQueryStr = """
             query GetAcademicLiveClassDetails(${'$'}id: String!) {
               academicProgramLiveClass(id: ${'$'}id) {
                 id
+                title
                 playback_url
-                recording_url
                 study_materials {
+                  file_url
                   id
                   name
-                  file_url
+                }
+                topics {
+                  id
+                  name
                 }
               }
             }

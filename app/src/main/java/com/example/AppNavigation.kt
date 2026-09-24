@@ -693,6 +693,22 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val encodedTitle = URLEncoder.encode(title, "UTF-8")
                     navController.navigate("animated_lesson_player?url=$encodedUrl&title=$encodedTitle")
                 },
+                onOpenChapterResources = {
+                    val chapterId = courseUiState.selectedLesson?.chapter_id?.takeIf { it.isNotBlank() }
+                        ?: courseUiState.selectedLesson?.live_class?.chapter_id
+                        ?: ""
+                    if (chapterId.isNotBlank()) {
+                        val encodedName = URLEncoder.encode(courseUiState.selectedSubjectTitle, "UTF-8")
+                        val encodedSubCode = URLEncoder.encode(courseUiState.selectedLesson?.subject_code ?: "", "UTF-8")
+                        val encodedPhase = URLEncoder.encode(courseUiState.selectedLesson?.phase_id ?: "", "UTF-8")
+                        navController.navigate("chapter_resources/$chapterId?name=$encodedName&subjectCode=$encodedSubCode&phaseId=$encodedPhase")
+                    } else {
+                        navController.navigate(Routes.SMART_NOTES)
+                    }
+                },
+                onOpenSubjectResources = {
+                    navController.navigate(Routes.SMART_NOTES)
+                },
                 onBack = {
                     navController.popBackStack()
                 }

@@ -223,38 +223,69 @@ class CourseViewModel(
                     }
 
                     if (liveClassData != null || !pbUrl.isNullOrBlank()) {
+                        val newAttachments = mutableListOf<LessonAttachmentItem>()
+                        liveClassData?.study_materials?.forEach { mat ->
+                            if (!mat.file_url.isNullOrBlank()) {
+                                newAttachments.add(
+                                    LessonAttachmentItem(
+                                        id = mat.id,
+                                        title = mat.name ?: "লেকচার স্লাইড (PDF)",
+                                        url = mat.file_url,
+                                        file_type = "pdf"
+                                    )
+                                )
+                            }
+                        }
+                        lesson.attachments?.let { newAttachments.addAll(it) }
+
+                        val primarySlideUrl = liveClassData?.study_materials?.firstNotNullOfOrNull { it.file_url?.takeIf { u -> u.isNotBlank() } }
+                            ?: lesson.slide_url
+                            ?: lesson.live_class?.slide_url
+                            ?: newAttachments.firstOrNull { it.downloadUrl?.contains(".pdf", ignoreCase = true) == true }?.downloadUrl
+
+                        val subjectNameResolved = liveClassData?.subject?.display_bn
+                            ?: liveClassData?.subject?.display
+                            ?: lesson.subject_name
+                            ?: lesson.live_class?.subject_name
+
+                        val chapterIdResolved = lesson.chapter_id?.takeIf { it.isNotBlank() }
+                            ?: liveClassData?.chapter?.id?.takeIf { it.isNotBlank() }
+
+                        val chapterNameResolved = liveClassData?.chapter?.name
+                            ?: lesson.chapter_name
+                            ?: lesson.live_class?.chapter_name
+
                         val updatedLiveClass = (lesson.live_class ?: LiveClassDetails()).copy(
                             id = liveClassData?.id ?: lesson.live_class?.id ?: foundWorkingId,
                             playback_url = pbUrl ?: lesson.live_class?.playback_url,
                             recording_url = pbUrl ?: lesson.live_class?.recording_url,
                             stream_url = pbUrl ?: lesson.live_class?.stream_url,
                             video_url = pbUrl ?: lesson.live_class?.video_url,
+                            slide_url = primarySlideUrl,
+                            attachments = newAttachments.distinctBy { it.downloadUrl },
                             start_time = liveClassData?.start_time ?: lesson.live_class?.start_time,
                             end_time = liveClassData?.end_time ?: lesson.live_class?.end_time,
+                            chapter_id = chapterIdResolved,
+                            chapter_name = chapterNameResolved,
+                            subject_name = subjectNameResolved,
                             teacher = liveClassData?.teacher ?: liveClassData?.instructor ?: lesson.live_class?.teacher,
                             topics = if (!liveClassData?.topics.isNullOrEmpty()) liveClassData.topics else lesson.live_class?.topics
                         )
 
-                        val newAttachments = mutableListOf<LessonAttachmentItem>()
-                        liveClassData?.study_materials?.forEach { mat ->
-                            if (!mat.file_url.isNullOrBlank()) {
-                                newAttachments.add(LessonAttachmentItem(id = mat.id, title = mat.name ?: "লেকচার স্লাইড (PDF)", url = mat.file_url, file_type = "pdf"))
-                            }
-                        }
-                        lesson.attachments?.let { newAttachments.addAll(it) }
-
-                        val chapterIdResolved = lesson.chapter_id?.takeIf { it.isNotBlank() }
-                            ?: liveClassData?.chapter?.id?.takeIf { it.isNotBlank() }
-
                         val updatedLesson = lesson.copy(
+                            title = liveClassData?.title ?: lesson.title,
+                            slide_url = primarySlideUrl,
+                            subject_name = subjectNameResolved,
+                            chapter_name = chapterNameResolved,
+                            chapter_id = chapterIdResolved,
                             live_class = updatedLiveClass,
                             attachments = newAttachments.distinctBy { it.downloadUrl },
-                            chapter_id = chapterIdResolved,
                             topics = if (!liveClassData?.topics.isNullOrEmpty()) liveClassData.topics else lesson.topics
                         )
 
                         var currentLessonState = updatedLesson
                         android.util.Log.d("LectureDebug", "resolved video url: ${currentLessonState.resolvedVideoUrl}")
+                        android.util.Log.d("LectureDebug", "resolved slide url: ${currentLessonState.resolvedSlideUrl}, attachments: ${currentLessonState.allAttachments.size}")
 
                         // 1. Fetch Teacher Details if teacher_id exists
                         val teacherId = liveClassData?.teacher?.id
@@ -268,11 +299,26 @@ class CourseViewModel(
                             } catch (_: Exception) {}
                         }
 
+                        // 2. Fetch Animated Topic Videos
+                        var topicVideos: List<TopicFullItem> = emptyList()
+                        val finalTopicIds = currentLessonState.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() }
+                            ?: currentLessonState.live_class?.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() }
+                            ?: emptyList()
+                        val finalChapId = currentLessonState.chapter_id ?: _uiState.value.selectedChapterId
+                        if (finalTopicIds.isNotEmpty() && finalChapId.isNotBlank()) {
+                            try {
+                                topicVideos = repository.getTopics(finalChapId, finalTopicIds)
+                            } catch (e: Exception) {
+                                android.util.Log.w("LectureDebug", "Failed to fetch topic videos: ${e.message}")
+                            }
+                        }
+
                         val cur = _uiState.value.selectedLesson
                         if (cur == null || cur.id == lesson.id || cur.content_id == lesson.content_id || candidateIds.contains(cur.live_class?.id)) {
                             _uiState.update { 
                                 it.copy(
                                     selectedLesson = currentLessonState,
+                                    selectedLessonTopicVideos = topicVideos,
                                     isLessonDetailLoading = false
                                 ) 
                             }

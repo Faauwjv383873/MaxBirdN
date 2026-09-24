@@ -31,6 +31,8 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      VERSION_CODE: ${{ github.run_number }}
+      VERSION_NAME: "1.0.${{ github.run_number }}"
 
     steps:
       - name: Checkout Code
@@ -102,6 +104,20 @@ jobs:
               STORE_PWD="android"
               KEY_PWD="android"
               KEYSTORE_VERIFIED=true
+            fi
+
+            if [ "$KEYSTORE_VERIFIED" = "true" ]; then
+              # Auto-detect alias if not provided or to ensure exact match
+              DETECTED_ALIAS=$(keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" 2>/dev/null | grep -i "entry" | head -n 1 | cut -d',' -f1 | tr -d ' ')
+              if [ -n "$DETECTED_ALIAS" ]; then
+                echo "Key alias in keystore: $DETECTED_ALIAS"
+                if [ -z "$KEY_ALIAS" ] || [ "$KEY_AL" = "upload" ]; then
+                  KEY_AL="$DETECTED_ALIAS"
+                fi
+              fi
+              echo "--- Release Certificate Fingerprint ---"
+              keytool -list -v -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" 2>/dev/null | grep -E "SHA1:|SHA256:" | head -n 2 || true
+              echo "---------------------------------------"
             fi
           fi
 

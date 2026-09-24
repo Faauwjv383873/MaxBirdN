@@ -434,7 +434,9 @@ data class StudentLessonItem(
     val end_time: String? = null,
     val subject_id: String? = null,
     val subject_name: String? = null,
+    val subject_code: String? = null,
     val chapter_id: String? = null,
+    val chapter_name: String? = null,
     val batch_id: String? = null,
     val program_id: String? = null,
     val color_code: String? = null,
@@ -769,6 +771,7 @@ data class AcademicProgramDetail(
 data class AcademicSubjectItem(
     val code: String? = null,
     val color_code: String? = null,
+    val display: String? = null,
     val display_bn: String? = null,
     val icon: String? = null
 )
@@ -1186,10 +1189,13 @@ data class AcademicProgramLiveClassItem(
     val end_time: String? = null,
     val on_going: Boolean? = false,
     val chapter: HierarchyChapterItem? = null,
+    val subject: AcademicSubjectItem? = null,
     val study_materials: List<StudyMaterialItem>? = emptyList(),
     val teacher: TeacherItem? = null,
     val instructor: TeacherItem? = null,
-    val topics: List<TopicItem>? = emptyList()
+    val topics: List<TopicItem>? = emptyList(),
+    val create_practice_mcq: Boolean? = null,
+    val batch_ids: List<String>? = emptyList()
 )
 
 @JsonClass(generateAdapter = true)

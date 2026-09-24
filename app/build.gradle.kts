@@ -17,8 +17,9 @@ android {
     applicationId = "com.maxbird.ff.app"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    val envVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
+    versionCode = envVersionCode ?: 2
+    versionName = System.getenv("VERSION_NAME") ?: "1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -35,12 +36,16 @@ android {
         storePassword = storePasswordEnv?.takeIf { it.isNotBlank() } ?: "android"
         keyAlias = keyAliasEnv?.takeIf { it.isNotBlank() } ?: "upload"
         keyPassword = keyPasswordEnv?.takeIf { it.isNotBlank() } ?: storePasswordEnv ?: "android"
+        enableV1Signing = true
+        enableV2Signing = true
       } else {
         // Fallback to debug keystore if release keys are not provided
         storeFile = file("${rootDir}/debug.keystore")
         storePassword = "android"
         keyAlias = "androiddebugkey"
         keyPassword = "android"
+        enableV1Signing = true
+        enableV2Signing = true
       }
     }
     create("debugConfig") {
@@ -48,6 +53,8 @@ android {
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"
+      enableV1Signing = true
+      enableV2Signing = true
     }
   }
 

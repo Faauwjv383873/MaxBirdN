@@ -120,6 +120,8 @@ fun LessonDetailPlayerScreen(
     onRefreshLesson: (() -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onPlayAnimatedLesson: ((videoUrl: String, title: String) -> Unit)? = null,
+    onOpenChapterResources: (() -> Unit)? = null,
+    onOpenSubjectResources: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
     val isExamLesson = lesson?.isExam == true ||
@@ -985,7 +987,7 @@ fun LessonDetailPlayerScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 4. "লেকচার স্লাইডস ও ডকুমেন্টস"
+                // 4. "ক্লাস রিসোর্সেস"
                 LessonDocumentsSection(
                     lesson = lesson,
                     context = context,
@@ -994,7 +996,9 @@ fun LessonDetailPlayerScreen(
                     onRefreshLesson = onRefreshLesson,
                     onViewAttachment = { attachment ->
                         viewingSlideItem = attachment
-                    }
+                    },
+                    onOpenChapterResources = onOpenChapterResources,
+                    onOpenSubjectResources = onOpenSubjectResources
                 )
 
                 // 5. "🎬 অ্যানিমেটেড লেসন" (Horizontal Scroll)
@@ -1146,29 +1150,24 @@ fun LessonAnimatedLessonsSection(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "🎬 অ্যানিমেটেড লেসন",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                if (animatedTopics.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = themeColor.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "${toBengaliDigits(animatedTopics.size)}টি",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = themeColor,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                        )
-                    }
+            Text(
+                text = "অ্যানিমেটেড লেসন",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            if (animatedTopics.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = themeColor.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "${toBengaliDigits(animatedTopics.size)}টি",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = themeColor,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
                 }
             }
         }
@@ -1195,7 +1194,10 @@ fun LessonAnimatedLessonsSection(
                 )
             }
         } else {
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
             LazyRow(
+                state = listState,
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -1220,6 +1222,32 @@ fun LessonAnimatedLessonsSection(
                     )
                 }
             }
+
+            // Dot indicators below the LazyRow
+            if (animatedTopics.size > 1) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val firstVisible = listState.firstVisibleItemIndex
+                    val displayCount = animatedTopics.size.coerceAtMost(8)
+                    repeat(displayCount) { index ->
+                        val isSelected = index == (firstVisible % displayCount)
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 2.5.dp)
+                                .height(4.dp)
+                                .width(if (isSelected) 14.dp else 5.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(
+                                    if (isSelected) themeColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                )
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1234,96 +1262,92 @@ fun AnimatedLessonMiniCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
-            .width(200.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .width(230.dp)
+            .height(140.dp)
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                    .data(thumbnailUrl?.takeIf { it.isNotBlank() } ?: R.drawable.placeholder_animated)
+                    .crossfade(true)
+                    .error(R.drawable.placeholder_animated)
+                    .placeholder(R.drawable.placeholder_animated)
+                    .build(),
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Dark gradient overlay covering the whole card with heavy darkness at the bottom
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(Color(0xFF1E293B))
-            ) {
-                AsyncImage(
-                    model = coil.request.ImageRequest.Builder(LocalContext.current)
-                        .data(thumbnailUrl?.takeIf { it.isNotBlank() } ?: R.drawable.placeholder_animated)
-                        .crossfade(true)
-                        .error(R.drawable.placeholder_animated)
-                        .placeholder(R.drawable.placeholder_animated)
-                        .build(),
-                    contentDescription = title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // Dark overlay gradient
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.15f),
+                                Color.Black.copy(alpha = 0.35f),
+                                Color.Black.copy(alpha = 0.85f)
                             )
                         )
-                )
+                    )
+            )
 
-                // Serial badge
-                if (serialNo.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(bottomEnd = 10.dp, topStart = 14.dp),
-                        color = themeColor,
-                        modifier = Modifier.align(Alignment.TopStart)
-                    ) {
-                        Text(
-                            text = serialNo,
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-
-                // Center Play Icon
+            // Serial badge (Top-Left)
+            if (serialNo.isNotBlank()) {
                 Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.6f),
-                    border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.85f)),
-                    modifier = Modifier
-                        .size(36.dp)
-                        .align(Alignment.Center)
+                    shape = RoundedCornerShape(bottomEnd = 10.dp, topStart = 16.dp),
+                    color = themeColor,
+                    modifier = Modifier.align(Alignment.TopStart)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    Text(
+                        text = serialNo,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
                 }
             }
 
-            Column(
+            // Center Play Icon (Circular white background with dark play arrow)
+            Surface(
+                shape = CircleShape,
+                color = Color.White.copy(alpha = 0.95f),
+                shadowElevation = 4.dp,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp)
+                    .size(40.dp)
+                    .align(Alignment.Center)
             ) {
-                Text(
-                    text = title,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "প্লে করুন",
+                        tint = Color(0xFF1E293B),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
+
+            // Title positioned at the bottom over the dark gradient
+            Text(
+                text = title,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            )
         }
     }
 }
