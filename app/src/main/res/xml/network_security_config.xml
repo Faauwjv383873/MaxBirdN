@@ -6,4 +6,10 @@
             <certificates src="user" />
         </trust-anchors>
     </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">res.cloudinary.com</domain>
+        <domain includeSubdomains="true">cloudinary.com</domain>
+        <domain includeSubdomains="true">shikho.com</domain>
+        <domain includeSubdomains="true">api.shikho.com</domain>
+    </domain-config>
 </network-security-config>

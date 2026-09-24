@@ -197,9 +197,14 @@ class CourseViewModel(
                         }
                         lesson.attachments?.let { newAttachments.addAll(it) }
 
+                        val chapterIdResolved = lesson.chapter_id?.takeIf { it.isNotBlank() }
+                            ?: liveClassData.chapter?.id?.takeIf { it.isNotBlank() }
+
                         val updatedLesson = lesson.copy(
                             live_class = updatedLiveClass,
-                            attachments = newAttachments.distinctBy { it.downloadUrl }
+                            attachments = newAttachments.distinctBy { it.downloadUrl },
+                            chapter_id = chapterIdResolved,
+                            topics = if (!liveClassData.topics.isNullOrEmpty()) liveClassData.topics else lesson.topics
                         )
 
                         var currentLessonState = updatedLesson

@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.R
 import android.app.Activity
 import android.app.DownloadManager
 import android.app.PictureInPictureParams
@@ -1141,10 +1142,22 @@ fun LessonDetailPlayerScreen(
                 )
 
                 // 5. "🎬 অ্যানিমেটেড লেসন" (Horizontal Scroll)
-                val topicIdsForAnimated = remember(lesson?.topics) {
-                    lesson?.topics?.mapNotNull { it.id }?.filter { it.isNotBlank() } ?: emptyList()
+                val topicIdsForAnimated = remember(lesson) {
+                    val tList = lesson?.topics?.takeIf { it.isNotEmpty() }
+                        ?: lesson?.live_class?.topics
+                        ?: emptyList()
+                    tList.mapNotNull { it.id }.filter { it.isNotBlank() }
                 }
-                val chapterIdForAnimated = lesson?.chapter_id ?: ""
+                val chapterIdForAnimated = remember(lesson) {
+                    lesson?.chapter_id?.takeIf { it.isNotBlank() }
+                        ?: lesson?.live_class?.chapter_id
+                        ?: ""
+                }
+
+                LaunchedEffect(lesson) {
+                    android.util.Log.d("AnimatedBug", "topics: ${lesson?.topics ?: lesson?.live_class?.topics}")
+                    android.util.Log.d("AnimatedBug", "topicIds: $topicIdsForAnimated")
+                }
 
                 LessonAnimatedLessonsSection(
                     chapterId = chapterIdForAnimated,
@@ -1233,7 +1246,7 @@ fun LessonAnimatedLessonsSection(
     onPlayAnimatedLesson: (videoUrl: String, title: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (topicIds.isEmpty() || chapterId.isBlank()) {
+    if (topicIds.isEmpty()) {
         return
     }
 
@@ -1244,15 +1257,19 @@ fun LessonAnimatedLessonsSection(
         isLoading = true
         try {
             val res = repository.getTopics(chapterId, topicIds)
+            android.util.Log.d("AnimatedBug", "topics fetched: ${res.size}")
+            android.util.Log.d("AnimatedBug", "first thumbnail: ${res.firstOrNull()?.videos?.data?.firstOrNull()?.video_thumbnail_url}")
             // Filter out topics with empty videos or blank playback URLs
             animatedTopics = res.filter { topic ->
                 val vList = topic.videos?.data
                 !vList.isNullOrEmpty() && vList.any { !it.playback_url.isNullOrBlank() }
             }
         } catch (e: Exception) {
+            android.util.Log.e("AnimatedBug", "Error fetching animated lessons", e)
             animatedTopics = emptyList()
         } finally {
             isLoading = false
+            android.util.Log.d("AnimatedBug", "rendering section: ${topicIds.isNotEmpty() && animatedTopics.isNotEmpty()}")
         }
     }
 
@@ -1376,14 +1393,17 @@ fun AnimatedLessonMiniCard(
                     .aspectRatio(16f / 9f)
                     .background(Color(0xFF1E293B))
             ) {
-                if (!thumbnailUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = thumbnailUrl,
-                        contentDescription = title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                AsyncImage(
+                    model = coil.request.ImageRequest.Builder(LocalContext.current)
+                        .data(thumbnailUrl?.takeIf { it.isNotBlank() } ?: R.drawable.placeholder_animated)
+                        .crossfade(true)
+                        .error(R.drawable.placeholder_animated)
+                        .placeholder(R.drawable.placeholder_animated)
+                        .build(),
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
 
                 // Dark overlay gradient
                 Box(

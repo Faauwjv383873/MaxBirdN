@@ -282,8 +282,10 @@ fun ChapterLessonsScreen(
                                     )
                                 },
                                 onOpenAnimatedLessons = {
+                                    val matching = uiState.chapters.firstOrNull { it.id == chapterId || it.chapter_id == chapterId }
+                                    val targetChapterId = matching?.chapter_id ?: matching?.id ?: chapterId
                                     onNavigateToAnimatedLessons?.invoke(
-                                        chapterId,
+                                        targetChapterId,
                                         chapterName
                                     )
                                 }

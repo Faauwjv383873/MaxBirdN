@@ -636,6 +636,20 @@ class CourseRepository(
                       icon
                       __typename
                     }
+                    teacher {
+                      id
+                      name
+                      first_name
+                      last_name
+                      avatar
+                      marketing_avatar
+                    }
+                    topics {
+                      id
+                      name
+                      title
+                      description
+                    }
                     __typename
                   }
                 }
@@ -684,7 +698,7 @@ class CourseRepository(
             GraphQlQuery(
                 operationName = "GetTopics",
                 query = """
-                    query GetTopics(${'$'}chapter_id: String!) {
+                    query GetTopics(${'$'}chapter_id: String) {
                       topics(chapter_id: ${'$'}chapter_id, filter: { limit: 150 } ) {
                         data {
                           id
@@ -711,13 +725,17 @@ class CourseRepository(
                       }
                     }
                 """.trimIndent(),
-                variables = mapOf("chapter_id" to chapterId)
+                variables = if (chapterId.isNotBlank()) mapOf("chapter_id" to chapterId) else emptyMap()
             )
         } else {
+            val queryVars = mutableMapOf<String, Any>("topic_ids" to topicIds)
+            if (chapterId.isNotBlank()) {
+                queryVars["chapter_id"] = chapterId
+            }
             GraphQlQuery(
                 operationName = "GetTopics",
                 query = """
-                    query GetTopics(${'$'}chapter_id: String!, ${'$'}topic_ids: [String]) {
+                    query GetTopics(${'$'}chapter_id: String, ${'$'}topic_ids: [String]) {
                       topics(chapter_id: ${'$'}chapter_id, topic_ids: ${'$'}topic_ids, filter: { limit: 150 } ) {
                         data {
                           id
@@ -744,7 +762,7 @@ class CourseRepository(
                       }
                     }
                 """.trimIndent(),
-                variables = mapOf("chapter_id" to chapterId, "topic_ids" to topicIds)
+                variables = queryVars
             )
         }
         val topRes = apiService.getTopics(topQuery)

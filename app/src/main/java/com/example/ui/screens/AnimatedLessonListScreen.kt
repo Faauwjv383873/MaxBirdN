@@ -37,6 +37,7 @@ fun AnimatedLessonListScreen(
     chapterId: String,
     chapterName: String,
     subjectColorHex: String? = null,
+    fromChapterPage: Boolean = false,
     viewModel: CourseViewModel,
     onBack: () -> Unit,
     onPlayVideo: (videoUrl: String, title: String) -> Unit,
@@ -306,14 +307,17 @@ fun AnimatedVideoCard(
                     .aspectRatio(16f / 9f)
                     .background(Color(0xFF1E293B))
             ) {
-                if (!thumbnailUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = thumbnailUrl,
-                        contentDescription = title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                AsyncImage(
+                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                        .data(thumbnailUrl?.takeIf { it.isNotBlank() } ?: com.example.R.drawable.placeholder_animated)
+                        .crossfade(true)
+                        .error(com.example.R.drawable.placeholder_animated)
+                        .placeholder(com.example.R.drawable.placeholder_animated)
+                        .build(),
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
 
                 // Dark gradient overlay
                 Box(

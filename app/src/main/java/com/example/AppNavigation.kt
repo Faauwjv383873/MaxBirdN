@@ -92,7 +92,7 @@ object Routes {
     const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
     const val NOTIFICATION_SETTINGS = "notification_settings"
     const val ANIMATED_LESSON_CHAPTERS = "animated_lesson_chapters/{subjectId}?title={title}&color={color}&programId={programId}&phaseId={phaseId}"
-    const val ANIMATED_LESSON_LIST = "animated_lesson_list/{chapterId}?chapterName={chapterName}&subjectColor={subjectColor}"
+    const val ANIMATED_LESSON_LIST = "animated_lesson_list/{chapterId}?chapterName={chapterName}&subjectColor={subjectColor}&fromChapterPage={fromChapterPage}"
     const val ANIMATED_LESSON_PLAYER = "animated_lesson_player?url={url}&title={title}"
 }
 
@@ -630,7 +630,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToAnimatedLessons = { cId, cName ->
                     val encodedName = URLEncoder.encode(cName, "UTF-8")
                     val encodedColor = URLEncoder.encode(subjectColor ?: "", "UTF-8")
-                    navController.navigate("animated_lesson_list/$cId?chapterName=$encodedName&subjectColor=$encodedColor")
+                    navController.navigate("animated_lesson_list/$cId?chapterName=$encodedName&subjectColor=$encodedColor&fromChapterPage=true")
                 },
                 onOpenLessonDetail = { lesson ->
                     courseViewModel.selectLesson(lesson)
@@ -732,7 +732,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onChapterClick = { chapterId, chapterName ->
                     val encodedName = URLEncoder.encode(chapterName, "UTF-8")
                     val encodedColor = URLEncoder.encode(color ?: "", "UTF-8")
-                    navController.navigate("animated_lesson_list/$chapterId?chapterName=$encodedName&subjectColor=$encodedColor")
+                    navController.navigate("animated_lesson_list/$chapterId?chapterName=$encodedName&subjectColor=$encodedColor&fromChapterPage=false")
                 }
             )
         }
@@ -743,17 +743,20 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             arguments = listOf(
                 navArgument("chapterId") { type = NavType.StringType },
                 navArgument("chapterName") { type = NavType.StringType; defaultValue = "" },
-                navArgument("subjectColor") { type = NavType.StringType; defaultValue = "" }
+                navArgument("subjectColor") { type = NavType.StringType; defaultValue = "" },
+                navArgument("fromChapterPage") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val chapterName = backStackEntry.arguments?.getString("chapterName")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
             val subjectColor = backStackEntry.arguments?.getString("subjectColor")?.let { URLDecoder.decode(it, "UTF-8") }
+            val fromChapterPage = backStackEntry.arguments?.getBoolean("fromChapterPage") ?: false
 
             AnimatedLessonListScreen(
                 chapterId = chapterId,
                 chapterName = chapterName,
                 subjectColorHex = subjectColor,
+                fromChapterPage = fromChapterPage,
                 viewModel = courseViewModel,
                 onBack = { navController.popBackStack() },
                 onPlayVideo = { videoUrl, videoTitle ->
