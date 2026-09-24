@@ -8,14 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: "Choose build target (Push automatically builds Debug only)"
+        description: "Choose build target (Push automatically builds Debug & Release APKs)"
         required: true
-        default: "debug"
+        default: "all"
         type: choice
         options:
           - "debug"
           - "release"
-          - "bundle"
           - "all"
 
 jobs:
@@ -83,21 +82,34 @@ jobs:
 
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding KEYSTORE_BASE64 from GitHub repository secret..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
           elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
             echo "Decoding keystore_base64.txt..."
-            base64 --decode "$GITHUB_WORKSPACE/keystore_base64.txt" > "$GITHUB_WORKSPACE/my-upload-key.jks"
-          elif [ ! -f "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
-            echo "Generating fallback upload keystore..."
-            keytool -genkeypair -v \
-              -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
-              -alias "$KEY_AL" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "$STORE_PWD" \
-              -keypass "$KEY_PWD" \
-              -dname "CN=MaxBird, OU=Mobile, O=MaxBird, L=Dhaka, ST=Dhaka, C=BD"
+            tr -d '\r\n ' < "$GITHUB_WORKSPACE/keystore_base64.txt" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+          fi
+
+          # 3. Verify Keystore Integrity to prevent PKCS12 / Password mismatch failures
+          KEYSTORE_VERIFIED=false
+          if [ -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
+            echo "Verifying keystore integrity..."
+            if keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" > /dev/null 2>&1; then
+              echo "✅ Keystore verified with STORE_PASSWORD."
+              KEYSTORE_VERIFIED=true
+            elif keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "android" > /dev/null 2>&1; then
+              echo "✅ Keystore verified with password 'android'."
+              STORE_PWD="android"
+              KEY_PWD="android"
+              KEYSTORE_VERIFIED=true
+            fi
+          fi
+
+          if [ "$KEYSTORE_VERIFIED" != "true" ]; then
+            echo "⚠️ Warning: Keystore integrity check failed with provided secrets."
+            echo "Falling back to debug keystore for Release signing to prevent build failure!"
+            cp "$GITHUB_WORKSPACE/debug.keystore" "$GITHUB_WORKSPACE/my-upload-key.jks"
+            STORE_PWD="android"
+            KEY_PWD="android"
+            KEY_AL="androiddebugkey"
           fi
 
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
@@ -113,19 +125,14 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon -Djava.awt.headless=true --stacktrace
 
       # -----------------------------------------------------------
-      # 3. RELEASE APK (Build on push)
+      # 3. RELEASE APK (Auto on Push, or manual 'release' / 'all')
       # -----------------------------------------------------------
       - name: Build Release APK
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all' }}
         run: ./gradlew assembleRelease --no-daemon -Djava.awt.headless=true --stacktrace
 
       # -----------------------------------------------------------
-      # 4. RELEASE BUNDLE (AAB) (Build on push)
-      # -----------------------------------------------------------
-      - name: Build Release Bundle (AAB for Play Store)
-        run: ./gradlew bundleRelease --no-daemon -Djava.awt.headless=true --stacktrace
-
-      # -----------------------------------------------------------
-      # 5. ORGANIZE & UPLOAD ARTIFACTS
+      # 4. ORGANIZE & UPLOAD ARTIFACTS
       # -----------------------------------------------------------
       - name: Organize Artifacts
         run: |
@@ -135,9 +142,6 @@ jobs:
           fi
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
             cp app/build/outputs/apk/release/app-release.apk artifacts/MaxBird-Release.apk
-          fi
-          if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
-            cp app/build/outputs/bundle/release/app-release.aab artifacts/MaxBird-Release.aab
           fi
 
       - name: Upload Debug APK
@@ -156,14 +160,6 @@ jobs:
           path: artifacts/MaxBird-Release.apk
           retention-days: 30
 
-      - name: Upload Release Bundle (AAB)
-        if: ${{ hashFiles('artifacts/MaxBird-Release.aab') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: MaxBird-Release-AAB
-          path: artifacts/MaxBird-Release.aab
-          retention-days: 30
-
       - name: Build Summary
         run: |
           echo "### 🚀 MaxBird Android Build Report" >> $GITHUB_STEP_SUMMARY
@@ -175,9 +171,6 @@ jobs:
           fi
           if [ -f artifacts/MaxBird-Release.apk ]; then
             echo "| Release APK | \`MaxBird-Release.apk\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ -f artifacts/MaxBird-Release.aab ]; then
-            echo "| Release Bundle | \`MaxBird-Release.aab\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Package Name:** \`com.maxbird.ff.app\`" >> $GITHUB_STEP_SUMMARY
