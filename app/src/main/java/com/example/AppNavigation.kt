@@ -94,6 +94,12 @@ object Routes {
     const val ANIMATED_LESSON_CHAPTERS = "animated_lesson_chapters/{subjectId}?title={title}&color={color}&programId={programId}&phaseId={phaseId}"
     const val ANIMATED_LESSON_LIST = "animated_lesson_list/{chapterId}?chapterName={chapterName}&subjectColor={subjectColor}&fromChapterPage={fromChapterPage}"
     const val ANIMATED_LESSON_PLAYER = "animated_lesson_player?url={url}&title={title}"
+    const val LIVE_CLASS = "live_class/{classId}/{lessonId}?lessonTitle={lessonTitle}&subjectName={subjectName}"
+    fun liveClassRoute(classId: String, lessonId: String, lessonTitle: String = "", subjectName: String = ""): String {
+        val encTitle = try { URLEncoder.encode(lessonTitle, "UTF-8") } catch (_: Exception) { lessonTitle }
+        val encSubject = try { URLEncoder.encode(subjectName, "UTF-8") } catch (_: Exception) { subjectName }
+        return "live_class/$classId/$lessonId?lessonTitle=$encTitle&subjectName=$encSubject"
+    }
 }
 
 // ============================================================
@@ -408,6 +414,12 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                         val encodedTitle = URLEncoder.encode(title, "UTF-8")
                         val encodedChapter = URLEncoder.encode(chapter, "UTF-8")
                         navController.navigate("chapter_exam/$sessionId?lessonId=${lesson.id}&title=$encodedTitle&chapter=$encodedChapter")
+                    } else if (lesson.isLive || lesson.isLiveNow || lesson.content_type?.contains("LiveClass", ignoreCase = true) == true) {
+                        val classId = lesson.live_class?.id?.takeIf { it.isNotBlank() } ?: lesson.id
+                        val lessonId = lesson.id
+                        val title = lesson.title ?: "লাইভ ক্লাস"
+                        val subject = lesson.subject_name ?: "সাধারণ"
+                        navController.navigate(Routes.liveClassRoute(classId = classId, lessonId = lessonId, lessonTitle = title, subjectName = subject))
                     } else {
                         courseViewModel.selectLesson(lesson)
                         navController.navigate(Routes.LESSON_DETAIL_PLAYER)
@@ -1149,6 +1161,35 @@ fun AppNavigation(modifier: Modifier = Modifier) {
 
             ReportCardScreen(
                 viewModel = reportCardViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            route = Routes.LIVE_CLASS,
+            arguments = listOf(
+                navArgument("classId") { type = NavType.StringType },
+                navArgument("lessonId") { type = NavType.StringType },
+                navArgument("lessonTitle") { type = NavType.StringType; defaultValue = "" },
+                navArgument("subjectName") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val classId = backStackEntry.arguments?.getString("classId") ?: ""
+            val lessonId = backStackEntry.arguments?.getString("lessonId") ?: ""
+            val rawTitle = backStackEntry.arguments?.getString("lessonTitle") ?: ""
+            val rawSubject = backStackEntry.arguments?.getString("subjectName") ?: ""
+
+            val lessonTitle = try { URLDecoder.decode(rawTitle, "UTF-8") } catch (_: Exception) { rawTitle }
+            val subjectName = try { URLDecoder.decode(rawSubject, "UTF-8") } catch (_: Exception) { rawSubject }
+
+            com.example.liveclass.LiveClassPage(
+                classId = classId,
+                lessonId = lessonId,
+                lessonTitle = lessonTitle.ifBlank { "লাইভ ক্লাস" },
+                subjectName = subjectName.ifBlank { "সাধারণ" },
+                sessionManager = sessionManager,
                 onBack = {
                     navController.popBackStack()
                 }

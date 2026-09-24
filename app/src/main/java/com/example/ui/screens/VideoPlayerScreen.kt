@@ -524,45 +524,12 @@ fun VideoPlayerScreen(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.weight(1f, fill = false)
                         ) {
-                            if (!subjectName.isNullOrBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = badgeColor.copy(alpha = 0.85f),
-                                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.25f))
-                                ) {
-                                    Text(
-                                        text = subjectName,
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
-                            if (isLive) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFE53935),
-                                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
-                                ) {
-                                    Text(
-                                        text = "🔴 LIVE",
-                                        color = Color.White,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
                             Text(
                                 text = title.ifBlank { "ক্লাস ভিডিও লেকচার" },
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

@@ -242,77 +242,12 @@ fun PlayerControlsOverlay(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            when (effectiveClassType) {
-                                com.example.player.PlayerClassType.LIVE -> {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFFE11D48),
-                                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
-                                    ) {
-                                        Text(
-                                            text = "🔴 LIVE",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                com.example.player.PlayerClassType.ANIMATED -> {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF8B5CF6),
-                                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
-                                    ) {
-                                        Text(
-                                            text = "🎬 অ্যানিমেটেড",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                com.example.player.PlayerClassType.RECORDED_LECTURE -> {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF2563EB),
-                                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.3f))
-                                    ) {
-                                        Text(
-                                            text = "📖 লেকচার",
-                                            color = Color.White,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (subjectName.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.White.copy(alpha = 0.15f),
-                                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f))
-                                ) {
-                                    Text(
-                                        text = subjectName,
-                                        color = Color.White.copy(alpha = 0.9f),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
                             Text(
                                 text = title,
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
