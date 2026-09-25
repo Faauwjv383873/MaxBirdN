@@ -28,8 +28,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       JAVA_OPTS: "-Djava.awt.headless=true"
       GRADLE_OPTS: "-Djava.awt.headless=true -Dorg.gradle.daemon=false"
-      KEYSTORE_BASE64_SECRET: ${{ secrets.KEYSTORE_BASE64_SECRET || secrets.KEYSTORE_BASE64 }}
-      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64_SECRET || secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -80,42 +79,47 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
 
-          # 2. Prepare Release Keystore (Decode directly from KEYSTORE_BASE64_SECRET or KEYSTORE_BASE64 secret)
-          STORE_PWD="${STORE_PASSWORD:-android}"
-          KEY_PWD="${KEY_PASSWORD:-android}"
-          KEY_AL="${KEY_ALIAS:-upload}"
-          RAW_KEYSTORE="${KEYSTORE_BASE64_SECRET:-$KEYSTORE_BASE64}"
+          # 2. Prepare Release Keystore from KEYSTORE_BASE64 repository secret
+          STORE_PWD="${STORE_PASSWORD:-}"
+          KEY_PWD="${KEY_PASSWORD:-}"
+          KEY_AL="${KEY_ALIAS:-}"
 
-          if [ -n "$RAW_KEYSTORE" ]; then
-            echo "Decoding KEYSTORE_BASE64_SECRET from GitHub repository secret..."
-            echo "$RAW_KEYSTORE" | tr -d '\r\n ' | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding KEYSTORE_BASE64 from GitHub repository secret..."
+            if ! echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"; then
+              echo "❌ Failed to decode KEYSTORE_BASE64."
+              exit 1
+            fi
           elif [ -f "$GITHUB_WORKSPACE/keystore_base64.txt" ] && [ ! -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
             echo "Decoding keystore_base64.txt..."
-            tr -d '\r\n ' < "$GITHUB_WORKSPACE/keystore_base64.txt" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"
+            if ! tr -d '\r\n ' < "$GITHUB_WORKSPACE/keystore_base64.txt" | base64 --decode > "$GITHUB_WORKSPACE/my-upload-key.jks"; then
+              echo "❌ Failed to decode keystore_base64.txt."
+              exit 1
+            fi
           fi
 
           # 3. Verify Keystore Integrity to prevent PKCS12 / Password mismatch failures
           KEYSTORE_VERIFIED=false
           if [ -s "$GITHUB_WORKSPACE/my-upload-key.jks" ]; then
             echo "Verifying keystore integrity..."
-            if keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" > /dev/null 2>&1; then
+            if [ -n "$STORE_PWD" ] && keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" > /dev/null 2>&1; then
               echo "✅ Keystore verified with STORE_PASSWORD."
-              KEYSTORE_VERIFIED=true
-            elif keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "android" > /dev/null 2>&1; then
-              echo "✅ Keystore verified with password 'android'."
-              STORE_PWD="android"
-              KEY_PWD="android"
               KEYSTORE_VERIFIED=true
             fi
 
             if [ "$KEYSTORE_VERIFIED" = "true" ]; then
-              # Auto-detect alias if not provided or to ensure exact match
-              DETECTED_ALIAS=$(keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" 2>/dev/null | grep -i "entry" | head -n 1 | cut -d',' -f1 | tr -d ' ')
-              if [ -n "$DETECTED_ALIAS" ]; then
-                echo "Key alias in keystore: $DETECTED_ALIAS"
-                if [ -z "$KEY_ALIAS" ] || [ "$KEY_AL" = "upload" ]; then
+              # Auto-detect alias only when KEY_ALIAS is not provided
+              if [ -z "$KEY_AL" ]; then
+                DETECTED_ALIAS=$(keytool -list -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" 2>/dev/null | awk -F',' '/PrivateKeyEntry|trustedCertEntry/ {gsub(/^ +| +$/, "", $1); print $1; exit}')
+                if [ -n "$DETECTED_ALIAS" ]; then
+                  echo "Key alias detected: $DETECTED_ALIAS"
                   KEY_AL="$DETECTED_ALIAS"
                 fi
+              fi
+
+              if [ -z "$KEY_AL" ]; then
+                echo "❌ KEY_ALIAS is empty and could not be detected."
+                exit 1
               fi
               echo "--- Release Certificate Fingerprint ---"
               keytool -list -v -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" -storepass "$STORE_PWD" 2>/dev/null | grep -E "SHA1:|SHA256:" | head -n 2 || true
@@ -124,12 +128,9 @@ jobs:
           fi
 
           if [ "$KEYSTORE_VERIFIED" != "true" ]; then
-            echo "⚠️ Warning: Keystore integrity check failed with provided secrets."
-            echo "Falling back to debug keystore for Release signing to prevent build failure!"
-            cp "$GITHUB_WORKSPACE/debug.keystore" "$GITHUB_WORKSPACE/my-upload-key.jks"
-            STORE_PWD="android"
-            KEY_PWD="android"
-            KEY_AL="androiddebugkey"
+            echo "❌ Keystore integrity check failed with the provided KEYSTORE_BASE64/STORE_PASSWORD."
+            echo "❌ Release signing stopped. The debug keystore will NOT be used for Release."
+            exit 1
           fi
 
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/my-upload-key.jks" >> $GITHUB_ENV
