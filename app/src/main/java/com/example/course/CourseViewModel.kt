@@ -677,7 +677,10 @@ class CourseViewModel(
                 activePhaseTitle = matchedPhase?.title ?: it.activePhaseTitle,
                 chapters = cachedChapters ?: emptyList(),
                 isChaptersLoading = cachedChapters == null,
-                chaptersErrorMessage = null
+                chaptersErrorMessage = null,
+                subjectModelTests = emptyList(),
+                subjectLiveClasses = emptyList(),
+                isSubjectModelTestsLoading = true
             )
         }
 
@@ -713,6 +716,50 @@ class CourseViewModel(
                     } catch (e: Exception) {
                         Log.e("CourseViewModel", "Error fetching phases in loadChaptersForSubject: ${e.message}", e)
                     }
+                }
+
+                // Eagerly fetch Subject-Specific Model Tests and Live Classes (For Admission / Model Test architecture)
+                if (currentEffectivePhaseId.isNotBlank()) {
+                    launch(Dispatchers.IO) {
+                        try {
+                            val modelTests = repository.fetchSubjectSpecificLessons(
+                                programId = progId,
+                                phaseId = currentEffectivePhaseId,
+                                subjectId = subjectCode,
+                                contentType = "ModelTest"
+                            )
+                            val liveClasses = repository.fetchSubjectSpecificLessons(
+                                programId = progId,
+                                phaseId = currentEffectivePhaseId,
+                                subjectId = subjectCode,
+                                contentType = "LiveClass"
+                            )
+                            val allFallback = if (modelTests.isEmpty() && liveClasses.isEmpty()) {
+                                repository.fetchSubjectSpecificLessons(
+                                    programId = progId,
+                                    phaseId = currentEffectivePhaseId,
+                                    subjectId = subjectCode,
+                                    contentType = null
+                                )
+                            } else emptyList()
+
+                            val resolvedModelTests = if (modelTests.isNotEmpty()) modelTests else allFallback.filter { it.isExam }
+                            val resolvedLiveClasses = if (liveClasses.isNotEmpty()) liveClasses else allFallback.filter { !it.isExam }
+
+                            _uiState.update {
+                                it.copy(
+                                    subjectModelTests = resolvedModelTests,
+                                    subjectLiveClasses = resolvedLiveClasses,
+                                    isSubjectModelTestsLoading = false
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.w("CourseViewModel", "Error fetching subject specific model tests: ${e.message}")
+                            _uiState.update { it.copy(isSubjectModelTestsLoading = false) }
+                        }
+                    }
+                } else {
+                    _uiState.update { it.copy(isSubjectModelTestsLoading = false) }
                 }
 
                 var chaptersList = emptyList<AcademicChapterItem>()

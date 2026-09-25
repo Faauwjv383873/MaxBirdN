@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import com.example.utils.toBengaliDigits
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,11 +30,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.AcademicChapterItem
 import com.example.api.PhaseItem
-import com.example.api.TopicFullItem
+import com.example.api.StudentLessonItem
 import com.example.course.CourseUiState
 import com.example.course.CourseViewModel
 import com.example.utils.AcademicLocalizationUtils
-import com.example.utils.EmptyQuestionsCard
+import com.example.utils.toBengaliDigits
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,7 +56,7 @@ fun SubjectChaptersScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedMode by remember { mutableStateOf(0) } // 0: All, 2: Quiz, 3: E-Book
+    var modelTestTabSelected by remember { mutableStateOf(0) } // 0: Model Test, 1: Classes
 
     val subjectColor = remember(subjectColorHex) {
         try {
@@ -67,7 +70,7 @@ fun SubjectChaptersScreen(
         }
     }
 
-    // Load chapters on start
+    // Load chapters & subject specific model tests on start
     LaunchedEffect(subjectCode, uiState.programId, uiState.activePhaseId) {
         viewModel.loadChaptersForSubject(
             subjectCode = subjectCode,
@@ -75,6 +78,13 @@ fun SubjectChaptersScreen(
             subjectColor = subjectColorHex,
             phaseId = uiState.activePhaseId.ifBlank { null }
         )
+    }
+
+    // Determine if current course phase or subject uses ModelTest / Admission architecture
+    val isModelTestArchitecture = remember(uiState.chapters, uiState.subjectModelTests, uiState.subjectLiveClasses, uiState.selectedPhase) {
+        uiState.selectedPhase?.type?.equals("ModelTest", ignoreCase = true) == true ||
+                uiState.selectedPhase?.type?.equals("Admission", ignoreCase = true) == true ||
+                (uiState.chapters.isEmpty() && !uiState.isChaptersLoading && (uiState.subjectModelTests.isNotEmpty() || uiState.subjectLiveClasses.isNotEmpty()))
     }
 
     Scaffold(
@@ -118,7 +128,7 @@ fun SubjectChaptersScreen(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Text(
-                            text = subjectTitle.ifBlank { "বিষয় অধ্যায়সমূহ" },
+                            text = subjectTitle.ifBlank { "বিষয়সূচি" },
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -191,7 +201,7 @@ fun SubjectChaptersScreen(
                 .padding(paddingValues)
         ) {
             when {
-                uiState.isChaptersLoading -> {
+                uiState.isChaptersLoading && uiState.isSubjectModelTestsLoading -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -206,7 +216,7 @@ fun SubjectChaptersScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "অধ্যায়সমূহ লোড হচ্ছে...",
+                            text = "তথ্য লোড হচ্ছে...",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -214,7 +224,7 @@ fun SubjectChaptersScreen(
                     }
                 }
 
-                uiState.chaptersErrorMessage != null && uiState.chapters.isEmpty() -> {
+                uiState.chaptersErrorMessage != null && uiState.chapters.isEmpty() && uiState.subjectModelTests.isEmpty() && uiState.subjectLiveClasses.isEmpty() -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -238,7 +248,7 @@ fun SubjectChaptersScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = uiState.chaptersErrorMessage ?: "অধ্যায় পাওয়া যায়নি",
+                            text = uiState.chaptersErrorMessage ?: "তথ্য পাওয়া যায়নি",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -264,6 +274,146 @@ fun SubjectChaptersScreen(
                     }
                 }
 
+                // ==========================================
+                // ARCHITECTURE 1: Model Test & Live Class (Admission Program Mode)
+                // ==========================================
+                isModelTestArchitecture -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        // Top Shortcuts: Animated Lessons, Practice Quiz, E-Book
+                        item {
+                            CourseFeatureShortcuts(
+                                subjectColor = subjectColor,
+                                selectedMode = 0,
+                                onSelectMode = { mode ->
+                                    if (mode == 2) {
+                                        onNavigateToPracticeQuiz?.invoke(subjectCode, subjectTitle, subjectColorHex)
+                                    } else if (mode == 3) {
+                                        onNavigateToSmartNotes?.invoke(subjectCode, subjectTitle, subjectColorHex, uiState.activePhaseId)
+                                    } else if (mode == 4) {
+                                        onNavigateToAnimatedLessons?.invoke(subjectCode, subjectTitle, subjectColorHex, uiState.programId, uiState.activePhaseId)
+                                    }
+                                }
+                            )
+                        }
+
+                        // Model Test vs Class Dual Tab Bar (Official Shikho Design)
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(4.dp)
+                                ) {
+                                    // Tab 1: Model Test
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (modelTestTabSelected == 0) Color(0xFF4F46E5) else Color.Transparent,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { modelTestTabSelected = 0 }
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.padding(vertical = 10.dp)
+                                        ) {
+                                            Text(
+                                                text = "মডেল টেস্ট",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (modelTestTabSelected == 0) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    // Tab 2: Class
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (modelTestTabSelected == 1) Color(0xFF4F46E5) else Color.Transparent,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { modelTestTabSelected = 1 }
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.padding(vertical = 10.dp)
+                                        ) {
+                                            Text(
+                                                text = "ক্লাস",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (modelTestTabSelected == 1) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Content List based on selected sub-tab
+                        if (modelTestTabSelected == 0) {
+                            // Model Tests List
+                            if (uiState.subjectModelTests.isEmpty()) {
+                                item {
+                                    EmptyStateCard(message = "এই বিষয়ে কোনো মডেল টেস্ট পাওয়া যায়নি")
+                                }
+                            } else {
+                                items(
+                                    items = uiState.subjectModelTests,
+                                    key = { it.id.ifBlank { it.content_id ?: it.title ?: "" } }
+                                ) { item ->
+                                    ModelTestItemCard(
+                                        item = item,
+                                        subjectColor = subjectColor,
+                                        onClick = {
+                                            viewModel.selectLesson(item)
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // Classes List
+                            if (uiState.subjectLiveClasses.isEmpty()) {
+                                item {
+                                    EmptyStateCard(message = "এই বিষয়ে কোনো ক্লাস পাওয়া যায়নি")
+                                }
+                            } else {
+                                items(
+                                    items = uiState.subjectLiveClasses,
+                                    key = { it.id.ifBlank { it.content_id ?: it.title ?: "" } }
+                                ) { item ->
+                                    ClassItemCard(
+                                        item = item,
+                                        subjectColor = subjectColor,
+                                        onPlayClick = {
+                                            viewModel.selectLesson(item)
+                                            val url = item.resolvedVideoUrl ?: ""
+                                            val title = item.title ?: "ক্লাস"
+                                            if (url.isNotBlank()) {
+                                                onPlayVideo(url, title, subjectTitle, subjectColorHex ?: "#0072EC", item.isLive)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // ARCHITECTURE 2: Academic Chapters Hierarchy Mode
+                // ==========================================
                 else -> {
                     LazyColumn(
                         contentPadding = PaddingValues(16.dp),
@@ -316,35 +466,7 @@ fun SubjectChaptersScreen(
 
                         if (uiState.chapters.isEmpty()) {
                             item {
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Inbox,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                            modifier = Modifier.size(44.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = "এই কোয়ার্টারে কোনো অধ্যায় অন্তর্ভুক্ত নেই",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
+                                EmptyStateCard(message = "এই কোয়ার্টারে কোনো অধ্যায় অন্তর্ভুক্ত নেই")
                             }
                         } else {
                             items(
@@ -376,6 +498,307 @@ fun SubjectChaptersScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun EmptyStateCard(message: String) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Default.Inbox,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(44.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = message,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun ModelTestItemCard(
+    item: StudentLessonItem,
+    subjectColor: Color,
+    onClick: () -> Unit
+) {
+    val categoryText = item.model_test?.exam_category?.ifBlank { null }
+        ?: item.model_test?.type?.ifBlank { null }
+        ?: "এডমিশন টেস্ট"
+
+    val activityState = item.user_activity_state?.uppercase() ?: ""
+    val (statusLabel, statusColor, statusBg) = when {
+        activityState == "MISSED" -> Triple("মিসড", Color(0xFFEF4444), Color(0xFFFEE2E2))
+        activityState == "LIVE" -> Triple("লাইভ", Color(0xFF10B981), Color(0xFFD1FAE5))
+        activityState == "UPCOMING" -> Triple("আসন্ন", Color(0xFF3B82F6), Color(0xFFDBEAFE))
+        activityState == "COMPLETED" || activityState == "ATTENDED" -> Triple("সম্পন্ন", Color(0xFF059669), Color(0xFFD1FAE5))
+        else -> Triple("মিসড", Color(0xFFEF4444), Color(0xFFFEE2E2))
+    }
+
+    val dateFormatted = remember(item.start_time) {
+        formatIsoToBengaliDate(item.start_time)
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFEEF2FF),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Assignment,
+                        contentDescription = null,
+                        tint = Color(0xFF4F46E5),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                // Category & Status Badges
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFFCE7F3)
+                    ) {
+                        Text(
+                            text = categoryText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFDB2777),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = statusBg
+                    ) {
+                        Text(
+                            text = statusLabel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Title
+                Text(
+                    text = item.title ?: "মডেল টেস্ট",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Date
+                if (dateFormatted.isNotBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Event,
+                            contentDescription = null,
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = dateFormatted,
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClassItemCard(
+    item: StudentLessonItem,
+    subjectColor: Color,
+    onPlayClick: () -> Unit
+) {
+    val classTypeLabel = item.live_class?.type?.ifBlank { null }
+        ?: item.content_type?.ifBlank { null }
+        ?: "ওরিয়েন্টেশন ক্লাস"
+
+    val activityState = item.user_activity_state?.uppercase() ?: ""
+    val (statusLabel, statusColor, statusBg) = when {
+        activityState == "MISSED" -> Triple("মিসড", Color(0xFFEF4444), Color(0xFFFEE2E2))
+        activityState == "LIVE" -> Triple("লাইভ", Color(0xFF10B981), Color(0xFFD1FAE5))
+        activityState == "UPCOMING" -> Triple("আসন্ন", Color(0xFF3B82F6), Color(0xFFDBEAFE))
+        activityState == "COMPLETED" || activityState == "ATTENDED" -> Triple("সম্পন্ন", Color(0xFF059669), Color(0xFFD1FAE5))
+        else -> Triple("মিসড", Color(0xFFEF4444), Color(0xFFFEE2E2))
+    }
+
+    val dateFormatted = remember(item.start_time) {
+        formatIsoToBengaliDate(item.start_time)
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onPlayClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Class / Teacher Icon
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFEFF6FF),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.OndemandVideo,
+                        contentDescription = null,
+                        tint = Color(0xFF2563EB),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                // Class Type & Status Badges
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF1F5F9)
+                    ) {
+                        Text(
+                            text = classTypeLabel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF475569),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = statusBg
+                    ) {
+                        Text(
+                            text = statusLabel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Title
+                Text(
+                    text = item.title ?: "ক্লাস",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Date
+                if (dateFormatted.isNotBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Event,
+                            contentDescription = null,
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = dateFormatted,
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatIsoToBengaliDate(isoString: String?): String {
+    if (isoString.isNullOrBlank()) return ""
+    return try {
+        val ms = com.example.api.parseIsoToDhakaMillis(isoString) ?: return ""
+        val sdf = SimpleDateFormat("dd MMM yyyy", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Dhaka")
+        }
+        val formatted = sdf.format(Date(ms))
+        toBengaliDigits(formatted)
+    } catch (_: Exception) {
+        ""
     }
 }
 
@@ -557,7 +980,7 @@ fun ChapterCard(
                                         tint = Color(0xFF10B981),
                                         modifier = Modifier.size(11.dp)
                                     )
-                                     Text(
+                                    Text(
                                         text = "পড়ানো শেষ",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
