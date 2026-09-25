@@ -91,6 +91,7 @@ object Routes {
     const val PRACTICE_QUIZ_RESULT = "practice_quiz_result/{sessionId}"
     const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
     const val NOTIFICATION_SETTINGS = "notification_settings"
+    const val HEADER_WALLPAPER_SETTINGS = "header_wallpaper_settings"
     const val ANIMATED_LESSON_CHAPTERS = "animated_lesson_chapters/{subjectId}?title={title}&color={color}&programId={programId}&phaseId={phaseId}"
     const val ANIMATED_LESSON_LIST = "animated_lesson_list/{chapterId}?chapterName={chapterName}&subjectColor={subjectColor}&fromChapterPage={fromChapterPage}"
     const val ANIMATED_LESSON_PLAYER = "animated_lesson_player?url={url}&title={title}"
@@ -449,11 +450,23 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToNotification = {
                     navController.navigate(Routes.NOTIFICATION_SETTINGS)
                 },
+                onNavigateToHeaderWallpaper = {
+                    navController.navigate(Routes.HEADER_WALLPAPER_SETTINGS)
+                },
                 onLogout = {
                     authViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        animatedComposable(Routes.HEADER_WALLPAPER_SETTINGS, anim = NavAnim.forward) {
+            HeaderWallpaperSettingsScreen(
+                sessionManager = sessionManager,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }

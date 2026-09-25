@@ -50,6 +50,7 @@ fun MainContainerScreen(
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit = { _, _, _, _, _ -> },
     onNavigateToNotificationHistory: () -> Unit = {},
     onNavigateToNotification: () -> Unit = {},
+    onNavigateToHeaderWallpaper: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -171,6 +172,7 @@ fun MainContainerScreen(
                         onNavigateToDownloads = { selectedIndex = 2 },
                         onNavigateToReportCard = { onNavigateToReportCard(null, null, null) },
                         onNavigateToNotification = onNavigateToNotification,
+                        onNavigateToHeaderWallpaper = onNavigateToHeaderWallpaper,
                         onLogout = onLogout
                     )
                 }

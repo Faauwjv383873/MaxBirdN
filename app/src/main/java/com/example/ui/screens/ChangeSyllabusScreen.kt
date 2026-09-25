@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -60,7 +61,8 @@ fun ChangeSyllabusScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
@@ -90,7 +92,7 @@ fun ChangeSyllabusScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // FIX #7: Confirmation-এ summary card
+                // Summary card
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -102,7 +104,7 @@ fun ChangeSyllabusScreen(
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "নির্বাচিত",
+                            text = "নির্বাচিত বিবরণ",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -180,7 +182,7 @@ fun ChangeSyllabusScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -212,14 +214,15 @@ fun ChangeSyllabusScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(elevation = 8.dp),
+                    .shadow(elevation = 12.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
+                tonalElevation = 4.dp
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .navigationBarsPadding() // CRITICAL: ensures full visibility above system navigation bar
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Button(
                         onClick = { viewModel.showConfirmationDialog() },
@@ -241,11 +244,21 @@ fun ChangeSyllabusScreen(
                                 strokeWidth = 2.5.dp
                             )
                         } else {
-                            Text(
-                                text = "এগিয়ে যাও",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "এগিয়ে যাও",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -259,8 +272,8 @@ fun ChangeSyllabusScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             // Header Banner
             Surface(
@@ -270,16 +283,24 @@ fun ChangeSyllabusScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.School,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                     Column {
                         Text(
                             text = "তোমার শ্রেণি নির্বাচন করো",
@@ -289,7 +310,7 @@ fun ChangeSyllabusScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "সঠিক শ্রেণি সিলেক্ট করলে তোমার জন্য নির্দিষ্ট কোর্স ও লেসন সাজানো হবে।",
+                            text = "সঠিক শ্রেণি নির্বাচন করলে তোমার জন্য নির্দিষ্ট কোর্স ও লেসন সাজানো হবে।",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
@@ -302,7 +323,7 @@ fun ChangeSyllabusScreen(
             uiState.errorMessage?.let { err ->
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -324,11 +345,11 @@ fun ChangeSyllabusScreen(
                 }
             }
 
-            // ===== 1. Class =====
+            // ===== 1. Class Section =====
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "শ্রেণি",
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -366,7 +387,7 @@ fun ChangeSyllabusScreen(
                 }
             }
 
-            // ===== 2. Group =====
+            // ===== 2. Group Section =====
             if (uiState.isGroupRequiredForSelectedClass) {
                 val groups = uiState.selectedClass?.groups
                     ?.takeIf { it.isNotEmpty() }
@@ -375,7 +396,7 @@ fun ChangeSyllabusScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = "বিভাগ / গ্রুপ",
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -404,7 +425,7 @@ fun ChangeSyllabusScreen(
                 }
             }
 
-            // ===== 3. Batch =====
+            // ===== 3. Batch Section =====
             if (uiState.isLoadingBatches) {
                 Box(
                     modifier = Modifier
@@ -432,12 +453,12 @@ fun ChangeSyllabusScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = "পরীক্ষার সাল / ব্যাচ",
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    // 2 columns — কারণ label যেমন "New C11 Batch" লম্বা
+                    // 2 columns
                     val chunkedBatches = remember(uiState.batchOptions) {
                         uiState.batchOptions.chunked(2)
                     }
@@ -463,7 +484,7 @@ fun ChangeSyllabusScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
@@ -529,64 +550,68 @@ private fun ClassSelectionCard(
                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             }
         ),
-        shadowElevation = if (isSelected) 4.dp else 1.dp
+        shadowElevation = if (isSelected) 3.dp else 1.dp
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(12.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                // FIX #4: বাংলা ordinal নাম (Settings-এর সাথে consistent)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
                 Text(
                     text = classItem.bengaliClassName(),
-                    fontSize = 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 14.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                     color = if (isSelected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
 
-                val subName = classItem.displaySubtitle
-                if (subName.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = subName,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                if (isSelected) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
                     )
-                }
-
-                if (isCurrent) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.tertiaryContainer
-                    ) {
-                        Text(
-                            text = "বর্তমান",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
                 }
             }
 
-            if (isSelected) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+            val subName = classItem.displaySubtitle
+            if (subName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subName,
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+            } else {
+                Spacer(modifier = Modifier.height(2.dp))
+            }
+
+            if (isCurrent) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer
+                ) {
+                    Text(
+                        text = "বর্তমান",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
     }
@@ -613,7 +638,8 @@ private fun GroupChoiceChip(
             width = 1.dp,
             color = if (isSelected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-        )
+        ),
+        shadowElevation = if (isSelected) 2.dp else 0.dp
     ) {
         Box(
             modifier = Modifier
@@ -623,11 +649,11 @@ private fun GroupChoiceChip(
         ) {
             Text(
                 text = group.displayNameBn,
-                fontSize = 13.sp,
+                fontSize = 13.5.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                 color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -635,9 +661,7 @@ private fun GroupChoiceChip(
 }
 
 /**
- * FIX #8: Batch chip-এ year + label দুটোই দেখায়।
- * Real API example: { year: 2027, label: "New C11 Batch" }
- *                      → "২০২৭" / "New C11 Batch"
+ * Batch chip displaying Year + Label in clean vertical arrangement
  */
 @Composable
 private fun BatchChoiceChip(
@@ -660,7 +684,8 @@ private fun BatchChoiceChip(
             width = 1.dp,
             color = if (isSelected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-        )
+        ),
+        shadowElevation = if (isSelected) 2.dp else 0.dp
     ) {
         Column(
             modifier = Modifier
@@ -682,13 +707,13 @@ private fun BatchChoiceChip(
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = label,
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     color = if (isSelected) Color.White.copy(alpha = 0.9f)
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 13.sp
+                    lineHeight = 14.sp
                 )
             }
         }

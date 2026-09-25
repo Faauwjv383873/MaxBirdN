@@ -63,6 +63,7 @@ fun SettingsScreen(
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToReportCard: () -> Unit = {},
     onNavigateToNotification: () -> Unit = {},
+    onNavigateToHeaderWallpaper: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -339,6 +340,19 @@ fun SettingsScreen(
 
             // App Preferences & Theme Section
             SettingsSection(title = "অ্যাপ প্রেফারেন্স ও নোটিফিকেশন") {
+                // হেডার ও লাইভ ওয়ালপেপার
+                SettingsRowItem(
+                    icon = Icons.Default.Wallpaper,
+                    iconTint = Color(0xFFEC4899),
+                    iconBg = Color(0xFFFCE7F3),
+                    title = "হেডার ও লাইভ ওয়ালপেপার",
+                    subtitle = "হোম পেজের ব্যাকগ্রাউন্ড থিম ও নিজস্ব ওয়ালপেপার পরিবর্তন",
+                    badge = "থিম",
+                    onClick = onNavigateToHeaderWallpaper
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
                 SettingsRowItem(
                     icon = Icons.Default.NotificationsActive,
                     iconTint = Color(0xFFD97706),

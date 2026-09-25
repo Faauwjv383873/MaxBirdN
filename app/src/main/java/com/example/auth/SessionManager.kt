@@ -227,6 +227,36 @@ class SessionManager(context: Context) {
         _themeModeFlow.value = mode
     }
 
+    // Header Wallpaper & Live Theme Management
+    private val _headerWallpaperFlow = kotlinx.coroutines.flow.MutableStateFlow(getHeaderWallpaperConfig())
+    val headerWallpaperFlow: kotlinx.coroutines.flow.StateFlow<com.example.ui.theme.HeaderWallpaperConfig> = _headerWallpaperFlow
+
+    fun getHeaderWallpaperConfig(): com.example.ui.theme.HeaderWallpaperConfig {
+        val type = sharedPreferences.getString("header_wallpaper_type", com.example.ui.theme.HeaderWallpaperConfig.PRESET_COSMIC) ?: com.example.ui.theme.HeaderWallpaperConfig.PRESET_COSMIC
+        val uri = sharedPreferences.getString("header_wallpaper_custom_uri", null)
+        val title = sharedPreferences.getString("header_wallpaper_custom_title", null)
+        val anim = sharedPreferences.getBoolean("header_wallpaper_anim_enabled", true)
+        val dim = sharedPreferences.getFloat("header_wallpaper_dim", 0.25f)
+        return com.example.ui.theme.HeaderWallpaperConfig(
+            type = type,
+            customUri = uri,
+            customTitle = title,
+            isAnimationEnabled = anim,
+            dimOpacity = dim
+        )
+    }
+
+    fun setHeaderWallpaperConfig(config: com.example.ui.theme.HeaderWallpaperConfig) {
+        sharedPreferences.edit()
+            .putString("header_wallpaper_type", config.type)
+            .putString("header_wallpaper_custom_uri", config.customUri)
+            .putString("header_wallpaper_custom_title", config.customTitle)
+            .putBoolean("header_wallpaper_anim_enabled", config.isAnimationEnabled)
+            .putFloat("header_wallpaper_dim", config.dimOpacity)
+            .apply()
+        _headerWallpaperFlow.value = config
+    }
+
     // Class Notification Lead Time (Default 25 minutes)
     private val _classNotificationLeadTimeFlow = kotlinx.coroutines.flow.MutableStateFlow(getClassNotificationLeadTimeMinutes())
     val classNotificationLeadTimeFlow: kotlinx.coroutines.flow.StateFlow<Int> = _classNotificationLeadTimeFlow

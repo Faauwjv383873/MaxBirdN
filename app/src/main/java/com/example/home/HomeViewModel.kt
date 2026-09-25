@@ -89,6 +89,7 @@ class HomeViewModel(
         )
     )
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    val wallpaperConfigFlow: StateFlow<com.example.ui.theme.HeaderWallpaperConfig> = sessionManager.headerWallpaperFlow
 
     init {
         loadData()
