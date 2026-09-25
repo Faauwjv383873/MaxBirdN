@@ -155,12 +155,26 @@ class CourseViewModel(
                 )
             }
 
+            val userId = sessionManager.getUserId() ?: ""
             val isFreeCourse = program.is_free == true
-            val result = if (isFreeCourse) {
+            
+            var result = if (isFreeCourse) {
                 repository.enrollInFreeProgram(program.id)
             } else {
-                val userId = sessionManager.getUserId() ?: ""
                 repository.generateFreeTrialEnrolment(program.id, userId)
+            }
+
+            // Fallback: If free enrollment failed with "not free", try trial enrolment
+            if (result.isFailure && isFreeCourse) {
+                val errMsg = result.exceptionOrNull()?.message ?: ""
+                if (errMsg.contains("not free", ignoreCase = true) || errMsg.contains("400", ignoreCase = true)) {
+                    result = repository.generateFreeTrialEnrolment(program.id, userId)
+                }
+            } else if (result.isFailure && !isFreeCourse) {
+                val errMsg = result.exceptionOrNull()?.message ?: ""
+                if (errMsg.contains("free", ignoreCase = true) || errMsg.contains("trial", ignoreCase = true) || errMsg.contains("400", ignoreCase = true)) {
+                    result = repository.enrollInFreeProgram(program.id)
+                }
             }
 
             result.onSuccess { successMsg ->
