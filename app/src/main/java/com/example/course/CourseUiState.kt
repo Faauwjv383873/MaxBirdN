@@ -23,6 +23,10 @@ data class CourseUiState(
     val otherPrograms: List<OtherProgram> = emptyList(),
     val isProgramsLoading: Boolean = false,
     val selectedCourseProgram: EnrolledProgram? = null,
+    val enrollingProgramId: String? = null,
+    val enrollmentSuccessMessage: String? = null,
+    val enrollmentErrorMessage: String? = null,
+    val pendingEnrollmentProgram: OtherProgram? = null,
 
     // Active Program Info
     val programId: String = "",

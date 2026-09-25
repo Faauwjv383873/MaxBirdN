@@ -754,10 +754,10 @@ fun LessonDetailPlayerScreen(
                     detectTapGestures(
                         onDoubleTap = { offset ->
                             if (offset.x < componentWidth * 0.4f) {
-                                val target = (exoPlayer.currentPosition - 5000L).coerceAtLeast(0L)
+                                val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
                                 exoPlayer.seekTo(target)
                             } else if (offset.x > componentWidth * 0.6f) {
-                                val target = (exoPlayer.currentPosition + 5000L).coerceAtMost(totalDuration)
+                                val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(totalDuration)
                                 exoPlayer.seekTo(target)
                             } else {
                                 if (isPlaying) exoPlayer.pause() else exoPlayer.play()

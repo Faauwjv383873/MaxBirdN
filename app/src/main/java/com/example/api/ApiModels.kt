@@ -1166,6 +1166,42 @@ data class GraphQlError(
 // 8.1. Join Live Class Mutation Models
 // ==========================================
 @JsonClass(generateAdapter = true)
+data class AvailTrialResponse(
+    val data: AvailTrialData? = null,
+    val errors: List<GraphQlError>? = null,
+    val message: String? = null,
+    val code: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AvailTrialData(
+    val generateFreeTrialEnrolment: GenerateFreeTrialEnrolmentResult? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GenerateFreeTrialEnrolmentResult(
+    val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class EnrollInFreeProgramResponse(
+    val data: EnrollInFreeProgramData? = null,
+    val errors: List<GraphQlError>? = null,
+    val message: String? = null,
+    val code: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class EnrollInFreeProgramData(
+    val enrollInFreeProgram: EnrollInFreeProgramResult? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class EnrollInFreeProgramResult(
+    val message: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class ChangeSyllabusResponse(
     val data: ChangeSyllabusData? = null,
     val errors: List<GraphQlError>? = null

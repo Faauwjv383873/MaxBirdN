@@ -75,7 +75,26 @@ class SessionManager(context: Context) {
     }
 
     fun getAccessToken(): String? = sharedPreferences.getString("access_token", null)
-    fun getUserId(): String? = sharedPreferences.getString("user_id", null)
+    fun getUserId(): String? {
+        val stored = sharedPreferences.getString("user_id", null)
+        if (!stored.isNullOrBlank()) return stored
+        val token = getAccessToken()
+        if (!token.isNullOrBlank()) {
+            try {
+                val parts = token.split(".")
+                if (parts.size >= 2) {
+                    val decoded = String(android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP))
+                    val json = org.json.JSONObject(decoded)
+                    val aud = json.optString("aud", "")
+                    if (aud.isNotBlank()) {
+                        sharedPreferences.edit().putString("user_id", aud).apply()
+                        return aud
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return null
+    }
 
     fun setFcmToken(token: String) {
         sharedPreferences.edit()

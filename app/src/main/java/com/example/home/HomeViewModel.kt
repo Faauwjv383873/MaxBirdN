@@ -422,9 +422,7 @@ class HomeViewModel(
             val enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
             val others = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
 
-            // সার্ভার থেকে আসা other_programs কেও enrolled হিসেবে প্রমোট করে সব আনলক রাখা
-            val promotedOthers = others.map { it.toEnrolledProgram() }
-            val allPrograms = (enrolled + promotedOthers).distinctBy { it.id }
+            val allPrograms = if (enrolled.isNotEmpty()) enrolled else others.map { it.toEnrolledProgram() }
 
             // একটিভ কোর্স নির্ধারণ (ইউজারের সেভ করা কোর্স অথবা প্রথমটি)
             val savedProgramId = sessionManager.getActiveProgramId()

@@ -107,6 +107,89 @@ class CourseRepository(
         return getAcademicProgramByEnrollment(null, className, null, "BD")
     }
 
+    suspend fun generateFreeTrialEnrolment(programId: String, userId: String): Result<String> {
+        return try {
+            val query = GraphQlQuery(
+                operationName = "AvailTrial",
+                query = """
+                    mutation AvailTrial(${'$'}program_id: String = "" , ${'$'}user_id: String = "" ) {
+                      generateFreeTrialEnrolment(program_id: ${'$'}program_id, user_id: ${'$'}user_id) {
+                        message
+                      }
+                    }
+                """.trimIndent(),
+                variables = mapOf(
+                    "program_id" to programId,
+                    "user_id" to userId
+                )
+            )
+            val response = apiService.availTrial(query)
+            if (!response.errors.isNullOrEmpty()) {
+                val errMsg = response.errors.mapNotNull { it.message }.joinToString(", ")
+                Result.failure(Exception(errMsg.ifBlank { "সার্ভার থেকে ত্রুটি এসেছে" }))
+            } else {
+                val msg = response.data?.generateFreeTrialEnrolment?.message ?: response.message ?: "success"
+                Result.success(msg)
+            }
+        } catch (e: retrofit2.HttpException) {
+            val errorJson = try { e.response()?.errorBody()?.string() } catch (_: Exception) { null }
+            if (errorJson != null && (errorJson.contains("already enrolled", ignoreCase = true) || errorJson.contains("success", ignoreCase = true))) {
+                Result.success("success")
+            } else {
+                val parsedMsg = try {
+                    val obj = org.json.JSONObject(errorJson ?: "")
+                    obj.optString("message", e.message())
+                } catch (_: Exception) {
+                    e.message()
+                }
+                Result.failure(Exception(parsedMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun enrollInFreeProgram(programId: String): Result<String> {
+        return try {
+            val query = GraphQlQuery(
+                operationName = "EnrollInFreeProgram",
+                query = """
+                    mutation EnrollInFreeProgram(${'$'}academic_program_id: String!) {
+                      enrollInFreeProgram(academic_program_id: ${'$'}academic_program_id) {
+                        message
+                      }
+                    }
+                """.trimIndent(),
+                variables = mapOf(
+                    "academic_program_id" to programId
+                )
+            )
+            val response = apiService.enrollInFreeProgram(query)
+            if (!response.errors.isNullOrEmpty()) {
+                val errMsg = response.errors.mapNotNull { it.message }.joinToString(", ")
+                Result.failure(Exception(errMsg.ifBlank { "সার্ভার থেকে ত্রুটি এসেছে" }))
+            } else {
+                val msg = response.data?.enrollInFreeProgram?.message ?: response.message ?: "success"
+                Result.success(msg)
+            }
+        } catch (e: retrofit2.HttpException) {
+            val errorJson = try { e.response()?.errorBody()?.string() } catch (_: Exception) { null }
+            if (errorJson != null && errorJson.contains("already enrolled", ignoreCase = true)) {
+                Result.success("user already enrolled in this academic program")
+            } else {
+                val parsedMsg = try {
+                    val obj = org.json.JSONObject(errorJson ?: "")
+                    obj.optString("message", e.message())
+                } catch (_: Exception) {
+                    e.message()
+                }
+                Result.failure(Exception(parsedMsg))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun getProgramPhases(programId: String): List<PhaseItem> {
         val phaseQuery = GraphQlQuery(
             operationName = "ProgramPhasesByStudent",

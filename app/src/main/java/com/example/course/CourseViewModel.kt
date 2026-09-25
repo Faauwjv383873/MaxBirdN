@@ -112,16 +112,12 @@ class CourseViewModel(
                 val enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
                 val otherAll = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
 
-                // সার্ভার থেকে আসা other_programs কেও enrolled হিসেবে প্রমোট করে সব কোর্স আনলক রাখা
-                val promotedEnrolled = otherAll.map { it.toEnrolledProgram() }
-                val allEnrolled = (enrolled + promotedEnrolled).distinctBy { it.id }
-
                 val freeList = otherAll.filter { it.is_free == true }
                 val paidOtherList = otherAll.filter { it.is_free != true }
 
                 _uiState.update {
                     it.copy(
-                        enrolledPrograms = allEnrolled,
+                        enrolledPrograms = enrolled,
                         freePrograms = freeList,
                         otherPrograms = paidOtherList,
                         isProgramsLoading = false
@@ -131,11 +127,11 @@ class CourseViewModel(
                 _uiState.update { current ->
                     val userClassName = sessionManager.getUserClassName() ?: "C11"
                     val group = sessionManager.getUserGroup() ?: "Humanities"
-                    if (current.enrolledPrograms.isEmpty()) {
+                    if (current.enrolledPrograms.isEmpty() && current.freePrograms.isEmpty() && current.otherPrograms.isEmpty()) {
                         current.copy(
                             enrolledPrograms = CourseFallbackDataProvider.getFallbackEnrolledPrograms(userClassName, group),
-                            freePrograms = if (current.freePrograms.isEmpty()) CourseFallbackDataProvider.getFallbackFreePrograms(userClassName, group) else current.freePrograms,
-                            otherPrograms = if (current.otherPrograms.isEmpty()) CourseFallbackDataProvider.getFallbackOtherPrograms(userClassName, group) else current.otherPrograms,
+                            freePrograms = CourseFallbackDataProvider.getFallbackFreePrograms(userClassName, group),
+                            otherPrograms = CourseFallbackDataProvider.getFallbackOtherPrograms(userClassName, group),
                             isProgramsLoading = false
                         )
                     } else {
@@ -143,6 +139,103 @@ class CourseViewModel(
                     }
                 }
             }
+        }
+    }
+
+    fun enrollInCourse(
+        program: OtherProgram,
+        onEnrollmentSuccess: ((EnrolledProgram) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    enrollingProgramId = program.id,
+                    enrollmentErrorMessage = null
+                )
+            }
+
+            val isFreeCourse = program.is_free == true
+            val result = if (isFreeCourse) {
+                repository.enrollInFreeProgram(program.id)
+            } else {
+                val userId = sessionManager.getUserId() ?: ""
+                repository.generateFreeTrialEnrolment(program.id, userId)
+            }
+
+            result.onSuccess { successMsg ->
+                // Refresh programs from server to fetch the latest server-generated enrollment record
+                try {
+                    val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+                    val userClassName = sessionManager.getUserClassName() ?: "C11"
+                    val group = sessionManager.getUserGroup() ?: "Humanities"
+                    val vendor = sessionManager.getUserVendor() ?: "BD"
+
+                    val response = repository.getAcademicProgramByEnrollment(
+                        batchId = batchId,
+                        className = userClassName,
+                        group = group,
+                        vendor = vendor
+                    )
+                    val enrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
+                    val otherAll = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
+                    val freeList = otherAll.filter { it.is_free == true }
+                    val paidOtherList = otherAll.filter { it.is_free != true }
+
+                    val newlyEnrolled = enrolled.find { it.id == program.id } ?: program.toEnrolledProgram()
+
+                    _uiState.update {
+                        it.copy(
+                            enrolledPrograms = if (enrolled.isNotEmpty()) enrolled else (it.enrolledPrograms + newlyEnrolled).distinctBy { p -> p.id },
+                            freePrograms = freeList,
+                            otherPrograms = paidOtherList,
+                            enrollingProgramId = null,
+                            pendingEnrollmentProgram = null,
+                            enrollmentSuccessMessage = if (isFreeCourse) "ফ্রি কোর্সে সফলভাবে ভর্তি হয়েছে!" else "৩ দিনের ফ্রি ট্রায়ালে সফলভাবে ভর্তি হয়েছে!",
+                            enrollmentErrorMessage = null
+                        )
+                    }
+
+                    // Open the course
+                    openCourse(newlyEnrolled)
+                    onEnrollmentSuccess?.invoke(newlyEnrolled)
+                } catch (_: Exception) {
+                    val fallbackEnrolled = program.toEnrolledProgram()
+                    _uiState.update {
+                        it.copy(
+                            enrolledPrograms = (it.enrolledPrograms + fallbackEnrolled).distinctBy { p -> p.id },
+                            enrollingProgramId = null,
+                            pendingEnrollmentProgram = null,
+                            enrollmentSuccessMessage = if (isFreeCourse) "ফ্রি কোর্সে সফলভাবে ভর্তি হয়েছে!" else "৩ দিনের ফ্রি ট্রায়ালে সফলভাবে ভর্তি হয়েছে!",
+                            enrollmentErrorMessage = null
+                        )
+                    }
+                    openCourse(fallbackEnrolled)
+                    onEnrollmentSuccess?.invoke(fallbackEnrolled)
+                }
+            }.onFailure { error ->
+                val reason = error.localizedMessage ?: "সার্ভার রেসপন্স দেয়নি"
+                _uiState.update {
+                    it.copy(
+                        enrollingProgramId = null,
+                        enrollmentErrorMessage = "ভর্তি হতে সমস্যা হয়েছে: $reason"
+                    )
+                }
+            }
+        }
+    }
+
+    fun showEnrollmentPrompt(program: OtherProgram) {
+        _uiState.update { it.copy(pendingEnrollmentProgram = program) }
+    }
+
+    fun dismissEnrollmentDialogs() {
+        _uiState.update {
+            it.copy(
+                pendingEnrollmentProgram = null,
+                enrollmentSuccessMessage = null,
+                enrollmentErrorMessage = null,
+                enrollingProgramId = null
+            )
         }
     }
 

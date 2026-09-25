@@ -16,6 +16,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +48,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.LocalPictureInPictureMode
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
 import com.example.player.PlayerClassType
@@ -57,6 +60,8 @@ import com.example.ui.components.PlaybackSpeedDialog
 import com.example.ui.components.PlayerControlsOverlay
 import com.example.ui.components.VideoDownloadQualityDialog
 import com.example.ui.components.VideoQualityDialog
+import com.example.util.PipHelper
+import com.example.util.SetupPipController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -433,17 +438,63 @@ fun VideoPlayerScreen(
         }
     }
 
-    fun enterPipMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-                activity?.enterPictureInPictureMode(params)
-            } catch (_: Exception) {
-                Toast.makeText(context, "PiP মোড এই ডিভাইসে সমর্থিত নয়", Toast.LENGTH_SHORT).show()
+    val isPipMode = LocalPictureInPictureMode.current
+
+    SetupPipController(
+        player = exoPlayer,
+        isPlaying = isPlaying,
+        aspectRatio = Rational(16, 9),
+        onPipEntered = {
+            if (isFullscreen) {
+                isFullscreen = false
             }
         }
+    )
+
+    fun enterPipMode() {
+        val act = activity ?: (context as? Activity)
+        PipHelper.enterPipMode(act, isPlaying, Rational(16, 9))
+    }
+
+    // Picture In Picture View Mode (Compact floating window with gestures)
+    if (isPipMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .pointerInput(totalDuration) {
+                    val componentWidth = size.width
+                    detectTapGestures(
+                        onDoubleTap = { offset ->
+                            if (offset.x < componentWidth * 0.4f) {
+                                val target = (exoPlayer.currentPosition - 10000L).coerceAtLeast(0L)
+                                exoPlayer.seekTo(target)
+                            } else if (offset.x > componentWidth * 0.6f) {
+                                val target = (exoPlayer.currentPosition + 10000L).coerceAtMost(totalDuration)
+                                exoPlayer.seekTo(target)
+                            } else {
+                                if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            }
+                        }
+                    )
+                }
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
     }
 
     Box(
