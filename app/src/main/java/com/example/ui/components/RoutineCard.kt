@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -355,7 +356,7 @@ fun WeeklyRoutineSection(
 
                 else -> {
                     LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(end = 16.dp)
                     ) {
                         items(selectedDay.lessons) { lesson ->
@@ -476,7 +477,9 @@ fun WeeklyRoutineSection(
 }
 
 /**
- * Routine Card — Modern, attractive, and polished M3 design with rich status cues & gradients
+ * Routine Card — Compact, premium M3 design with an adaptive (screen-relative) width,
+ * so 1.5–2 cards are always visible instead of one oversized card filling the whole screen.
+ * All data bindings, states (live/exam) and click behavior are unchanged from before.
  */
 @Composable
 fun ShikhoRoutineCard(
@@ -550,221 +553,221 @@ fun ShikhoRoutineCard(
         else -> Brush.linearGradient(listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)))
     }
 
+    // ADAPTIVE WIDTH (not hardcoded): sized as a fraction of the actual device screen width,
+    // clamped to a sensible range, so this always leaves the next card peeking on any device.
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp.dp
+    val cardWidth = (screenWidthDp * 0.6f).coerceIn(188.dp, 238.dp)
+
     Surface(
         modifier = modifier
-            .width(275.dp)
-            .height(160.dp)
+            .width(cardWidth)
+            .height(128.dp)
             .graphicsLayer { scaleX = cardScale; scaleY = cardScale }
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(18.dp))
             .clickable(interactionSource = interaction, indication = null, onClick = handleCardClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(if (isLiveNow || isExamNow) 1.5.dp else 1.dp, cardBorderColor),
-        shadowElevation = if (isLiveNow || isExamNow) 4.dp else 1.5.dp
+        border = BorderStroke(if (isLiveNow || isExamNow) 1.4.dp else 1.dp, cardBorderColor),
+        shadowElevation = if (isLiveNow || isExamNow) 5.dp else 2.dp
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(cardBackgroundGradient)
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                // Left vertical accent bar with smooth rounded corners
-                Box(
-                    modifier = Modifier
-                        .width(5.dp)
-                        .fillMaxHeight()
-                        .background(
+            // Slim rounded top accent strip — replaces the old thick side bar,
+            // frees up width for content while keeping the same subject/status color cue
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(
+                        when {
+                            isLiveNow -> Brush.horizontalGradient(listOf(Color(0xFFEF4444), Color(0xFFF43F5E)))
+                            isExamNow -> Brush.horizontalGradient(listOf(Color(0xFFF59E0B), Color(0xFFD97706)))
+                            isExam -> Brush.horizontalGradient(listOf(Color(0xFFF59E0B), Color(0xFFFCD34D)))
+                            else -> Brush.horizontalGradient(listOf(subjectColors.textColor, subjectColors.textColor.copy(alpha = 0.4f)))
+                        }
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Header Badges
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Subject Tag
+                    Surface(
+                        shape = RoundedCornerShape(7.dp),
+                        color = subjectColors.backgroundColor.copy(alpha = 0.9f),
+                        border = BorderStroke(0.8.dp, subjectColors.textColor.copy(alpha = 0.25f)),
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        Text(
+                            text = subjectName,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = subjectColors.textColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Status / Exam / Live Badge
+                    Surface(
+                        shape = RoundedCornerShape(7.dp),
+                        color = when {
+                            isLiveNow -> Color(0xFFFEE2E2)
+                            isExamNow -> Color(0xFFFEF3C7)
+                            isExam -> Color(0xFFFFF7ED)
+                            else -> classTypeBadge.backgroundColor.copy(alpha = 0.9f)
+                        },
+                        border = BorderStroke(
+                            0.8.dp,
                             when {
-                                isLiveNow -> Brush.verticalGradient(listOf(Color(0xFFEF4444), Color(0xFFF43F5E)))
-                                isExamNow -> Brush.verticalGradient(listOf(Color(0xFFF59E0B), Color(0xFFD97706)))
-                                isExam -> Brush.verticalGradient(listOf(Color(0xFFF59E0B), Color(0xFFFCD34D)))
-                                else -> Brush.verticalGradient(listOf(subjectColors.textColor, subjectColors.textColor.copy(alpha = 0.4f)))
+                                isLiveNow -> Color(0xFFEF4444).copy(alpha = 0.3f)
+                                isExamNow || isExam -> Color(0xFFF59E0B).copy(alpha = 0.3f)
+                                else -> classTypeBadge.textColor.copy(alpha = 0.2f)
                             }
                         )
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // Header Badges
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Subject Tag
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = subjectColors.backgroundColor.copy(alpha = 0.85f),
-                            border = BorderStroke(0.8.dp, subjectColors.textColor.copy(alpha = 0.25f))
-                        ) {
-                            Text(
-                                text = subjectName,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = subjectColors.textColor,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // Status / Exam / Live Badge
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = when {
-                                isLiveNow -> Color(0xFFFEE2E2)
-                                isExamNow -> Color(0xFFFEF3C7)
-                                isExam -> Color(0xFFFFF7ED)
-                                else -> classTypeBadge.backgroundColor.copy(alpha = 0.9f)
-                            },
-                            border = BorderStroke(
-                                0.8.dp,
-                                when {
-                                    isLiveNow -> Color(0xFFEF4444).copy(alpha = 0.3f)
-                                    isExamNow || isExam -> Color(0xFFF59E0B).copy(alpha = 0.3f)
-                                    else -> classTypeBadge.textColor.copy(alpha = 0.2f)
-                                }
-                            )
-                        ) {
-                            when {
-                                isLiveNow -> {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.5.dp)
-                                                .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFEF4444))
-                                        )
-                                        Text(
-                                            "🔴 লাইভ চলছে",
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFDC2626)
-                                        )
-                                    }
-                                }
-                                isExamNow -> {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.5.dp)
-                                                .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFD97706))
-                                        )
-                                        Text(
-                                            "✍️ পরীক্ষা চলছে",
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFB45309)
-                                        )
-                                    }
-                                }
-                                isExam -> {
+                        when {
+                            isLiveNow -> {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEF4444))
+                                    )
                                     Text(
-                                        text = "✍️ পরীক্ষা",
-                                        fontSize = 10.5.sp,
+                                        "লাইভ",
+                                        fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFB45309),
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
+                                        color = Color(0xFFDC2626)
                                     )
                                 }
-                                else -> {
+                            }
+                            isExamNow -> {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .graphicsLayer { scaleX = liveDotScale; scaleY = liveDotScale }
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFD97706))
+                                    )
                                     Text(
-                                        text = classTypeBadge.label,
-                                        fontSize = 10.5.sp,
+                                        "পরীক্ষা চলছে",
+                                        fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = classTypeBadge.textColor,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
+                                        color = Color(0xFFB45309)
                                     )
                                 }
+                            }
+                            isExam -> {
+                                Text(
+                                    text = "পরীক্ষা",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB45309),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = classTypeBadge.label,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = classTypeBadge.textColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
                             }
                         }
                     }
+                }
 
-                    // Title
-                    Text(
-                        text = titleText,
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = 19.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp)
-                    )
+                // Title
+                Text(
+                    text = titleText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                    // Footer with Time & Interactive Indicator
+                // Footer with Time & Interactive Indicator
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(7.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AccessTime,
-                                    contentDescription = null,
-                                    tint = if (isLiveNow || isExamNow) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(12.5.dp)
-                                )
-                                Text(
-                                    text = timeString,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                if (durationString.isNotBlank()) {
-                                    Text(
-                                        text = "• $durationString",
-                                        fontSize = 10.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = null,
+                            tint = if (isLiveNow || isExamNow) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = if (durationString.isNotBlank()) "$timeString • $durationString" else timeString,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
 
-                        // Subtle action pill
-                        Surface(
-                            shape = CircleShape,
-                            color = when {
-                                isLiveNow -> Color(0xFFEF4444)
-                                isExamNow -> Color(0xFFF59E0B)
-                                isExam -> Color(0xFFF59E0B).copy(alpha = 0.15f)
-                                else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                            },
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = "Go",
-                                    tint = if (isLiveNow || isExamNow) Color.White else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Subtle action pill
+                    Surface(
+                        shape = CircleShape,
+                        color = when {
+                            isLiveNow -> Color(0xFFEF4444)
+                            isExamNow -> Color(0xFFF59E0B)
+                            isExam -> Color(0xFFF59E0B).copy(alpha = 0.15f)
+                            else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                        },
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "Go",
+                                tint = if (isLiveNow || isExamNow) Color.White else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(12.dp)
+                            )
                         }
                     }
                 }
@@ -795,4 +798,3 @@ fun calculateDurationText(startCal: Calendar?, endCal: Calendar?): String =
 
 fun sortRoutineLessons(lessons: List<StudentLessonItem>): List<StudentLessonItem> =
     com.example.utils.RoutineDateUtils.sortRoutineLessons(lessons)
-

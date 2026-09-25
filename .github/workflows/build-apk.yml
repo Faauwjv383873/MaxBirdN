@@ -8,19 +8,20 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: "Choose build target (Push automatically builds Debug & Release APKs)"
+        description: "Choose build target for manual run"
         required: true
-        default: "all"
+        default: "release"
         type: choice
         options:
-          - "debug"
           - "release"
+          - "debug"
+          - "aab"
           - "all"
 
 jobs:
   build:
     name: Build Android App
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: write
@@ -139,21 +140,31 @@ jobs:
           echo "KEY_ALIAS=$KEY_AL" >> $GITHUB_ENV
 
       # -----------------------------------------------------------
-      # 2. DEBUG APK (Auto on Push/PR, or manual 'debug' / 'all')
-      # -----------------------------------------------------------
-      - name: Build Debug APK
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'all' }}
-        run: ./gradlew assembleDebug --no-daemon -Djava.awt.headless=true --stacktrace
-
-      # -----------------------------------------------------------
-      # 3. RELEASE APK (Auto on Push, or manual 'release' / 'all')
+      # 2. RELEASE APK
+      #    Automatic on push; manual 'release' or 'all'
       # -----------------------------------------------------------
       - name: Build Release APK
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all' }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all')) }}
         run: ./gradlew assembleRelease --no-daemon -Djava.awt.headless=true --stacktrace
 
       # -----------------------------------------------------------
-      # 4. ORGANIZE & UPLOAD ARTIFACTS
+      # 3. DEBUG APK
+      #    Manual only: 'debug' or 'all'
+      # -----------------------------------------------------------
+      - name: Build Debug APK
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'all') }}
+        run: ./gradlew assembleDebug --no-daemon -Djava.awt.headless=true --stacktrace
+
+      # -----------------------------------------------------------
+      # 4. RELEASE AAB
+      #    Manual only: 'aab' or 'all'
+      # -----------------------------------------------------------
+      - name: Build Release AAB
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'all') }}
+        run: ./gradlew bundleRelease --no-daemon -Djava.awt.headless=true --stacktrace
+
+      # -----------------------------------------------------------
+      # 5. ORGANIZE & UPLOAD ARTIFACTS
       # -----------------------------------------------------------
       - name: Organize Artifacts
         run: |
@@ -163,6 +174,9 @@ jobs:
           fi
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
             cp app/build/outputs/apk/release/app-release.apk artifacts/MaxBird-Release.apk
+          fi
+          if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
+            cp app/build/outputs/bundle/release/app-release.aab artifacts/MaxBird-Release.aab
           fi
 
       - name: Upload Debug APK
@@ -183,6 +197,15 @@ jobs:
           compression-level: 0
           retention-days: 30
 
+      - name: Upload Release AAB
+        if: ${{ hashFiles('artifacts/MaxBird-Release.aab') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: MaxBird-Release-AAB
+          path: artifacts/MaxBird-Release.aab
+          compression-level: 0
+          retention-days: 30
+
       - name: Create or Update GitHub Release
         if: ${{ hashFiles('artifacts/MaxBird-Release.apk') != '' }}
         uses: softprops/action-gh-release@v3
@@ -194,7 +217,6 @@ jobs:
           prerelease: false
           files: |
             artifacts/MaxBird-Release.apk
-            artifacts/MaxBird-Debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -204,11 +226,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Target | File | Status |" >> $GITHUB_STEP_SUMMARY
           echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          if [ -f artifacts/MaxBird-Release.apk ]; then
+            echo "| Release APK | \`MaxBird-Release.apk\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
+          fi
           if [ -f artifacts/MaxBird-Debug.apk ]; then
             echo "| Debug APK | \`MaxBird-Debug.apk\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
           fi
-          if [ -f artifacts/MaxBird-Release.apk ]; then
-            echo "| Release APK | \`MaxBird-Release.apk\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
+          if [ -f artifacts/MaxBird-Release.aab ]; then
+            echo "| Release AAB | \`MaxBird-Release.aab\` | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Package Name:** \`com.maxbird.ff.app\`" >> $GITHUB_STEP_SUMMARY
