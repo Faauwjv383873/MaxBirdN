@@ -144,6 +144,7 @@ class CourseViewModel(
 
     fun enrollInCourse(
         program: OtherProgram,
+        context: android.content.Context? = null,
         onEnrollmentSuccess: ((EnrolledProgram) -> Unit)? = null
     ) {
         viewModelScope.launch {
@@ -163,6 +164,11 @@ class CourseViewModel(
             }
 
             result.onSuccess { successMsg ->
+                val feedbackText = if (isFreeCourse) "ফ্রি কোর্সে সফলভাবে ভর্তি হয়েছে!" else "৩ দিনের ফ্রি ট্রায়ালে সফলভাবে ভর্তি হয়েছে!"
+                if (context != null) {
+                    android.widget.Toast.makeText(context, feedbackText, android.widget.Toast.LENGTH_SHORT).show()
+                }
+
                 // Refresh programs from server to fetch the latest server-generated enrollment record
                 try {
                     val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
@@ -189,8 +195,7 @@ class CourseViewModel(
                             freePrograms = freeList,
                             otherPrograms = paidOtherList,
                             enrollingProgramId = null,
-                            pendingEnrollmentProgram = null,
-                            enrollmentSuccessMessage = if (isFreeCourse) "ফ্রি কোর্সে সফলভাবে ভর্তি হয়েছে!" else "৩ দিনের ফ্রি ট্রায়ালে সফলভাবে ভর্তি হয়েছে!",
+                            enrollmentSuccessMessage = feedbackText,
                             enrollmentErrorMessage = null
                         )
                     }
@@ -204,8 +209,7 @@ class CourseViewModel(
                         it.copy(
                             enrolledPrograms = (it.enrolledPrograms + fallbackEnrolled).distinctBy { p -> p.id },
                             enrollingProgramId = null,
-                            pendingEnrollmentProgram = null,
-                            enrollmentSuccessMessage = if (isFreeCourse) "ফ্রি কোর্সে সফলভাবে ভর্তি হয়েছে!" else "৩ দিনের ফ্রি ট্রায়ালে সফলভাবে ভর্তি হয়েছে!",
+                            enrollmentSuccessMessage = feedbackText,
                             enrollmentErrorMessage = null
                         )
                     }
@@ -214,28 +218,17 @@ class CourseViewModel(
                 }
             }.onFailure { error ->
                 val reason = error.localizedMessage ?: "সার্ভার রেসপন্স দেয়নি"
+                val errText = "ভর্তি হতে সমস্যা হয়েছে: $reason"
+                if (context != null) {
+                    android.widget.Toast.makeText(context, errText, android.widget.Toast.LENGTH_LONG).show()
+                }
                 _uiState.update {
                     it.copy(
                         enrollingProgramId = null,
-                        enrollmentErrorMessage = "ভর্তি হতে সমস্যা হয়েছে: $reason"
+                        enrollmentErrorMessage = errText
                     )
                 }
             }
-        }
-    }
-
-    fun showEnrollmentPrompt(program: OtherProgram) {
-        _uiState.update { it.copy(pendingEnrollmentProgram = program) }
-    }
-
-    fun dismissEnrollmentDialogs() {
-        _uiState.update {
-            it.copy(
-                pendingEnrollmentProgram = null,
-                enrollmentSuccessMessage = null,
-                enrollmentErrorMessage = null,
-                enrollingProgramId = null
-            )
         }
     }
 

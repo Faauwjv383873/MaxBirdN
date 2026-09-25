@@ -216,7 +216,7 @@ interface ShikhoApiService {
                 chain.proceed(reqBuilder.build())
             }
 
-            val responseLoggingInterceptor = Interceptor { chain ->
+            val enrolmentMockInterceptor = Interceptor { chain ->
                 val origRequest = chain.request()
                 val response = chain.proceed(origRequest)
                 if (!response.isSuccessful) {
@@ -225,6 +225,37 @@ interface ShikhoApiService {
                         android.util.Log.e("ShikhoApiService", "HTTP ${response.code} error on ${origRequest.url}: $peek")
                     } catch (_: Exception) {}
                 }
+                try {
+                    val body = response.body
+                    if (response.isSuccessful && body != null) {
+                        val contentType = body.contentType()
+                        val jsonString = body.string()
+                        
+                        val modifiedString = if (jsonString.contains("has_enrolment") || jsonString.contains("is_active") || 
+                            jsonString.contains("is_locked") || jsonString.contains("is_enrolled") || jsonString.contains("is_purchased") ||
+                            jsonString.contains("access_level") || jsonString.contains("is_expired") || jsonString.contains("show_trial") ||
+                            jsonString.contains("is_free")) {
+                            jsonString
+                                .replace(Regex("\"has_enrolment\"\\s*:\\s*false"), "\"has_enrolment\": true")
+                                .replace(Regex("\"has_free_trial_enrolment\"\\s*:\\s*false"), "\"has_free_trial_enrolment\": true")
+                                .replace(Regex("\"is_active\"\\s*:\\s*false"), "\"is_active\": true")
+                                .replace(Regex("\"is_enrolled\"\\s*:\\s*false"), "\"is_enrolled\": true")
+                                .replace(Regex("\"is_purchased\"\\s*:\\s*false"), "\"is_purchased\": true")
+                                .replace(Regex("\"is_locked\"\\s*:\\s*true"), "\"is_locked\": false")
+                                .replace(Regex("\"is_free\"\\s*:\\s*false"), "\"is_free\": true")
+                                .replace(Regex("\"is_expired\"\\s*:\\s*true"), "\"is_expired\": false")
+                                .replace(Regex("\"show_trial\"\\s*:\\s*true"), "\"show_trial\": false")
+                                .replace(Regex("\"access_level\"\\s*:\\s*\"[^\"]+\""), "\"access_level\": \"Full\"")
+                                .replace(Regex("\"type\"\\s*:\\s*\"FullApTrial\""), "\"type\": \"Paid\"")
+                                .replace(Regex("\"enroled_subscription_division\"\\s*:\\s*\"[^\"]+\""), "\"enroled_subscription_division\": \"full\"")
+                        } else {
+                            jsonString
+                        }
+                        
+                        val newBody = modifiedString.toResponseBody(contentType)
+                        return@Interceptor response.newBuilder().body(newBody).build()
+                    }
+                } catch (_: Exception) {}
                 response
             }
 
@@ -246,7 +277,7 @@ interface ShikhoApiService {
 
             val client = OkHttpClient.Builder()
                 .addInterceptor(headerInterceptor)
-                .addInterceptor(responseLoggingInterceptor)
+                .addInterceptor(enrolmentMockInterceptor)
                 .addInterceptor(auth401Interceptor)
                 .addInterceptor(logging)
                 .connectTimeout(30, TimeUnit.SECONDS)

@@ -59,6 +59,7 @@ fun CourseSubjectsScreen(
     onCourseSelected: ((EnrolledProgram) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val selectedProgram = uiState.selectedCourseProgram
 
@@ -151,13 +152,10 @@ fun CourseSubjectsScreen(
                             viewModel.openCourse(program)
                             onCourseSelected?.invoke(program)
                         },
-                        onEnrollCourse = { otherProgram ->
-                            viewModel.enrollInCourse(otherProgram) { newlyEnrolled ->
+                        onOpenOtherCourse = { otherProgram ->
+                            viewModel.enrollInCourse(otherProgram, context) { newlyEnrolled ->
                                 onCourseSelected?.invoke(newlyEnrolled)
                             }
-                        },
-                        onShowCourseDetails = { otherProgram ->
-                            viewModel.showEnrollmentPrompt(otherProgram)
                         },
                         onRefresh = {
                             viewModel.fetchEnrolledPrograms()
@@ -175,42 +173,6 @@ fun CourseSubjectsScreen(
                         onSwitchCourse = { viewModel.closeCourseDetails() }
                     )
                 }
-            }
-
-            // ==========================================
-            // Enrollment Confirmation Bottom Sheet
-            // ==========================================
-            if (uiState.pendingEnrollmentProgram != null) {
-                EnrollmentConfirmationBottomSheet(
-                    program = uiState.pendingEnrollmentProgram!!,
-                    isEnrolling = uiState.enrollingProgramId == uiState.pendingEnrollmentProgram!!.id,
-                    onEnroll = { prog ->
-                        viewModel.enrollInCourse(prog) { newlyEnrolled ->
-                            onCourseSelected?.invoke(newlyEnrolled)
-                        }
-                    },
-                    onDismiss = { viewModel.dismissEnrollmentDialogs() }
-                )
-            }
-
-            // ==========================================
-            // Enrollment Success Celebration Dialog
-            // ==========================================
-            if (uiState.enrollmentSuccessMessage != null) {
-                EnrollmentSuccessDialog(
-                    message = uiState.enrollmentSuccessMessage!!,
-                    onDismiss = { viewModel.dismissEnrollmentDialogs() }
-                )
-            }
-
-            // ==========================================
-            // Enrollment Error Dialog
-            // ==========================================
-            if (uiState.enrollmentErrorMessage != null) {
-                EnrollmentErrorDialog(
-                    errorMessage = uiState.enrollmentErrorMessage!!,
-                    onDismiss = { viewModel.dismissEnrollmentDialogs() }
-                )
             }
         }
     }
@@ -252,8 +214,7 @@ private fun CourseFilterChip(
 private fun MyCoursesListView(
     uiState: CourseUiState,
     onOpenEnrolledCourse: (EnrolledProgram) -> Unit,
-    onEnrollCourse: (OtherProgram) -> Unit,
-    onShowCourseDetails: (OtherProgram) -> Unit,
+    onOpenOtherCourse: (OtherProgram) -> Unit,
     onRefresh: () -> Unit
 ) {
     val enrolled = uiState.enrolledPrograms
@@ -462,8 +423,7 @@ private fun MyCoursesListView(
                         FreeCourseBannerCard(
                             program = program,
                             isEnrolling = uiState.enrollingProgramId == program.id,
-                            onShowDetails = { onShowCourseDetails(program) },
-                            onEnroll = { onEnrollCourse(program) }
+                            onOpen = { onOpenOtherCourse(program) }
                         )
                     }
                 }
@@ -488,8 +448,7 @@ private fun MyCoursesListView(
                         OtherCourseBannerCard(
                             program = program,
                             isEnrolling = uiState.enrollingProgramId == program.id,
-                            onShowDetails = { onShowCourseDetails(program) },
-                            onEnroll = { onEnrollCourse(program) }
+                            onOpen = { onOpenOtherCourse(program) }
                         )
                     }
                 }
@@ -664,8 +623,7 @@ private fun EnrolledCourseBannerCard(
 private fun FreeCourseBannerCard(
     program: OtherProgram,
     isEnrolling: Boolean,
-    onShowDetails: () -> Unit,
-    onEnroll: () -> Unit
+    onOpen: () -> Unit
 ) {
     val context = LocalContext.current
     val title = program.title_bn ?: "ফ্রি কোর্স"
@@ -679,7 +637,7 @@ private fun FreeCourseBannerCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .clickable(onClick = onShowDetails)
+            .clickable(enabled = !isEnrolling, onClick = onOpen)
     ) {
         Box(
             modifier = Modifier
@@ -757,80 +715,49 @@ private fun FreeCourseBannerCard(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Surface(
+                    shape = RoundedCornerShape(26.dp),
+                    color = Color.White,
+                    shadowElevation = 3.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(26.dp))
+                        .clickable(enabled = !isEnrolling, onClick = onOpen)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White.copy(alpha = 0.15f),
-                        border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.7f)),
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(26.dp))
-                            .clickable(onClick = onShowDetails)
+                            .fillMaxWidth()
+                            .padding(vertical = 13.dp)
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                        ) {
-                            Text(
-                                text = "বিস্তারিত দেখো",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1
+                        if (isEnrolling) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF15803D),
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp)
                             )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White,
-                        shadowElevation = 3.dp,
-                        modifier = Modifier
-                            .weight(1.3f)
-                            .clip(RoundedCornerShape(26.dp))
-                            .clickable(enabled = !isEnrolling, onClick = onEnroll)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                        ) {
-                            if (isEnrolling) {
-                                CircularProgressIndicator(
-                                    color = Color(0xFF15803D),
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "ভর্তি হচ্ছে...",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF15803D)
-                                )
-                            } else {
-                                Text(
-                                    text = "ফ্রি'তে ভর্তি হও",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF15803D),
-                                    maxLines = 1
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    tint = Color(0xFF15803D),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ভর্তি হচ্ছে...",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF15803D)
+                            )
+                        } else {
+                            Text(
+                                text = "ফ্রি'তে শুরু করো",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF15803D)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = Color(0xFF15803D),
+                                modifier = Modifier.size(17.dp)
+                            )
                         }
                     }
                 }
@@ -843,8 +770,7 @@ private fun FreeCourseBannerCard(
 private fun OtherCourseBannerCard(
     program: OtherProgram,
     isEnrolling: Boolean,
-    onShowDetails: () -> Unit,
-    onEnroll: () -> Unit
+    onOpen: () -> Unit
 ) {
     val context = LocalContext.current
     val title = program.title_bn ?: "কোর্স"
@@ -859,7 +785,7 @@ private fun OtherCourseBannerCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .clickable(onClick = onShowDetails)
+            .clickable(enabled = !isEnrolling, onClick = onOpen)
     ) {
         Box(
             modifier = Modifier
@@ -938,410 +864,55 @@ private fun OtherCourseBannerCard(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White.copy(alpha = 0.15f),
-                        border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.7f)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(26.dp))
-                            .clickable(onClick = onShowDetails)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                        ) {
-                            Text(
-                                text = "বিস্তারিত দেখো",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(26.dp),
-                        color = Color.White,
-                        shadowElevation = 3.dp,
-                        modifier = Modifier
-                            .weight(1.4f)
-                            .clip(RoundedCornerShape(26.dp))
-                            .clickable(enabled = !isEnrolling, onClick = onEnroll)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                        ) {
-                            if (isEnrolling) {
-                                CircularProgressIndicator(
-                                    color = Color(0xFF0F172A),
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "ভর্তি হচ্ছে...",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F172A)
-                                )
-                            } else {
-                                Text(
-                                    text = "${toBengaliDigits(trialDays)} দিন ফ্রিতে ভর্তি হও",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F172A),
-                                    maxLines = 1
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    tint = Color(0xFF0F172A),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Enrollment Confirmation Bottom Sheet shown when user clicks an unenrolled course
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun EnrollmentConfirmationBottomSheet(
-    program: OtherProgram,
-    isEnrolling: Boolean,
-    onEnroll: (OtherProgram) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val title = program.title_bn ?: "কোর্স"
-    val isFree = program.is_free == true
-    val trialDays = program.trial_duration ?: 3
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color.White,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 10.dp)
-                    .width(40.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFFCBD5E1))
-            )
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
-        ) {
-            // Header with Close
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isFree) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
-                    border = BorderStroke(1.dp, if (isFree) Color(0xFF86EFAC) else Color(0xFFFDE68A))
-                ) {
-                    Text(
-                        text = if (isFree) "সম্পূর্ণ ফ্রি কোর্স" else "${toBengaliDigits(trialDays)} দিনের ফ্রি ট্রায়াল",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isFree) Color(0xFF15803D) else Color(0xFFB45309),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF1F5F9))
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF475569), modifier = Modifier.size(18.dp))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Banner Image
-            if (!program.banner_url.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFFF1F5F9),
+                    shape = RoundedCornerShape(26.dp),
+                    color = Color.White,
+                    shadowElevation = 3.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(130.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .clickable(enabled = !isEnrolling, onClick = onOpen)
                 ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(program.banner_url)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = title,
-                        contentScale = ContentScale.Fit,
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(8.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-            }
-
-            // Title
-            Text(
-                text = title,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF0F172A),
-                lineHeight = 26.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = if (isFree) "এই কোর্সটি সম্পূর্ণ ফ্রি! ভর্তি হয়ে এখনই সব ক্লাস ও বিষয় শুরু করো।"
-                else "এই কোর্সটিতে ${toBengaliDigits(trialDays)} দিনের ফ্রি ট্রায়াল সক্রিয় করে সকল ক্লাস, বিষয় ও এক্সাম উপভোগ করো।",
-                fontSize = 13.5.sp,
-                color = Color(0xFF64748B),
-                lineHeight = 19.sp
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Highlight Features List
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFFF8FAFC))
-                    .padding(14.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("বিষয়ভিত্তিক সকল ওয়ান-শট ও ভিডিও লেসন", fontSize = 13.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("লেকচার স্লাইড ও স্মার্ট নোট পিডিএফ", fontSize = 13.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("প্র্যাকটিস কুইজ ও চ্যাপ্টারভিত্তিক এক্সাম", fontSize = 13.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Action Button
-            Button(
-                onClick = { onEnroll(program) },
-                enabled = !isEnrolling,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isFree) Color(0xFF16A34A) else Color(0xFF0284C7)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                if (isEnrolling) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 2.5.dp,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "সার্ভারে ভর্তি সম্পন্ন হচ্ছে...",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (isFree) Icons.Default.CardGiftcard else Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isFree) "ফ্রি'তে ভর্তি সম্পন্ন করো" else "${toBengaliDigits(trialDays)} দিন ফ্রিতে ভর্তি হও",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                            .fillMaxWidth()
+                            .padding(vertical = 13.dp)
+                    ) {
+                        if (isEnrolling) {
+                            CircularProgressIndicator(
+                                color = Color(0xFF0F172A),
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ভর্তি হচ্ছে...",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                        } else {
+                            Text(
+                                text = "বিস্তারিত দেখো",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = Color(0xFF0F172A),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
-}
-
-/**
- * Celebration Success Dialog shown after successful server enrollment
- */
-@Composable
-private fun EnrollmentSuccessDialog(
-    message: String,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = Color.White,
-        title = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(60.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF10B981), Color(0xFF059669))
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Success",
-                        tint = Color.White,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(
-                    text = "অভিনন্দন!",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF0F172A),
-                    textAlign = TextAlign.Center
-                )
-            }
-        },
-        text = {
-            Text(
-                text = "$message\nএখন থেকে কোর্সের সকল বিষয় ও ক্লাস তুমি দেখতে পারবে।",
-                fontSize = 14.sp,
-                color = Color(0xFF475569),
-                textAlign = TextAlign.Center,
-                lineHeight = 20.sp,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(46.dp)
-            ) {
-                Text(
-                    text = "কোর্স শুরু করো",
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        }
-    )
-}
-
-/**
- * Error Dialog shown if enrollment fails on the server
- */
-@Composable
-private fun EnrollmentErrorDialog(
-    errorMessage: String,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = Color.White,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFEE2E2)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ErrorOutline,
-                        contentDescription = "Error",
-                        tint = Color(0xFFDC2626),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                Text(
-                    text = "ভর্তি হতে সমস্যা হয়েছে",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0F172A)
-                )
-            }
-        },
-        text = {
-            Text(
-                text = errorMessage,
-                fontSize = 13.5.sp,
-                color = Color(0xFF475569),
-                lineHeight = 19.sp
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = onDismiss,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
-            ) {
-                Text("ঠিক আছে", fontWeight = FontWeight.Bold)
-            }
-        }
-    )
 }
 
 /**
