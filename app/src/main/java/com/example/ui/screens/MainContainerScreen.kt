@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -22,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,6 +60,23 @@ fun MainContainerScreen(
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     val haptic = LocalHapticFeedback.current
     val isDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+    var lastBackPressedTime by remember { mutableLongStateOf(0L) }
+
+    // Double Back Press to Exit (3 seconds window) & Tab back navigation
+    BackHandler {
+        if (selectedIndex != 0) {
+            selectedIndex = 0
+        } else {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressedTime < 3000L) {
+                (context as? Activity)?.finish()
+            } else {
+                lastBackPressedTime = currentTime
+                Toast.makeText(context, "অ্যাপ থেকে বের হতে আবার ব্যাক চাপুন", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Box(
         modifier = Modifier

@@ -252,6 +252,67 @@ fun LessonDetailPlayerScreen(
     var availableQualities by remember { mutableStateOf<List<VideoTrackQuality>>(emptyList()) }
     var selectedQualityLabel by remember { mutableStateOf("অটো") }
 
+    // Video Playback Progress & Resume Management
+    val videoProgressManager = remember { com.example.player.VideoProgressManager.getInstance(context) }
+    val videoKey = remember(lesson, activeStreamUrl) {
+        videoProgressManager.generateVideoKey(
+            lessonId = lesson?.id,
+            contentId = lesson?.content_id,
+            remoteUrl = activeStreamUrl,
+            title = lesson?.title
+        )
+    }
+
+    var hasAutoResumed by remember(videoKey) { mutableStateOf(false) }
+    var resumeNotificationText by remember { mutableStateOf<String?>(null) }
+
+    // Quick One-Tap Mute / Unmute State
+    var isMuted by remember { mutableStateOf(false) }
+    var previousVolume by remember { mutableFloatStateOf(1f) }
+
+    // Audio-Only Listening Mode State ("শোনার বাটন" / Screen-off Audio)
+    var isAudioOnlyMode by remember { mutableStateOf(false) }
+
+    // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
+    val trackSelector = remember { DefaultTrackSelector(context) }
+    val exoPlayer = remember(classType) {
+        ShikhoPlayerManager.buildExoPlayer(context, trackSelector, classType).apply {
+            repeatMode = if (classType == PlayerClassType.ANIMATED) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        }
+    }
+
+    val onToggleMute: () -> Unit = {
+        if (isMuted) {
+            exoPlayer.volume = if (previousVolume > 0f) previousVolume else 1f
+            isMuted = false
+            Toast.makeText(context, "🔊 সাউন্ড চালু করা হয়েছে", Toast.LENGTH_SHORT).show()
+        } else {
+            previousVolume = if (exoPlayer.volume > 0f) exoPlayer.volume else 1f
+            exoPlayer.volume = 0f
+            isMuted = true
+            Toast.makeText(context, "🔇 সাউন্ড বন্ধ করা হয়েছে (Muted)", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onToggleAudioOnlyMode: () -> Unit = {
+        isAudioOnlyMode = !isAudioOnlyMode
+        val act = context as? Activity
+        if (isAudioOnlyMode) {
+            act?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            Toast.makeText(context, "অডিও মোড চালু হয়েছে! এখন স্ক্রিন বন্ধ করলেও লেকচার শুনতে পারবেন। 🎧", Toast.LENGTH_SHORT).show()
+        } else {
+            act?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            Toast.makeText(context, "ভিডিও মোডে ফিরে আসা হয়েছে", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onRestartFromBeginning: () -> Unit = {
+        exoPlayer.seekTo(0L)
+        resumeNotificationText = null
+        videoProgressManager.resetProgress(videoKey)
+        Toast.makeText(context, "শুরু থেকে প্লে করা হচ্ছে", Toast.LENGTH_SHORT).show()
+    }
+
     val toggleResizeMode: () -> Unit = {
         resizeMode = when (resizeMode) {
             AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -333,14 +394,6 @@ fun LessonDetailPlayerScreen(
                 ).show()
             }
         )
-    }
-
-    // ExoPlayer Instance with Shikho CDN headers & DefaultTrackSelector for HLS quality selection
-    val trackSelector = remember { DefaultTrackSelector(context) }
-    val exoPlayer = remember(classType) {
-        ShikhoPlayerManager.buildExoPlayer(context, trackSelector, classType).apply {
-            repeatMode = if (classType == PlayerClassType.ANIMATED) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-        }
     }
 
     // Initialize media source when activeStreamUrl or mode changes
@@ -490,17 +543,70 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    // Periodic Progress Tracking Loop
-    LaunchedEffect(isPlaying, isSeeking) {
-        while (isPlaying && !isSeeking) {
-            currentPosition = exoPlayer.currentPosition.coerceAtLeast(0L)
-            bufferedPosition = exoPlayer.bufferedPosition.coerceAtLeast(0L)
-            totalDuration = exoPlayer.duration.coerceAtLeast(0L)
+    val saveCurrentProgress: () -> Unit = {
+        try {
+            val pos = if (currentPosition > 0L) currentPosition else exoPlayer.currentPosition
+            val dur = if (totalDuration > 0L) totalDuration else exoPlayer.duration
+            if (pos > 2000L) {
+                videoProgressManager.saveProgress(
+                    videoKey = videoKey,
+                    lessonId = lesson?.id,
+                    title = lesson?.title ?: "ক্লাস লেকচার",
+                    subjectName = subjectName,
+                    courseId = lesson?.phase_id,
+                    positionMs = pos,
+                    durationMs = dur
+                )
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Auto-Resume from Last Saved Playback Position (Even across app restarts & syllabus changes)
+    LaunchedEffect(exoPlayer, videoKey, isBuffering) {
+        if (!isBuffering && !hasAutoResumed) {
+            val savedProgress = videoProgressManager.getProgress(videoKey)
+            if (savedProgress != null && savedProgress.isEligibleForResume) {
+                hasAutoResumed = true
+                exoPlayer.seekTo(savedProgress.positionMs)
+                val timeFormatted = ShikhoPlayerManager.formatTime(savedProgress.positionMs, true)
+                resumeNotificationText = "পূর্বের $timeFormatted মিনিট থেকে চলছে"
+                coroutineScope.launch {
+                    delay(8000)
+                    resumeNotificationText = null
+                }
+            }
+        }
+    }
+
+    // Continuous Progress Tracking & Persistence Loop
+    LaunchedEffect(exoPlayer, videoKey, isPlaying) {
+        var tick = 0
+        while (true) {
+            if (exoPlayer.playbackState == Player.STATE_READY || exoPlayer.playbackState == Player.STATE_BUFFERING) {
+                if (!isSeeking) {
+                    currentPosition = exoPlayer.currentPosition.coerceAtLeast(0L)
+                }
+                bufferedPosition = exoPlayer.bufferedPosition.coerceAtLeast(0L)
+                totalDuration = exoPlayer.duration.coerceAtLeast(0L)
+
+                tick++
+                // Persist progress every 2 seconds while actively playing
+                if (tick % 4 == 0 && currentPosition > 2000L && isPlaying) {
+                    saveCurrentProgress()
+                }
+            }
             delay(500)
         }
     }
 
-    // Controls Auto-Hide Timer
+    // Save Progress on screen exit / dispose
+    DisposableEffect(videoKey) {
+        onDispose {
+            saveCurrentProgress()
+        }
+    }
+
+    // Controls Auto-Hide Timer (Resets cleanly on state changes)
     LaunchedEffect(areControlsVisible, isPlaying) {
         if (areControlsVisible && isPlaying && !isSeeking) {
             delay(4000)
@@ -508,8 +614,7 @@ fun LessonDetailPlayerScreen(
         }
     }
 
-    // Lifecycle Observer (Pause on background, Resume on foreground)
-
+    // Lifecycle Observer (Pause on background UNLESS in Audio Mode, Resume on foreground)
     val mediaSession = remember(exoPlayer) {
         try {
             MediaSession.Builder(context, exoPlayer)
@@ -527,24 +632,31 @@ fun LessonDetailPlayerScreen(
         }
     }
     
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, isAudioOnlyMode) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> {
-                    val activity = context as? Activity
-                    if (activity?.isInPictureInPictureMode != true) {
-                        exoPlayer.pause()
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    saveCurrentProgress()
+                    if (isAudioOnlyMode) {
+                        // Keep playing audio uninterrupted when screen is turned off or app backgrounded!
+                    } else {
+                        val activity = context as? Activity
+                        if (activity?.isInPictureInPictureMode != true) {
+                            exoPlayer.pause()
+                        }
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    if (isPlaying) exoPlayer.play()
+                    if (isPlaying && !isAudioOnlyMode) {
+                        exoPlayer.play()
+                    }
                 }
-                Lifecycle.Event.ON_STOP -> exoPlayer.pause()
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            saveCurrentProgress()
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -703,6 +815,22 @@ fun LessonDetailPlayerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
+                // Ambient Audio Only Mode Screen
+                if (isAudioOnlyMode) {
+                    AmbientAudioVisualizerOverlay(
+                        title = lesson?.title ?: "রেকর্ডকৃত ক্লাস",
+                        subjectName = subjectName,
+                        isPlaying = isPlaying,
+                        isMuted = isMuted,
+                        onTogglePlayPause = {
+                            if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        },
+                        onToggleMute = onToggleMute,
+                        onExitAudioMode = { onToggleAudioOnlyMode() },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
                 // Fullscreen Player Controls Overlay
                 val seekStep = if (classType == PlayerClassType.ANIMATED) 5000L else 10000L
                 PlayerControlsOverlay(
@@ -753,6 +881,12 @@ fun LessonDetailPlayerScreen(
                     onDownloadClick = handleDownloadVideo,
                     resizeMode = resizeMode,
                     onToggleResizeMode = toggleResizeMode,
+                    isMuted = isMuted,
+                    onToggleMute = onToggleMute,
+                    isAudioOnlyMode = isAudioOnlyMode,
+                    onToggleAudioOnlyMode = onToggleAudioOnlyMode,
+                    resumeNotificationText = resumeNotificationText,
+                    onRestartFromBeginning = onRestartFromBeginning,
                     onPipClick = { enterPipMode() },
                     onBack = { toggleFullscreen() }
                 )
@@ -837,6 +971,22 @@ fun LessonDetailPlayerScreen(
                             modifier = Modifier.fillMaxSize()
                         )
 
+                        // Ambient Audio Mode Visualizer Screen in Portrait
+                        if (isAudioOnlyMode) {
+                            AmbientAudioVisualizerOverlay(
+                                title = lesson?.title ?: "ক্লাস",
+                                subjectName = subjectName,
+                                isPlaying = isPlaying,
+                                isMuted = isMuted,
+                                onTogglePlayPause = {
+                                    if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                },
+                                onToggleMute = onToggleMute,
+                                onExitAudioMode = { onToggleAudioOnlyMode() },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
                         // If playbackError is present, show a sleek diagnostic overlay on top of the player!
                         if (playbackError != null) {
                             val slideUrlForError = lesson?.resolvedSlideUrl
@@ -909,6 +1059,12 @@ fun LessonDetailPlayerScreen(
                                 onDownloadClick = handleDownloadVideo,
                                 resizeMode = resizeMode,
                                 onToggleResizeMode = toggleResizeMode,
+                                isMuted = isMuted,
+                                onToggleMute = onToggleMute,
+                                isAudioOnlyMode = isAudioOnlyMode,
+                                onToggleAudioOnlyMode = onToggleAudioOnlyMode,
+                                resumeNotificationText = resumeNotificationText,
+                                onRestartFromBeginning = onRestartFromBeginning,
                                 onPipClick = { enterPipMode() },
                                 onBack = {
                                     exoPlayer.stop()

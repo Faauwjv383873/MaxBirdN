@@ -1,7 +1,5 @@
 package com.example.syllabus
 
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
@@ -422,28 +420,24 @@ class ChangeSyllabusViewModel(
     }
 
     /**
-     * FIX #6: Runtime.exit(0)-এর বদলে AlarmManager + PendingIntent।
-     * সুবিধা: crash report trigger হয় না, pending SharedPreferences commit flush হওয়ার সুযোগ পায়।
+     * Smooth in-app restart: Launches a fresh MainActivity task and finishes the current activity,
+     * seamlessly reloading all ViewModels, SessionManager state, and new syllabus courses without closing the app.
      */
     private fun restartApp(context: Context) {
         try {
-            val pm = context.packageManager
-            val launchIntent = pm.getLaunchIntentForPackage(context.packageName)
-                ?: Intent(context, MainActivity::class.java)
+            android.widget.Toast.makeText(context.applicationContext, "সিলেবাস সফলভাবে পরিবর্তন করা হয়েছে! ✨", android.widget.Toast.LENGTH_SHORT).show()
 
-            launchIntent.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
-            )
+            val intent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            context.startActivity(intent)
 
-            val pendingFlags = PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            val pendingIntent = PendingIntent.getActivity(context, 0, launchIntent, pendingFlags)
-
-            val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            am.set(AlarmManager.RTC, System.currentTimeMillis() + 300L, pendingIntent)
+            if (context is android.app.Activity) {
+                context.finish()
+            } else if (context is android.content.ContextWrapper && context.baseContext is android.app.Activity) {
+                (context.baseContext as android.app.Activity).finish()
+            }
         } catch (_: Exception) {
-            // Fallback — Android API differences জন্য
             try {
                 val launchIntent = context.packageManager
                     .getLaunchIntentForPackage(context.packageName)
@@ -456,9 +450,6 @@ class ChangeSyllabusViewModel(
                 context.startActivity(launchIntent)
             } catch (_: Exception) {}
         }
-
-        // Alarm 300ms পরে fire হবে, process kill এখনই
-        android.os.Process.killProcess(android.os.Process.myPid())
     }
 }
 
