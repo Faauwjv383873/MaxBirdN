@@ -229,7 +229,46 @@ fun HomeHeader(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Notification Bell
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF051226).copy(alpha = 0.55f))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        .clickable { onNotificationClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "নোটিফিকেশন",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    if (unreadNotificationCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 3.dp, y = (-3).dp)
+                                .size(15.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444))
+                                .border(1.5.dp, Color(0xFF07152B), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (unreadNotificationCount > 9) "9+" else unreadNotificationCount.toString(),
+                                color = Color.White,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Profile Avatar
                 val fallbackInitial = remember(userName) {

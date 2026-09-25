@@ -501,7 +501,7 @@ private fun PresetThemeCard(
             width = if (isSelected) 2.dp else 1.dp,
             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
-        shadowElevation = if (isSelected) 3.dp else 1.dp
+        shadowElevation = if (isSelected) 5.dp else 1.dp
     ) {
         Row(
             modifier = Modifier
@@ -519,6 +519,11 @@ private fun PresetThemeCard(
                 Box(
                     modifier = Modifier
                         .size(width = 52.dp, height = 44.dp)
+                        .shadow(
+                            elevation = if (isSelected) 6.dp else 2.dp,
+                            shape = RoundedCornerShape(12.dp),
+                            spotColor = preset.previewColors.firstOrNull() ?: Color.Black
+                        )
                         .clip(RoundedCornerShape(12.dp))
                         .background(Brush.linearGradient(preset.previewColors))
                         .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),

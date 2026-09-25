@@ -253,7 +253,9 @@ fun HomeScreen(
                                     onNavigateToReportCard(prog?.id, prog?.title_bn, phase?.id)
                                 },
                             shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                            border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.35f)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
                         ) {
                             Box(
                                 modifier = Modifier
