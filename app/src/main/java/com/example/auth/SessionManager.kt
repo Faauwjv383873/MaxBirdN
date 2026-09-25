@@ -124,15 +124,27 @@ class SessionManager(context: Context) {
             .apply()
     }
 
-    fun saveUserAcademicInfo(batchId: String?, className: String?, group: String?, vendor: String? = "BD") {
-        sharedPreferences.edit()
+    fun saveUserAcademicInfo(
+        batchId: String?,
+        className: String?,
+        group: String?,
+        vendor: String? = "BD",
+        passingYear: String? = null
+    ) {
+        val editor = sharedPreferences.edit()
             .putString("academic_batch_id", batchId)
             .putString("academic_class_name", className)
             .putString("academic_group", group)
             .putString("academic_vendor", vendor ?: "BD")
-            .apply()
+        if (!passingYear.isNullOrBlank()) {
+            editor.putString("academic_passing_year", passingYear)
+        }
+        editor.apply()
         _userProfileUpdateFlow.value = System.currentTimeMillis()
     }
+
+    fun getAcademicPassingYear(): String? =
+        sharedPreferences.getString("academic_passing_year", null)
 
     fun getUserBatchId(): String? = sharedPreferences.getString("academic_batch_id", null)
     fun getUserClassName(): String? = sharedPreferences.getString("academic_class_name", "C11")
@@ -395,6 +407,7 @@ class SessionManager(context: Context) {
             .remove("academic_class_name")
             .remove("academic_group")
             .remove("academic_vendor")
+            .remove("academic_passing_year")
             .remove("user_first_name")
             .remove("user_last_name")
             .remove("user_avatar")

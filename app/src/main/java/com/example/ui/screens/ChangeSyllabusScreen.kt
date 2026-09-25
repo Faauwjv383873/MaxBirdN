@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,12 +21,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.api.BatchOptionItem
 import com.example.api.ClassItem
 import com.example.api.StudyGroupItem
 import com.example.syllabus.ChangeSyllabusViewModel
+import com.example.syllabus.bengaliClassName
 import com.example.syllabus.convertToBengaliDigits
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,7 +41,7 @@ fun ChangeSyllabusScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Confirmation Bottom Sheet Dialog
+    // ===== Confirmation Bottom Sheet =====
     if (uiState.showConfirmBottomSheet) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.dismissConfirmationDialog() },
@@ -87,22 +88,60 @@ fun ChangeSyllabusScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = "সিলেবাস পরিবর্তন করলে তোমার অ্যাপটি রিস্টার্ট করা হবে।",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 19.sp
-                )
+                // FIX #7: Confirmation-এ summary card
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "নির্বাচিত",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = uiState.summaryLine.ifBlank { "—" },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "সিলেবাস পরিবর্তন করলে অ্যাপটি রিস্টার্ট হবে এবং পূর্বের কিছু ক্যাশে রিসেট হতে পারে।",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 17.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Button(
-                    onClick = {
-                        viewModel.applySyllabusChange(context)
-                    },
+                    onClick = { viewModel.applySyllabusChange(context) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
@@ -120,14 +159,14 @@ fun ChangeSyllabusScreen(
                         Text("পরিবর্তন হচ্ছে...")
                     } else {
                         Text(
-                            text = "হ্যাঁ, পরিবর্তন করতে চাই",
+                            text = "হ্যাঁ, পরিবর্তন করো",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 TextButton(
                     onClick = { viewModel.dismissConfirmationDialog() },
@@ -135,13 +174,13 @@ fun ChangeSyllabusScreen(
                     enabled = !uiState.isSubmitting
                 ) {
                     Text(
-                        text = "না, এখন নয়",
+                        text = "না, এখন নয়",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -191,7 +230,9 @@ fun ChangeSyllabusScreen(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
                         ),
-                        enabled = uiState.isFormValid && !uiState.isLoadingClasses && !uiState.isSubmitting
+                        enabled = uiState.isFormValid &&
+                                !uiState.isLoadingClasses &&
+                                !uiState.isSubmitting
                     ) {
                         if (uiState.isSubmitting) {
                             CircularProgressIndicator(
@@ -221,7 +262,7 @@ fun ChangeSyllabusScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Header Info Banner
+            // Header Banner
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -257,8 +298,8 @@ fun ChangeSyllabusScreen(
                 }
             }
 
-            // Error Display if any
-            if (uiState.errorMessage != null) {
+            // Error banner
+            uiState.errorMessage?.let { err ->
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
@@ -275,7 +316,7 @@ fun ChangeSyllabusScreen(
                             tint = MaterialTheme.colorScheme.error
                         )
                         Text(
-                            text = uiState.errorMessage ?: "",
+                            text = err,
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -283,7 +324,7 @@ fun ChangeSyllabusScreen(
                 }
             }
 
-            // 1. Class List Section
+            // ===== 1. Class =====
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "শ্রেণি",
@@ -309,10 +350,10 @@ fun ChangeSyllabusScreen(
                     ClassGridSection(
                         classList = uiState.classList,
                         selectedClass = uiState.selectedClass,
+                        currentClassCode = uiState.currentClassCode,
                         onSelectClass = { viewModel.selectClass(it) }
                     )
                 } else {
-                    // Retry state if empty
                     Button(
                         onClick = { viewModel.loadClassList() },
                         modifier = Modifier.fillMaxWidth(),
@@ -320,18 +361,16 @@ fun ChangeSyllabusScreen(
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("পুনরায় চেষ্টা করুন")
+                        Text("পুনরায় চেষ্টা করুন")
                     }
                 }
             }
 
-            // 2. Study Group Section (Only when isGroupRequired == true for selected class)
+            // ===== 2. Group =====
             if (uiState.isGroupRequiredForSelectedClass) {
-                val groups = if (!uiState.selectedClass?.groups.isNullOrEmpty()) {
-                    uiState.selectedClass?.groups!!
-                } else {
-                    viewModel.standardStudyGroups
-                }
+                val groups = uiState.selectedClass?.groups
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: viewModel.standardStudyGroups
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -348,7 +387,8 @@ fun ChangeSyllabusScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             rowGroups.forEach { group ->
-                                val isSelected = uiState.selectedGroup?.code?.equals(group.code, ignoreCase = true) == true
+                                val isSelected = uiState.selectedGroup?.code
+                                    ?.equals(group.code, ignoreCase = true) == true
                                 GroupChoiceChip(
                                     group = group,
                                     isSelected = isSelected,
@@ -356,22 +396,20 @@ fun ChangeSyllabusScreen(
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            if (rowGroups.size < 3) {
-                                repeat(3 - rowGroups.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
+                            repeat(3 - rowGroups.size) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
                 }
             }
 
-            // 3. Batch / Exam Year Section (from dynamic GraphQL batchOptions)
+            // ===== 3. Batch =====
             if (uiState.isLoadingBatches) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(60.dp),
+                        .height(80.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -399,7 +437,10 @@ fun ChangeSyllabusScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    val chunkedBatches = remember(uiState.batchOptions) { uiState.batchOptions.chunked(3) }
+                    // 2 columns — কারণ label যেমন "New C11 Batch" লম্বা
+                    val chunkedBatches = remember(uiState.batchOptions) {
+                        uiState.batchOptions.chunked(2)
+                    }
                     chunkedBatches.forEach { rowBatches ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -414,10 +455,8 @@ fun ChangeSyllabusScreen(
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            if (rowBatches.size < 3) {
-                                repeat(3 - rowBatches.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
+                            if (rowBatches.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -433,6 +472,7 @@ fun ChangeSyllabusScreen(
 private fun ClassGridSection(
     classList: List<ClassItem>,
     selectedClass: ClassItem?,
+    currentClassCode: String?,
     onSelectClass: (ClassItem) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -443,10 +483,14 @@ private fun ClassGridSection(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 rowClasses.forEach { classItem ->
-                    val isSelected = selectedClass?.code?.equals(classItem.code, ignoreCase = true) == true
+                    val isSelected = selectedClass?.code
+                        ?.equals(classItem.code, ignoreCase = true) == true
+                    val isCurrent = !currentClassCode.isNullOrBlank() &&
+                            classItem.code.equals(currentClassCode, ignoreCase = true)
                     ClassSelectionCard(
                         classItem = classItem,
                         isSelected = isSelected,
+                        isCurrent = isCurrent,
                         onClick = { onSelectClass(classItem) },
                         modifier = Modifier.weight(1f)
                     )
@@ -463,6 +507,7 @@ private fun ClassGridSection(
 private fun ClassSelectionCard(
     classItem: ClassItem,
     isSelected: Boolean,
+    isCurrent: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -494,23 +539,48 @@ private fun ClassSelectionCard(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                // FIX #4: বাংলা ordinal নাম (Settings-এর সাথে consistent)
                 Text(
-                    text = classItem.displayNameBn,
+                    text = classItem.bengaliClassName(),
                     fontSize = 14.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+
                 val subName = classItem.displaySubtitle
-                if (subName.isNotBlank() && subName != classItem.displayNameBn) {
+                if (subName.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subName,
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                }
+
+                if (isCurrent) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer
+                    ) {
+                        Text(
+                            text = "বর্তমান",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
             if (isSelected) {
+                Spacer(modifier = Modifier.width(6.dp))
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = "Selected",
@@ -541,13 +611,14 @@ private fun GroupChoiceChip(
         },
         border = BorderStroke(
             width = 1.dp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            color = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 8.dp),
+                .padding(vertical = 14.dp, horizontal = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -555,12 +626,19 @@ private fun GroupChoiceChip(
                 fontSize = 13.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                 color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
+/**
+ * FIX #8: Batch chip-এ year + label দুটোই দেখায়।
+ * Real API example: { year: 2027, label: "New C11 Batch" }
+ *                      → "২০২৭" / "New C11 Batch"
+ */
 @Composable
 private fun BatchChoiceChip(
     batch: BatchOptionItem,
@@ -580,24 +658,39 @@ private fun BatchChoiceChip(
         },
         border = BorderStroke(
             width = 1.dp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            color = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
         )
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 8.dp),
-            contentAlignment = Alignment.Center
+                .padding(vertical = 12.dp, horizontal = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             val bnYear = convertToBengaliDigits(batch.yearString)
-            val displayLabel = if (bnYear.isNotBlank()) bnYear else convertToBengaliDigits(batch.label)
             Text(
-                text = displayLabel,
-                fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                text = bnYear.ifBlank { "—" },
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
                 color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
             )
+            val label = batch.label?.takeIf { it.isNotBlank() }
+            if (label != null) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = label,
+                    fontSize = 10.5.sp,
+                    color = if (isSelected) Color.White.copy(alpha = 0.9f)
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 13.sp
+                )
+            }
         }
     }
 }
