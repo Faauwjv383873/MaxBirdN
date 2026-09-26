@@ -42,16 +42,13 @@ data class CourseUiState(
     val isSubjectsLoading: Boolean = false,
     val subjectsErrorMessage: String? = null,
 
-    // Tier 2: Selected Subject & Chapters / Model Tests
+    // Tier 2: Selected Subject & Chapters
     val selectedSubjectCode: String = "",
     val selectedSubjectTitle: String = "",
     val selectedSubjectColor: String = "",
     val chapters: List<AcademicChapterItem> = emptyList(),
     val isChaptersLoading: Boolean = false,
     val chaptersErrorMessage: String? = null,
-    val subjectModelTests: List<StudentLessonItem> = emptyList(),
-    val subjectLiveClasses: List<StudentLessonItem> = emptyList(),
-    val isSubjectModelTestsLoading: Boolean = false,
 
     // Tier 3: Selected Chapter & Lessons
     val selectedChapterId: String = "",
