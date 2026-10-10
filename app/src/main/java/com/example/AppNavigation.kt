@@ -391,7 +391,8 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         }
     }
 
-    val startDestination = Routes.ACTIVATION
+    val isActivated = remember { DeviceActivationRepository.isDeviceActivated(context) }
+    val startDestination = if (!isActivated) Routes.ACTIVATION else Routes.SPLASH
 
     NavHost(
         navController = navController,
