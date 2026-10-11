@@ -71,6 +71,7 @@ import com.example.security.ActivationSupportLink
 import com.example.security.ActivationSupportRepository
 import com.example.security.DeviceActivationRepository
 import com.example.security.DeviceSecurityManager
+import com.example.security.DeviceStatusResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -89,6 +90,8 @@ fun DeviceActivationScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var successMessage by remember { mutableStateOf<String?>(null) }
     var isCopied by remember { mutableStateOf(false) }
+    var isDeviceBanned by remember { mutableStateOf(false) }
+    var banReasonMessage by remember { mutableStateOf("") }
 
     val displayDeviceId = remember { DeviceSecurityManager.getDisplayDeviceId(context) }
     val isSupabaseConfigured = remember { DeviceActivationRepository.isConfigured() }
@@ -106,6 +109,22 @@ fun DeviceActivationScreen(
             }
         } catch (t: Throwable) {
             Log.e("DeviceActivation", "Error loading fresh support links: ${t.message}")
+        }
+
+        // Check ban status on screen load & register device telemetry in database
+        try {
+            when (val status = DeviceActivationRepository.checkDeviceStatus(context)) {
+                is DeviceStatusResult.Banned -> {
+                    isDeviceBanned = true
+                    banReasonMessage = status.reason
+                    errorMessage = "এই ডিভাইসটি অ্যাডমিন দ্বারা ব্যান করা হয়েছে। কোনো এক্সেস কোড কাজ করবে না।"
+                }
+                else -> {
+                    isDeviceBanned = false
+                }
+            }
+        } catch (t: Throwable) {
+            Log.e("DeviceActivation", "Error checking device ban status: ${t.message}")
         }
     }
 
@@ -181,6 +200,11 @@ fun DeviceActivationScreen(
     }
 
     fun handleActivate() {
+        if (isDeviceBanned) {
+            errorMessage = "⚠️ এই ডিভাইসটি অ্যাডমিন দ্বারা ব্যান করা হয়েছে। কোনো এক্সেস কোড গ্রহণযোগ্য নয়।"
+            return
+        }
+
         val code = accessCodeInput.trim()
         if (code.isBlank()) {
             errorMessage = "দয়া করে এক্সেস কোডটি লিখুন।"
@@ -217,6 +241,10 @@ fun DeviceActivationScreen(
                     }
                     is ActivationResult.Error -> {
                         errorMessage = result.message
+                        if (result.isBanned) {
+                            isDeviceBanned = true
+                            banReasonMessage = result.message
+                        }
                     }
                 }
             } catch (t: Throwable) {
@@ -492,11 +520,94 @@ fun DeviceActivationScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // 3.5 Banned Device Alert Card (Shown if banned by admin)
+            AnimatedVisibility(
+                visible = isDeviceBanned,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF2B0E11),
+                    border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 18.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF7F1D1D),
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFCA5A5),
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "ডিভাইস ব্যান করা হয়েছে!",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFF87171)
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = if (banReasonMessage.isNotBlank()) banReasonMessage else "এই ডিভাইসটি অ্যাডমিন প্যানেল থেকে স্থায়ীভাবে নিষিদ্ধ (Banned) করা হয়েছে। এই ফোনে কোনো ধরনের এক্সেস কোড চলবে না।",
+                            fontSize = 13.sp,
+                            color = Color(0xFFFECACA),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 19.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF450A0A),
+                            border = BorderStroke(1.dp, Color(0xFF991B1B)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "স্ট্যাটাস: BANNED / স্থায়ীভাবে নিষিদ্ধ",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF87171),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 7.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "ব্যান তোলার জন্য নিচে অ্যাডমিনের সাথে যোগাযোগ করুন।",
+                            fontSize = 11.sp,
+                            color = Color(0xFFFCA5A5),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+
             // 4. Access Code Input Card
             Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = Color(0xFF0F1A2D),
-                border = BorderStroke(1.dp, Color(0xFF1E2E4A)),
+                border = BorderStroke(1.dp, if (isDeviceBanned) Color(0xFF7F1D1D) else Color(0xFF1E2E4A)),
                 shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -509,30 +620,32 @@ fun DeviceActivationScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "এক্সেস কোড লিখুন",
+                            text = if (isDeviceBanned) "এক্সেস কোড (ডিভাইস ব্যান থাকায় নিষ্ক্রিয়)" else "এক্সেস কোড লিখুন",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFE2E8F0)
+                            color = if (isDeviceBanned) Color(0xFFF87171) else Color(0xFFE2E8F0)
                         )
 
                         // Quick Paste button if clipboard has content
-                        TextButton(
-                            onClick = { handlePasteCode() },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.ContentPaste,
-                                contentDescription = null,
-                                tint = Color(0xFF60A5FA),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "পেস্ট করুন",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF60A5FA)
-                            )
+                        if (!isDeviceBanned) {
+                            TextButton(
+                                onClick = { handlePasteCode() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.ContentPaste,
+                                    contentDescription = null,
+                                    tint = Color(0xFF60A5FA),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "পেস্ট করুন",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF60A5FA)
+                                )
+                            }
                         }
                     }
 
@@ -541,29 +654,32 @@ fun DeviceActivationScreen(
                     OutlinedTextField(
                         value = accessCodeInput,
                         onValueChange = {
-                            accessCodeInput = it.uppercase()
-                            errorMessage = null
+                            if (!isDeviceBanned) {
+                                accessCodeInput = it.uppercase()
+                                errorMessage = null
+                            }
                         },
+                        enabled = !isDeviceBanned,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("activation_code_input"),
                         placeholder = {
                             Text(
-                                "যেমন: VIP-STUDENT-01",
-                                color = Color(0xFF64748B),
+                                if (isDeviceBanned) "ডিভাইস ব্যান থাকায় কোনো কোড কাজ করবে না" else "যেমন: VIP-STUDENT-01",
+                                color = if (isDeviceBanned) Color(0xFFEF4444) else Color(0xFF64748B),
                                 fontSize = 14.sp
                             )
                         },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Filled.Key,
+                                imageVector = if (isDeviceBanned) Icons.Filled.Lock else Icons.Filled.Key,
                                 contentDescription = null,
-                                tint = Color(0xFF60A5FA),
+                                tint = if (isDeviceBanned) Color(0xFFEF4444) else Color(0xFF60A5FA),
                                 modifier = Modifier.size(20.dp)
                             )
                         },
                         trailingIcon = {
-                            if (accessCodeInput.isNotBlank()) {
+                            if (accessCodeInput.isNotBlank() && !isDeviceBanned) {
                                 IconButton(onClick = { accessCodeInput = "" }) {
                                     Icon(
                                         imageVector = Icons.Filled.Clear,
@@ -577,20 +693,23 @@ fun DeviceActivationScreen(
                         shape = RoundedCornerShape(12.dp),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF3B82F6),
-                            unfocusedBorderColor = Color(0xFF25334D),
+                            focusedBorderColor = if (isDeviceBanned) Color(0xFFEF4444) else Color(0xFF3B82F6),
+                            unfocusedBorderColor = if (isDeviceBanned) Color(0xFF7F1D1D) else Color(0xFF25334D),
+                            disabledBorderColor = Color(0xFF7F1D1D),
+                            disabledTextColor = Color(0xFF94A3B8),
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
                             cursorColor = Color(0xFF3B82F6),
                             focusedContainerColor = Color(0xFF070F1E),
-                            unfocusedContainerColor = Color(0xFF070F1E)
+                            unfocusedContainerColor = Color(0xFF070F1E),
+                            disabledContainerColor = Color(0xFF1A0A0A)
                         ),
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.Characters,
                             imeAction = ImeAction.Done
                         ),
                         keyboardActions = KeyboardActions(
-                            onDone = { handleActivate() }
+                            onDone = { if (!isDeviceBanned) handleActivate() }
                         )
                     )
 
@@ -669,11 +788,11 @@ fun DeviceActivationScreen(
                     // Activate Button
                     Button(
                         onClick = { handleActivate() },
-                        enabled = !isLoading && successMessage == null,
+                        enabled = !isLoading && !isDeviceBanned && successMessage == null,
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB),
-                            disabledContainerColor = Color(0xFF1E3A8A)
+                            containerColor = if (isDeviceBanned) Color(0xFF7F1D1D) else Color(0xFF2563EB),
+                            disabledContainerColor = if (isDeviceBanned) Color(0xFF450A0A) else Color(0xFF1E3A8A)
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -692,6 +811,20 @@ fun DeviceActivationScreen(
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
+                            )
+                        } else if (isDeviceBanned) {
+                            Icon(
+                                imageVector = Icons.Filled.Lock,
+                                contentDescription = null,
+                                tint = Color(0xFFFCA5A5),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ডিভাইস ব্যান করা হয়েছে (নিষিদ্ধ)",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFCA5A5)
                             )
                         } else {
                             Icon(

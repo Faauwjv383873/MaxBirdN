@@ -1,26 +1,69 @@
 -- ========================================================
--- MAXBIRD EXCLUSIVE DEVICE ACCESS & ACTIVATION SYSTEM
--- Supabase SQL Schema & Atomic RPC Stored Functions
+-- MAXBIRD EXCLUSIVE DEVICE ACCESS & DEVICE CONTROL SYSTEM
+-- Supabase SQL Schema, Tables, Full Permissions & Atomic RPCs
 -- 
 -- নির্দেশিকা:
 -- ১. আপনার Supabase Dashboard (https://supabase.com) এ যান।
 -- ২. বাম পাশের মেনু থেকে "SQL Editor" এ ক্লিক করুন।
 -- ৩. "New query" বাটনে ক্লিক করে নিচের সম্পূর্ণ কোড পেস্ট করে "Run" চাপুন।
--- ৪. নতুন কোড তৈরি করতে "Table Editor" এ গিয়ে 'access_codes' টেবিলে নতুন সারি (Row) যোগ করুন।
 -- ========================================================
 
--- ১. এক্সেস কোড টেবিল (অ্যাডমিন যে কোড তৈরি করবেন)
+-- ০. পূর্বের সকল ওভারলোডেড ফাংশন স্বয়ংক্রিয়ভাবে ড্রপ করা (Fixes PGRST203 Candidate Function Overload Error)
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT oid::regprocedure AS func_signature 
+        FROM pg_proc 
+        WHERE proname IN ('activate_device', 'check_device_status', 'verify_device_heartbeat', 'admin_toggle_device_ban', 'create_access_code')
+          AND pronamespace = 'public'::regnamespace
+    ) LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.func_signature || ' CASCADE';
+    END LOOP;
+END $$;
+
+-- ১. এক্সটেনশন সক্রিয়করণ (UUID জেনারেশন সাপোর্ট)
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ২. এক্সেস কোড টেবিল (অ্যাডমিন যে কোড তৈরি করবেন)
 CREATE TABLE IF NOT EXISTS public.access_codes (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     code TEXT UNIQUE NOT NULL,
-    student_name TEXT,
+    student_name TEXT DEFAULT '',
+    name TEXT DEFAULT '',
     max_devices INT DEFAULT 1,
+    device_limit INT DEFAULT 1,
     is_active BOOLEAN DEFAULT true,
+    status TEXT DEFAULT 'active',
+    duration_days INT DEFAULT 30,
+    validity_days INT DEFAULT 30,
     expires_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    expiry_date TIMESTAMP WITH TIME ZONE,
+    note TEXT DEFAULT '',
+    batch TEXT DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- ২. নিবন্ধিত ডিভাইস টেবিল (যে যে ফোনে কোড দিয়ে এক্টিভেট হয়েছে)
+-- টেবিল আগে থেকে তৈরি থাকলে সম্ভাব্য সকল কলাম ও ডিফল্ট নিশ্চিত করা
+ALTER TABLE public.access_codes ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS student_name TEXT DEFAULT '';
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '';
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS max_devices INT DEFAULT 1;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS device_limit INT DEFAULT 1;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS duration_days INT DEFAULT 30;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS validity_days INT DEFAULT 30;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS note TEXT DEFAULT '';
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS batch TEXT DEFAULT '';
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+ALTER TABLE public.access_codes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+
+-- ৩. নিবন্ধিত ডিভাইস ও সেশন টেবিল
 CREATE TABLE IF NOT EXISTS public.activated_devices (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     code_id UUID REFERENCES public.access_codes(id) ON DELETE CASCADE,
@@ -33,29 +76,197 @@ CREATE TABLE IF NOT EXISTS public.activated_devices (
     UNIQUE(code_id, device_hash)
 );
 
--- সিকিউরিটি: Row Level Security (RLS) সক্রিয়করণ (সরাসরি টেবিল এক্সেস ব্লক, শুধু RPC দিয়ে এক্সেস হবে)
+-- ৪. সেন্ট্রাল ডিভাইস কন্ট্রোল টেবিল (ADMIN DEVICE MANAGEMENT TABLE)
+CREATE TABLE IF NOT EXISTS public.devices (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    device_hash TEXT UNIQUE NOT NULL,
+    display_device_id TEXT NOT NULL,
+    device_model TEXT,
+    device_brand TEXT,
+    device_manufacturer TEXT,
+    android_version TEXT,
+    sdk_version INT,
+    app_version TEXT,
+    applied_code TEXT,
+    is_banned BOOLEAN DEFAULT false,
+    ban_reason TEXT DEFAULT 'অ্যাডমিন কর্তৃক ব্যান করা হয়েছে',
+    banned_at TIMESTAMP WITH TIME ZONE,
+    status TEXT DEFAULT 'active', -- 'active', 'banned', 'pending'
+    last_seen TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- ৫. পারমিশন ও গ্রান্টস (Admin Panel ও Student App যেন অবাধে ডাটা রিড/রাইট করতে পারে)
+GRANT ALL ON TABLE public.access_codes TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.activated_devices TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.devices TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- সিকিউরিটি: Row Level Security (RLS) সক্রিয়করণ এবং ফুল অ্যাক্সেস পলিসি নিশ্চিতকরণ
 ALTER TABLE public.access_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activated_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
 
--- ৩. ডিভাইস অ্যাক্টিভেশন স্টোরড ফাংশন (Atomic Activation RPC)
+-- access_codes এর জন্য RLS পলিসি (অ্যাডমিন প্যানেল থেকে কোড তৈরি, দেখা, এডিট বা ডিলিট করার জন্য)
+DROP POLICY IF EXISTS "Allow admin access to access_codes" ON public.access_codes;
+DROP POLICY IF EXISTS "Allow all for access_codes" ON public.access_codes;
+DROP POLICY IF EXISTS "Allow public read access_codes" ON public.access_codes;
+CREATE POLICY "Allow all for access_codes" ON public.access_codes
+FOR ALL TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+-- activated_devices এর জন্য RLS পলিসি
+DROP POLICY IF EXISTS "Allow all for activated_devices" ON public.activated_devices;
+CREATE POLICY "Allow all for activated_devices" ON public.activated_devices
+FOR ALL TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+-- devices টেবিলের জন্য RLS পলিসি (পাবলিক রিড ও অ্যাডমিন ফুল এক্সেস)
+DROP POLICY IF EXISTS "Allow public read devices" ON public.devices;
+DROP POLICY IF EXISTS "Allow full admin operations on devices" ON public.devices;
+CREATE POLICY "Allow public read devices" ON public.devices
+FOR SELECT TO anon, authenticated
+USING (true);
+
+CREATE POLICY "Allow full admin operations on devices" ON public.devices
+FOR ALL TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+-- ৬. ডিভাইস স্ট্যাটাস ও তথ্য পরীক্ষা RPC (Atomic Status Check - 6 parameters)
+CREATE OR REPLACE FUNCTION public.check_device_status(
+    p_device_hash TEXT,
+    p_display_device_id TEXT,
+    p_device_model TEXT,
+    p_device_brand TEXT,
+    p_android_version TEXT,
+    p_app_version TEXT
+) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_device RECORD;
+BEGIN
+    INSERT INTO public.devices (
+        device_hash,
+        display_device_id,
+        device_model,
+        device_brand,
+        android_version,
+        app_version,
+        last_seen,
+        updated_at
+    ) VALUES (
+        p_device_hash,
+        COALESCE(NULLIF(p_display_device_id, ''), 'UNKNOWN'),
+        p_device_model,
+        p_device_brand,
+        p_android_version,
+        p_app_version,
+        now(),
+        now()
+    )
+    ON CONFLICT (device_hash) DO UPDATE SET
+        display_device_id = CASE WHEN EXCLUDED.display_device_id <> '' AND EXCLUDED.display_device_id <> 'UNKNOWN' THEN EXCLUDED.display_device_id ELSE public.devices.display_device_id END,
+        device_model = COALESCE(NULLIF(EXCLUDED.device_model, ''), public.devices.device_model),
+        device_brand = COALESCE(NULLIF(EXCLUDED.device_brand, ''), public.devices.device_brand),
+        android_version = COALESCE(NULLIF(EXCLUDED.android_version, ''), public.devices.android_version),
+        app_version = COALESCE(NULLIF(EXCLUDED.app_version, ''), public.devices.app_version),
+        last_seen = now(),
+        updated_at = now();
+
+    SELECT is_banned, ban_reason INTO v_device FROM public.devices WHERE device_hash = p_device_hash;
+    IF FOUND AND v_device.is_banned THEN
+        RETURN json_build_object(
+            'is_banned', true,
+            'reason', COALESCE(v_device.ban_reason, 'এই ডিভাইসটি অ্যাডমিন কর্তৃক ব্যান করা হয়েছে।')
+        );
+    END IF;
+
+    RETURN json_build_object('is_banned', false);
+END;
+$$;
+
+-- ৬.১ সিঙ্গেল প্যারামিটার ওভারলোড (backward compatibility wrapper)
+CREATE OR REPLACE FUNCTION public.check_device_status(
+    p_device_hash TEXT
+) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN public.check_device_status(p_device_hash, 'UNKNOWN', '', '', '', '');
+END;
+$$;
+
+-- ৭. ডিভাইস অ্যাক্টিভেশন স্টোরড ফাংশন (Atomic Activation & Telemetry RPC - 8 parameters)
 CREATE OR REPLACE FUNCTION public.activate_device(
     p_code TEXT,
     p_device_hash TEXT,
-    p_app_signature TEXT
+    p_app_signature TEXT,
+    p_display_device_id TEXT,
+    p_device_model TEXT,
+    p_device_brand TEXT,
+    p_android_version TEXT,
+    p_app_version TEXT
 ) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_code_record RECORD;
     v_bound_count INT;
     v_existing_device RECORD;
+    v_device_record RECORD;
     v_new_token TEXT := gen_random_uuid()::TEXT;
+    v_max_devices INT := 1;
 BEGIN
-    -- ৩.১ কোড পরীক্ষা
+    -- ডিভাইসের তথ্য public.devices এ সেভ করা
+    INSERT INTO public.devices (
+        device_hash,
+        display_device_id,
+        device_model,
+        device_brand,
+        android_version,
+        app_version,
+        applied_code,
+        last_seen,
+        updated_at
+    ) VALUES (
+        p_device_hash,
+        COALESCE(NULLIF(p_display_device_id, ''), 'UNKNOWN'),
+        p_device_model,
+        p_device_brand,
+        p_android_version,
+        p_app_version,
+        UPPER(TRIM(p_code)),
+        now(),
+        now()
+    )
+    ON CONFLICT (device_hash) DO UPDATE SET
+        display_device_id = CASE WHEN EXCLUDED.display_device_id <> '' AND EXCLUDED.display_device_id <> 'UNKNOWN' THEN EXCLUDED.display_device_id ELSE public.devices.display_device_id END,
+        device_model = COALESCE(NULLIF(EXCLUDED.device_model, ''), public.devices.device_model),
+        device_brand = COALESCE(NULLIF(EXCLUDED.device_brand, ''), public.devices.device_brand),
+        android_version = COALESCE(NULLIF(EXCLUDED.android_version, ''), public.devices.android_version),
+        app_version = COALESCE(NULLIF(EXCLUDED.app_version, ''), public.devices.app_version),
+        applied_code = UPPER(TRIM(p_code)),
+        last_seen = now(),
+        updated_at = now();
+
+    -- ডিভাইস ব্যান কিনা পরীক্ষা
+    SELECT * INTO v_device_record FROM public.devices WHERE device_hash = p_device_hash;
+    IF FOUND AND v_device_record.is_banned THEN
+        RETURN json_build_object(
+            'success', false,
+            'banned', true,
+            'is_banned', true,
+            'message', COALESCE(v_device_record.ban_reason, 'এই ডিভাইসটি অ্যাডমিন দ্বারা স্থায়ীভাবে ব্যান করা হয়েছে!')
+        );
+    END IF;
+
+    -- কোড পরীক্ষা
     SELECT * INTO v_code_record FROM public.access_codes WHERE UPPER(code) = UPPER(TRIM(p_code));
     IF NOT FOUND THEN
         RETURN json_build_object('success', false, 'message', 'ভুল এক্সেস কোড। সঠিক কোড দিন।');
     END IF;
 
-    IF NOT v_code_record.is_active THEN
+    IF v_code_record.is_active IS FALSE OR (v_code_record.status IS NOT NULL AND v_code_record.status = 'inactive') THEN
         RETURN json_build_object('success', false, 'message', 'এই এক্সেস কোডটি অ্যাডমিন দ্বারা নিষ্ক্রিয় করা হয়েছে।');
     END IF;
 
@@ -63,35 +274,65 @@ BEGIN
         RETURN json_build_object('success', false, 'message', 'এক্সেস কোডের মেয়াদ শেষ হয়ে গেছে।');
     END IF;
 
-    -- ৩.২ ডিভাইসটি কি আগে থেকেই এই কোডে নিবন্ধিত?
+    -- ডিভাইসটি কি আগে থেকেই এই কোডে নিবন্ধিত?
     SELECT * INTO v_existing_device FROM public.activated_devices
     WHERE code_id = v_code_record.id AND device_hash = p_device_hash;
 
     IF FOUND THEN
         IF v_existing_device.is_blocked THEN
-            RETURN json_build_object('success', false, 'message', 'এই ডিভাইসটি ব্লক করা হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।');
+            RETURN json_build_object('success', false, 'banned', true, 'is_banned', true, 'message', 'এই ডিভাইসটি ব্লক করা হয়েছে। অ্যাডমিনের সাথে যোগাযোগ করুন।');
         END IF;
         UPDATE public.activated_devices 
         SET session_token = v_new_token, last_seen = now(), app_signature = p_app_signature
         WHERE id = v_existing_device.id;
+
+        UPDATE public.devices
+        SET status = 'active', updated_at = now()
+        WHERE device_hash = p_device_hash;
+
         RETURN json_build_object('success', true, 'token', v_new_token, 'message', 'ডিভাইস সফলভাবে পুনরায় যাচাই করা হয়েছে।');
     END IF;
 
-    -- ৩.৩ ডিভাইস কোটা সীমা পরীক্ষা (১টি কোড যেন অন্য ফোনে শেয়ার না করা যায়)
+    -- ডিভাইস কোটা সীমা পরীক্ষা
+    v_max_devices := COALESCE(v_code_record.max_devices, v_code_record.device_limit, 1);
     SELECT count(*) INTO v_bound_count FROM public.activated_devices WHERE code_id = v_code_record.id;
-    IF v_bound_count >= v_code_record.max_devices THEN
+    IF v_bound_count >= v_max_devices THEN
         RETURN json_build_object('success', false, 'message', 'এই কোডটি ইতিমধ্যে অন্য ফোনে ব্যবহার করা হয়েছে। ডিভাইস লিমিট শেষ।');
     END IF;
 
-    -- ৩.৪ নতুন ডিভাইস বাইন্ড ও টোকেন প্রদান
+    -- নতুন ডিভাইস বাইন্ড ও টোকেন প্রদান
     INSERT INTO public.activated_devices (code_id, device_hash, app_signature, session_token)
     VALUES (v_code_record.id, p_device_hash, p_app_signature, v_new_token);
+
+    UPDATE public.devices
+    SET status = 'active', updated_at = now()
+    WHERE device_hash = p_device_hash;
 
     RETURN json_build_object('success', true, 'token', v_new_token, 'message', 'ডিভাইস এক্সেস সফলভাবে সক্রিয় হয়েছে!');
 END;
 $$;
 
--- ৪. হার্টবিট ভেরিফিকেশন স্টোরড ফাংশন (Fast Heartbeat Verification RPC)
+-- ৭.১ ৩-প্যারামিটার ওভারলোড (backward compatibility wrapper)
+CREATE OR REPLACE FUNCTION public.activate_device(
+    p_code TEXT,
+    p_device_hash TEXT,
+    p_app_signature TEXT
+) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN public.activate_device(
+        p_code,
+        p_device_hash,
+        p_app_signature,
+        'UNKNOWN',
+        'Android Device',
+        '',
+        '',
+        ''
+    );
+END;
+$$;
+
+-- ৮. হার্টবিট ভেরিফিকেশন স্টোরড ফাংশন (Fast Heartbeat & Ban Check RPC)
 CREATE OR REPLACE FUNCTION public.verify_device_heartbeat(
     p_device_hash TEXT,
     p_token TEXT
@@ -99,7 +340,13 @@ CREATE OR REPLACE FUNCTION public.verify_device_heartbeat(
 DECLARE
     v_device RECORD;
     v_code RECORD;
+    v_is_banned BOOLEAN := false;
 BEGIN
+    SELECT is_banned INTO v_is_banned FROM public.devices WHERE device_hash = p_device_hash;
+    IF v_is_banned THEN
+        RETURN json_build_object('valid', false, 'reason', 'DEVICE_BANNED');
+    END IF;
+
     SELECT * INTO v_device FROM public.activated_devices 
     WHERE device_hash = p_device_hash AND session_token = p_token;
 
@@ -112,62 +359,133 @@ BEGIN
     END IF;
 
     SELECT * INTO v_code FROM public.access_codes WHERE id = v_device.code_id;
-    IF NOT FOUND OR NOT v_code.is_active THEN
+    IF NOT FOUND OR v_code.is_active IS FALSE THEN
         RETURN json_build_object('valid', false, 'reason', 'CODE_REVOKED');
     END IF;
 
     UPDATE public.activated_devices SET last_seen = now() WHERE id = v_device.id;
+    UPDATE public.devices SET last_seen = now() WHERE device_hash = p_device_hash;
     RETURN json_build_object('valid', true);
 END;
 $$;
 
--- ৫. উদাহরণ: পরীক্ষামূলক একটি কোড যোগ করতে চাইলে নিচের লাইনটি চালাতে পারেন:
--- INSERT INTO public.access_codes (code, student_name, max_devices) VALUES ('VIP-STUDENT-01', 'Fahim Mia', 1);
+-- ৯. অ্যাডমিন ডিভাইস ব্যান ও আনব্যান করার সুবিধাজনক RPC
+CREATE OR REPLACE FUNCTION public.admin_toggle_device_ban(
+    p_device_hash TEXT,
+    p_is_banned BOOLEAN,
+    p_reason TEXT
+) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.devices
+    SET is_banned = p_is_banned,
+        ban_reason = p_reason,
+        banned_at = CASE WHEN p_is_banned THEN now() ELSE NULL END,
+        status = CASE WHEN p_is_banned THEN 'banned' ELSE 'active' END,
+        updated_at = now()
+    WHERE device_hash = p_device_hash;
 
--- ========================================================
--- ৬. আধুনিক ডায়নামিক অ্যাপ নোটিশ সিস্টেম (MAXBIRD NOTICE SYSTEM)
--- ========================================================
--- টেবিল: app_notices
--- এতে অ্যাডমিন অ্যাপ থেকে এক বা একাধিক নোটিশ ছবি, শিরোনাম, লিংক, প্রায়োরিটি দিয়ে যোগ করা যাবে।
-CREATE TABLE IF NOT EXISTS public.app_notices (
+    UPDATE public.activated_devices
+    SET is_blocked = p_is_banned
+    WHERE device_hash = p_device_hash;
+
+    RETURN json_build_object('success', true, 'is_banned', p_is_banned);
+END;
+$$;
+
+-- ৯.১ অ্যাডমিন ডিভাইস ব্যান ২-প্যারামিটার ওভারলোড
+CREATE OR REPLACE FUNCTION public.admin_toggle_device_ban(
+    p_device_hash TEXT,
+    p_is_banned BOOLEAN
+) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN public.admin_toggle_device_ban(p_device_hash, p_is_banned, 'অ্যাডমিন কর্তৃক ব্যান করা হয়েছে');
+END;
+$$;
+
+-- ১০. অ্যাডমিন প্যানেল সিঙ্ক ট্রিগার: devices টেবিলে ব্যান টগল করলে সাথে সাথে activated_devices ও সিঙ্ক হবে
+CREATE OR REPLACE FUNCTION public.sync_device_ban_status()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.activated_devices
+    SET is_blocked = NEW.is_banned
+    WHERE device_hash = NEW.device_hash;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_sync_device_ban ON public.devices;
+CREATE TRIGGER trg_sync_device_ban
+AFTER UPDATE OF is_banned ON public.devices
+FOR EACH ROW EXECUTE FUNCTION public.sync_device_ban_status();
+
+-- ১১. অ্যাডমিন কোড তৈরির সুবিধাজনক RPC (Admin Create Access Code RPC)
+CREATE OR REPLACE FUNCTION public.create_access_code(
+    p_code TEXT,
+    p_student_name TEXT,
+    p_max_devices INT,
+    p_duration_days INT,
+    p_note TEXT
+) RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_expires_at TIMESTAMP WITH TIME ZONE;
+    v_new_record RECORD;
+BEGIN
+    IF p_duration_days > 0 THEN
+        v_expires_at := now() + (p_duration_days || ' days')::INTERVAL;
+    ELSE
+        v_expires_at := NULL;
+    END IF;
+
+    INSERT INTO public.access_codes (
+        code, student_name, name, max_devices, device_limit,
+        duration_days, expires_at, note, is_active, status, created_at, updated_at
+    ) VALUES (
+        UPPER(TRIM(p_code)), p_student_name, p_student_name,
+        COALESCE(p_max_devices, 1), COALESCE(p_max_devices, 1),
+        p_duration_days, v_expires_at, p_note, true, 'active', now(), now()
+    )
+    RETURNING * INTO v_new_record;
+
+    RETURN json_build_object(
+        'success', true,
+        'message', 'এক্সেস কোড সফলভাবে তৈরি হয়েছে।',
+        'code', v_new_record.code,
+        'id', v_new_record.id,
+        'expires_at', v_new_record.expires_at
+    );
+EXCEPTION WHEN OTHERS THEN
+    RETURN json_build_object(
+        'success', false,
+        'message', SQLERRM
+    );
+END;
+$$;
+
+-- ১২. ডায়নামিক সাপোর্ট লিংকস টেবিল
+CREATE TABLE IF NOT EXISTS public.activation_support_links (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     title TEXT NOT NULL,
-    description TEXT,
-    image_url TEXT NOT NULL,
-    action_url TEXT,
-    action_button_text TEXT DEFAULT 'বিস্তারিত দেখুন',
+    subtitle TEXT,
+    icon_type TEXT DEFAULT 'telegram',
+    url TEXT NOT NULL,
+    color_hex TEXT DEFAULT '#38BDF8',
     priority INT DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
-    show_as_popup BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- সিকিউরিটি: Row Level Security (RLS) সক্রিয়করণ
-ALTER TABLE public.app_notices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activation_support_links ENABLE ROW LEVEL SECURITY;
 
--- পলিসি ১: ইউজার অ্যাপ সক্রিয় নোটিশ পড়ার অনুমতি
-CREATE POLICY "Allow public read active notices" 
-ON public.app_notices FOR SELECT 
-TO anon, authenticated 
+DROP POLICY IF EXISTS "Allow public read support links" ON public.activation_support_links;
+CREATE POLICY "Allow public read support links" ON public.activation_support_links
+FOR SELECT TO anon, authenticated
 USING (is_active = true);
 
--- পলিসি ২: অ্যাডমিন অ্যাপ থেকে নোটিশ যোগ, আপডেট ও ডিলিট করার সম্পূর্ণ অনুমতি
-CREATE POLICY "Allow full access for admin operations" 
-ON public.app_notices FOR ALL 
-TO anon, authenticated 
-USING (true) 
+DROP POLICY IF EXISTS "Allow full admin support links" ON public.activation_support_links;
+CREATE POLICY "Allow full admin support links" ON public.activation_support_links
+FOR ALL TO anon, authenticated
+USING (true)
 WITH CHECK (true);
 
--- উদাহরণ: পরীক্ষামূলক একটি টেস্ট নোটিশ (প্রয়োজনে আন-কমেন্ট করে রান করতে পারেন):
--- INSERT INTO public.app_notices (title, description, image_url, action_url, action_button_text, priority, is_active, show_as_popup)
--- VALUES (
---     'নতুন লাইভ ক্লাস ও কোর্স আপডেট!',
---     'এইচএসসি ২০২৬ ব্যাচের জন্য নতুন স্পেশাল মডেল টেস্ট যুক্ত করা হয়েছে। এখনই চেক করুন।',
---     'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800',
---     'https://t.me/your_channel',
---     'টেলিগ্রামে যুক্ত হোন',
---     10,
---     true,
---     true
--- );
+GRANT ALL ON TABLE public.activation_support_links TO anon, authenticated, service_role;
