@@ -150,7 +150,7 @@ fun HomeNoticeCarousel(
                             }
                         )
 
-                        // Subtle bottom gradient scrim overlay for readability if title or action is present
+                        // Minimal soft gradient scrim overlay so the banner image remains completely clear
                         if (notice.title.isNotBlank() || !notice.actionUrl.isNullOrBlank()) {
                             Box(
                                 modifier = Modifier
@@ -160,12 +160,12 @@ fun HomeNoticeCarousel(
                                         Brush.verticalGradient(
                                             listOf(
                                                 Color.Transparent,
-                                                Color(0x99030B17),
-                                                Color(0xE6030B17)
+                                                Color(0x22000000),
+                                                Color(0x59000000)
                                             )
                                         )
                                     )
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -175,38 +175,41 @@ fun HomeNoticeCarousel(
                                     if (notice.title.isNotBlank()) {
                                         Text(
                                             text = notice.title,
-                                            fontSize = 12.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White.copy(alpha = 0.95f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f, fill = false)
                                         )
+                                    } else {
+                                        Spacer(modifier = Modifier.weight(1f))
                                     }
 
                                     if (!notice.actionUrl.isNullOrBlank()) {
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        // Ultra-compact, translucent sleek button so it doesn't obstruct banner view
                                         Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFF0284C7).copy(alpha = 0.55f),
-                                            border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color.Black.copy(alpha = 0.35f),
+                                            border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.35f))
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
                                                     text = notice.actionButtonText.ifBlank { "দেখুন" },
-                                                    fontSize = 10.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = Color.White.copy(alpha = 0.9f)
                                                 )
-                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Spacer(modifier = Modifier.width(2.5.dp))
                                                 Icon(
                                                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                                     contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(11.dp)
+                                                    tint = Color.White.copy(alpha = 0.9f),
+                                                    modifier = Modifier.size(8.5.dp)
                                                 )
                                             }
                                         }
@@ -217,23 +220,6 @@ fun HomeNoticeCarousel(
                     } else {
                         // Notice with no image URL
                         NoticeFallbackBanner(notice)
-                    }
-
-                    // Priority Tag badge if priority > 0
-                    if (notice.priority > 0) {
-                        Surface(
-                            shape = RoundedCornerShape(bottomEnd = 10.dp),
-                            color = Color(0xFFEF4444).copy(alpha = 0.95f),
-                            modifier = Modifier.align(Alignment.TopStart)
-                        ) {
-                            Text(
-                                text = "বিশেষ",
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -334,28 +320,28 @@ private fun NoticeFallbackBanner(notice: AppNotice) {
             }
 
             if (!notice.actionUrl.isNullOrBlank()) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.White.copy(alpha = 0.2f),
-                    border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.4f))
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.White.copy(alpha = 0.18f),
+                    border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.35f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = notice.actionButtonText.ifBlank { "দেখুন" },
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.9f)
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(2.5.dp))
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(11.dp)
+                            tint = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.size(8.5.dp)
                         )
                     }
                 }
