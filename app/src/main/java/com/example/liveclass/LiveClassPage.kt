@@ -89,14 +89,10 @@ fun LiveClassPage(
     val wsError by wsManager.error.collectAsState()
     val isConnected by wsManager.isConnected.collectAsState()
 
-    // Chat Messages State
+    // Chat Messages State (Starts completely empty - no dummy or mock messages)
     var chatMessageInput by remember { mutableStateOf("") }
     val chatMessages = remember {
-        mutableStateListOf(
-            LiveChatMessage(senderName = "শিক্ষক (Teacher)", message = "সবাইকে আজকের লাইভ ক্লাসে স্বাগতম! কোনো প্রশ্ন থাকলে চ্যাটে লিখতে পারো।", isTeacher = true),
-            LiveChatMessage(senderName = "হাসান", message = "স্যার সাউন্ড ক্লিয়ার শোনা যাচ্ছে।"),
-            LiveChatMessage(senderName = "রাফিদ", message = "আসসালামু আলাইকুম স্যার।")
-        )
+        mutableStateListOf<LiveChatMessage>()
     }
 
     // Function to initialize connection flow: GraphQL -> Token -> WebSocket
@@ -665,38 +661,55 @@ fun LiveClassPage(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 reverseLayout = false
                             ) {
-                                items(chatMessages, key = { it.id }) { item ->
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (item.isTeacher) Color(0xFF1E293B) else Color(0xFF1E293B).copy(alpha = 0.6f),
-                                        border = BorderStroke(
-                                            0.5.dp,
-                                            if (item.isTeacher) Color(0xFF38BDF8) else Color(0xFF334155)
-                                        )
-                                    ) {
-                                        Column(modifier = Modifier.padding(8.dp)) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
+                                if (chatMessages.isEmpty()) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 32.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "কোনো চ্যাট বার্তা নেই",
+                                                fontSize = 12.sp,
+                                                color = Color.White.copy(alpha = 0.4f)
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    items(chatMessages, key = { it.id }) { item ->
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (item.isTeacher) Color(0xFF1E293B) else Color(0xFF1E293B).copy(alpha = 0.6f),
+                                            border = BorderStroke(
+                                                0.5.dp,
+                                                if (item.isTeacher) Color(0xFF38BDF8) else Color(0xFF334155)
+                                            )
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = item.senderName,
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (item.isTeacher) Color(0xFF38BDF8) else Color(0xFFF1F5F9)
+                                                    )
+                                                    Text(
+                                                        text = "• ${item.timestamp}",
+                                                        fontSize = 10.sp,
+                                                        color = Color.White.copy(alpha = 0.5f)
+                                                    )
+                                                }
                                                 Text(
-                                                    text = item.senderName,
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (item.isTeacher) Color(0xFF38BDF8) else Color(0xFFF1F5F9)
-                                                )
-                                                Text(
-                                                    text = "• ${item.timestamp}",
-                                                    fontSize = 10.sp,
-                                                    color = Color.White.copy(alpha = 0.5f)
+                                                    text = item.message,
+                                                    fontSize = 12.5.sp,
+                                                    color = Color.White.copy(alpha = 0.9f),
+                                                    modifier = Modifier.padding(top = 2.dp)
                                                 )
                                             }
-                                            Text(
-                                                text = item.message,
-                                                fontSize = 12.5.sp,
-                                                color = Color.White.copy(alpha = 0.9f),
-                                                modifier = Modifier.padding(top = 2.dp)
-                                            )
                                         }
                                     }
                                 }

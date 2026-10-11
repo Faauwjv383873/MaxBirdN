@@ -687,6 +687,14 @@ data class StudentLessonItem(
                 return true
             }
 
+            // If the server explicitly says live class is NOT ongoing, it's not live!
+            if (live_class?.is_on_going == false && user_activity_state?.equals("LIVE", ignoreCase = true) != true) {
+                val startMs = classStartMs
+                if (startMs != Long.MAX_VALUE && System.currentTimeMillis() >= startMs) {
+                    return false
+                }
+            }
+
             // 2. Purely recorded class or static video is never live
             if (content_type?.equals("RecordedClass", ignoreCase = true) == true ||
                 content_type?.equals("Video", ignoreCase = true) == true ||
@@ -705,28 +713,40 @@ data class StudentLessonItem(
                 return false
             }
 
-            // 5. Broadcast window validation:
-            // NOTE: A student temporarily leaving the live class (setting user_activity_state to "ATTENDED")
-            // MUST NOT terminate the live session while the broadcast is ongoing!
+            // 5. Explicit finished states from user_activity_state
+            if (user_activity_state.equals("ENDED", ignoreCase = true) ||
+                user_activity_state.equals("COMPLETED", ignoreCase = true) ||
+                user_activity_state.equals("RECORDED", ignoreCase = true)
+            ) {
+                return false
+            }
+
+            // 6. Broadcast window validation:
+            // A live class is only considered live within its scheduled broadcast window:
+            // from (startMs - 5m) up to scheduled endMs.
+            // Once now >= endMs (scheduled class time has passed), it is NO LONGER live
+            // (unless the server explicitly marked live_class.is_on_going == true above).
             val startMs = classStartMs
+            val endMs = classEndMs
             val now = System.currentTimeMillis()
             if (startMs != Long.MAX_VALUE) {
-                // If more than 15 mins before start time, it is UPCOMING
-                if (now < (startMs - 15 * 60 * 1000L)) {
+                // If before start time (allowing 5 min pre-join window), it is UPCOMING
+                if (now < (startMs - 5 * 60 * 1000L)) {
                     return false
                 }
 
-                // If class has nominal end time, allow live window up to end_time + 45 mins buffer
-                val nominalEndMs = classEndMs
-                val effectiveEndMs = if (nominalEndMs != Long.MAX_VALUE) {
-                    nominalEndMs + (45 * 60 * 1000L)
-                } else {
-                    startMs + (4 * 60 * 60 * 1000L)
+                // If scheduled end time has arrived or passed, live class has ended!
+                if (endMs != Long.MAX_VALUE && now >= endMs) {
+                    return false
                 }
 
-                if (now <= effectiveEndMs) {
-                    return true
+                // If class does not specify nominal end time, default duration is 90 mins max
+                if (endMs == Long.MAX_VALUE && now >= (startMs + 90 * 60 * 1000L)) {
+                    return false
                 }
+
+                // Within scheduled class hours [startMs - 5m .. endMs)
+                return true
             }
 
             return false
@@ -747,7 +767,7 @@ data class StudentLessonItem(
             val startMs = classStartMs
             val now = System.currentTimeMillis()
             if (startMs != Long.MAX_VALUE) {
-                return now < (startMs - 15 * 60 * 1000L)
+                return now < (startMs - 5 * 60 * 1000L)
             }
             return user_activity_state.equals("UPCOMING", ignoreCase = true) ||
                    user_activity_state.equals("SCHEDULED", ignoreCase = true)

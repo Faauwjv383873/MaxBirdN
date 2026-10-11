@@ -151,8 +151,6 @@ object RoutineDateUtils {
 
         fun isLessonPassed(lesson: StudentLessonItem): Boolean {
             if (isLessonLiveNow(lesson)) return false
-            if (lesson.isRecordingProcessing) return false
-            if (lesson.isLiveClass && !lesson.hasRecording && !lesson.isUpcoming) return false
             val endMs = getEndMs(lesson)
             return endMs != Long.MAX_VALUE && nowMs > endMs
         }
