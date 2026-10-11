@@ -222,8 +222,11 @@ fun MainContainerScreen(
             }
         }
 
-        // Floating Bottom Bar
-        Box(
+        // Floating Bottom Bar - Seamlessly hidden when in Birdgram (tab index 2) to give 100% native Telegram screen space
+        AnimatedVisibility(
+            visible = selectedIndex != 2,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -268,14 +271,14 @@ fun ElementalFloatingBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .height(66.dp)
+            .padding(horizontal = 14.dp, vertical = 5.dp)
+            .height(59.dp)
             .shadow(
-                elevation = 26.dp,
-                shape = RoundedCornerShape(33.dp),
+                elevation = 20.dp,
+                shape = RoundedCornerShape(30.dp),
                 spotColor = Color.Black.copy(alpha = 0.5f)
             ),
-        shape = RoundedCornerShape(33.dp),
+        shape = RoundedCornerShape(30.dp),
         color = Color(0xFF07152B),
         border = BorderStroke(
             1.dp,
@@ -302,7 +305,7 @@ fun ElementalFloatingBottomBar(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -312,7 +315,7 @@ fun ElementalFloatingBottomBar(
 
                 // Icon bounce on selection
                 val iconScale by animateFloatAsState(
-                    targetValue = if (isSelected) 1.18f else 1f,
+                    targetValue = if (isSelected) 1.15f else 1f,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMedium
@@ -346,35 +349,35 @@ fun ElementalFloatingBottomBar(
                 ) { selected ->
                     if (selected) {
                         Surface(
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(21.dp),
                             color = theme.pillBg,
                             border = BorderStroke(
-                                1.5.dp,
+                                1.2.dp,
                                 Brush.horizontalGradient(listOf(theme.border, theme.border.copy(alpha = 0.5f), theme.border))
                             ),
-                            shadowElevation = 8.dp,
+                            shadowElevation = 6.dp,
                             modifier = Modifier
-                                .height(46.dp)
+                                .height(41.dp)
                                 .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
                                 .clickable(interactionSource = interaction, indication = null) { onTabSelected(index) }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Icon(
                                     imageVector = item.selectedIcon,
                                     contentDescription = item.title,
                                     tint = theme.icon,
                                     modifier = Modifier
-                                        .size(19.dp)
+                                        .size(18.dp)
                                         .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                                 )
                                 Spacer(modifier = Modifier.width(5.dp))
                                 Text(
                                     text = item.title,
-                                    fontSize = 12.5.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
@@ -385,23 +388,23 @@ fun ElementalFloatingBottomBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
                                 .clickable(interactionSource = interaction, indication = null) { onTabSelected(index) }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = item.unselectedIcon,
                                 contentDescription = item.title,
                                 tint = iconTint,
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(18.dp)
                                     .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = item.title,
-                                fontSize = 10.sp,
+                                fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = iconTint
                             )

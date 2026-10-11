@@ -376,10 +376,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
         } else if (lesson.isLiveNow || lesson.live_class?.is_on_going == true || lesson.user_activity_state.equals("LIVE", ignoreCase = true) || (lesson.isLiveClass && !lesson.isRecorded && !lesson.isUpcoming)) {
             val classId = lesson.live_class?.id?.takeIf { it.isNotBlank() }
                 ?: lesson.content_id?.takeIf { it.isNotBlank() }
-                ?: lesson.id
-            val lessonId = lesson.id
+                ?: lesson.id ?: ""
+            val lessonId = lesson.id ?: classId
             val title = lesson.title ?: "লাইভ ক্লাস"
             val subject = lesson.subject_name ?: "সাধারণ"
+            courseViewModel.selectLesson(lesson)
             navController.navigate(Routes.liveClassRoute(classId = classId, lessonId = lessonId, lessonTitle = title, subjectName = subject))
         } else {
             // Both UPCOMING, RECORDING_PROCESSING, and RECORDED classes open LESSON_DETAIL_PLAYER!
@@ -1664,11 +1665,14 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             val lessonTitle = try { URLDecoder.decode(rawTitle, "UTF-8") } catch (_: Exception) { rawTitle }
             val subjectName = try { URLDecoder.decode(rawSubject, "UTF-8") } catch (_: Exception) { rawSubject }
 
+            val candidateUrls: List<String> = courseViewModel.uiState.value.selectedLesson?.candidateStreamUrls ?: emptyList()
+
             com.example.liveclass.LiveClassPage(
                 classId = classId,
                 lessonId = lessonId,
                 lessonTitle = lessonTitle.ifBlank { "লাইভ ক্লাস" },
                 subjectName = subjectName.ifBlank { "সাধারণ" },
+                initialCandidateUrls = candidateUrls,
                 sessionManager = sessionManager,
                 onBack = {
                     navController.popBackStack()

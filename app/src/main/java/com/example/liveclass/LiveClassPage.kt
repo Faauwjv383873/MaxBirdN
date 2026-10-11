@@ -1,5 +1,8 @@
 package com.example.liveclass
 
+import android.content.Intent
+import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -32,12 +35,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.auth.SessionManager
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
+private const val TAG = "LiveClassPage"
+
 sealed class LiveClassState {
-    object Loading : LiveClassState()
+    data object Loading : LiveClassState()
     data class Preview(val viewerCount: Int) : LiveClassState()
-    object Playing : LiveClassState()
+    data object Playing : LiveClassState()
     data class Error(val message: String) : LiveClassState()
 }
 
@@ -56,6 +62,7 @@ fun LiveClassPage(
     lessonId: String,
     lessonTitle: String = "লাইভ ক্লাস",
     subjectName: String = "বিষয়",
+    initialCandidateUrls: List<String> = emptyList(),
     sessionManager: SessionManager,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -72,9 +79,14 @@ fun LiveClassPage(
         mutableStateOf(sessionManager.getUserFullName() ?: "শিক্ষার্থী")
     }
 
+    var lectureSlideUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLiveOnGoing by remember { mutableStateOf(true) }
+
     val masterUrl by wsManager.masterUrl.collectAsState()
+    val candidateUrls by wsManager.candidateUrls.collectAsState()
     val viewerCount by wsManager.viewerCount.collectAsState()
     val wsError by wsManager.error.collectAsState()
+    val isConnected by wsManager.isConnected.collectAsState()
 
     // Chat Messages State
     var chatMessageInput by remember { mutableStateOf("") }
@@ -96,30 +108,60 @@ fun LiveClassPage(
                 return@launch
             }
 
-            // Step 1: Try 100ms GraphQL Room ID
-            val roomResult = service.getHmsRoomId(classId, lessonId, userToken)
+            // Step 1: Concurrently fetch Academic Live Class info (playback_url, on_going, slides) AND HMS Room ID
+            val academicDeferred = async { service.getAcademicLiveClassInfo(classId, lessonId, userToken) }
+            val roomDeferred = async { service.getHmsRoomId(classId, lessonId, userToken) }
+
+            val academicInfo = academicDeferred.await().getOrNull()
+            val roomResult = roomDeferred.await()
             val roomId = roomResult.getOrNull()
 
+            // Collect all discovered stream and recording URLs
+            val discoveredUrls = mutableListOf<String>()
+            academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }?.let { discoveredUrls.add(it) }
+            discoveredUrls.addAll(academicInfo?.candidateUrls ?: emptyList())
+            discoveredUrls.addAll(initialCandidateUrls)
+            val cleanDiscovered = discoveredUrls.filter { it.isNotBlank() && it != "null" }.distinct()
+
+            academicInfo?.slideUrls?.let {
+                lectureSlideUrls = it
+            }
+            if (academicInfo != null) {
+                isLiveOnGoing = academicInfo.isOnGoing
+            }
+
+            Log.d(TAG, "Fetched details: roomId=$roomId, onGoing=$isLiveOnGoing, directPlayback=${academicInfo?.playbackUrl}, totalCandidates=${cleanDiscovered.size}")
+            wsManager.addCandidateUrls(cleanDiscovered)
+
+            // Step 2: If the live class is ALREADY OVER (on_going == false) and we have playback_url:
+            // Prefer the full recording playback_url directly so the student can watch the full lecture without 100ms timeout!
+            if (!isLiveOnGoing && !academicInfo?.playbackUrl.isNullOrBlank()) {
+                Log.d(TAG, "Live class has concluded. Loading full recording directly: ${academicInfo?.playbackUrl}")
+                wsManager.setMasterUrl(academicInfo!!.playbackUrl!!)
+                uiState = LiveClassState.Preview(viewerCount.coerceAtLeast(1))
+                return@launch
+            }
+
+            // Step 3: Try 100ms HMS Room connection
             if (!roomId.isNullOrBlank()) {
-                // Step 2: HMS Token API -> 100ms Token
                 val tokenResult = service.getHmsToken(roomId, userToken)
                 val hmsToken = tokenResult.getOrNull()
                 if (!hmsToken.isNullOrBlank()) {
-                    // Step 3: Connect WebSocket
                     wsManager.connect(hmsToken, studentName)
                     return@launch
                 }
             }
 
-            // Step 2 Fallback: Check direct live stream URL from academic program details
-            val directResult = service.getDirectLiveClassStream(classId, userToken)
-            val directStreamUrl = directResult.getOrNull()
-            if (!directStreamUrl.isNullOrBlank()) {
-                wsManager.setMasterUrl(directStreamUrl)
+            // Step 4: Fallback to direct stream/playback URL
+            val fallbackUrl = academicInfo?.playbackUrl ?: cleanDiscovered.firstOrNull()
+            if (!fallbackUrl.isNullOrBlank()) {
+                Log.d(TAG, "Using direct fallback playback URL: $fallbackUrl")
+                wsManager.setMasterUrl(fallbackUrl)
                 uiState = LiveClassState.Preview(viewerCount.coerceAtLeast(1))
                 return@launch
             }
 
+            // Step 5: Only show error if no HMS room AND no direct stream exists
             val errMsg = roomResult.exceptionOrNull()?.message
                 ?: "লাইভ ক্লাসের ব্রডকাস্ট সংযোগ পাওয়া যায়নি। ক্লাস শুরু হতে বিলম্ব হলে অনুগ্রহ করে একটু অপেক্ষা করে রিফ্রেশ করুন।"
             uiState = LiveClassState.Error(errMsg)
@@ -131,12 +173,33 @@ fun LiveClassPage(
         startLiveClassConnection()
     }
 
-    // React to WebSocket updates
+    // React to WebSocket updates safely
     LaunchedEffect(masterUrl, wsError) {
-        if (!wsError.isNullOrBlank()) {
-            uiState = LiveClassState.Error("কানেকশন ত্রুটি: $wsError")
-        } else if (!masterUrl.isNullOrBlank() && uiState is LiveClassState.Loading) {
-            uiState = LiveClassState.Preview(viewerCount)
+        // CRITICAL BUG FIX: Only transition state if we are currently in Loading!
+        // NEVER overwrite uiState to Error if the user is already in Preview or Playing!
+        if (uiState is LiveClassState.Loading) {
+            if (!masterUrl.isNullOrBlank()) {
+                uiState = LiveClassState.Preview(viewerCount.coerceAtLeast(1))
+            } else if (!wsError.isNullOrBlank()) {
+                // If we have any candidate URLs, use them as fallback instead of failing!
+                val fallback = candidateUrls.firstOrNull { it.isNotBlank() }
+                if (!fallback.isNullOrBlank()) {
+                    wsManager.setMasterUrl(fallback)
+                    uiState = LiveClassState.Preview(viewerCount.coerceAtLeast(1))
+                } else {
+                    uiState = LiveClassState.Error("কানেকশন ত্রুটি: $wsError")
+                }
+            }
+        }
+    }
+
+    // Listen to incoming chat messages over WebSocket
+    val incomingMsg by wsManager.incomingChatMessages.collectAsState()
+    LaunchedEffect(incomingMsg) {
+        incomingMsg?.let { msg ->
+            if (chatMessages.none { it.id == msg.id || (it.message == msg.message && it.senderName == msg.senderName) }) {
+                chatMessages.add(msg)
+            }
         }
     }
 
@@ -295,10 +358,10 @@ fun LiveClassPage(
 
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFE11D48)
+                                    color = if (isLiveOnGoing) Color(0xFFE11D48) else Color(0xFF10B981)
                                 ) {
                                     Text(
-                                        text = "🔴 LIVE CLASS",
+                                        text = if (isLiveOnGoing) "🔴 LIVE CLASS" else "📺 ক্লাস রেকর্ডিং",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color.White,
@@ -346,9 +409,11 @@ fun LiveClassPage(
 
                                 Spacer(modifier = Modifier.height(20.dp))
 
+                                val hasAvailableStream = !masterUrl.isNullOrBlank() || candidateUrls.isNotEmpty()
+
                                 Button(
                                     onClick = { uiState = LiveClassState.Playing },
-                                    enabled = studentName.isNotBlank() && !masterUrl.isNullOrBlank(),
+                                    enabled = studentName.isNotBlank() && hasAvailableStream,
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = Color(0xFF0284C7),
@@ -359,7 +424,7 @@ fun LiveClassPage(
                                         .height(48.dp)
                                 ) {
                                     Text(
-                                        text = "লাইভ ক্লাসে যোগ দিন (Join Now)",
+                                        text = if (isLiveOnGoing) "লাইভ ক্লাসে যোগ দিন (Join Now)" else "ক্লাস শুরু করুন (Start Class)",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -369,7 +434,7 @@ fun LiveClassPage(
 
                         // Bottom hint
                         Text(
-                            text = "লাইভ স্ট্রিমিং চলাকালীন ভালো ইন্টারনেটের জন্য Wi-Fi বা 4G ব্যবহার করুন",
+                            text = "লাইভ স্ট্রিমিং চলাকালীন ভালো অভিজ্ঞতার জন্য Wi-Fi বা 4G ব্যবহার করুন",
                             fontSize = 11.5.sp,
                             color = Color.White.copy(alpha = 0.5f),
                             textAlign = TextAlign.Center
@@ -389,11 +454,15 @@ fun LiveClassPage(
                                 .aspectRatio(16f / 9f)
                                 .background(Color.Black)
                         ) {
-                            if (!masterUrl.isNullOrBlank()) {
+                            val activePlaybackUrl = masterUrl ?: candidateUrls.firstOrNull { it.isNotBlank() }
+
+                            if (!activePlaybackUrl.isNullOrBlank()) {
                                 LivePlayer(
-                                    masterUrl = masterUrl!!,
-                                    onError = { err ->
-                                        uiState = LiveClassState.Error(err)
+                                    masterUrl = activePlaybackUrl,
+                                    candidateUrls = candidateUrls,
+                                    onBack = {
+                                        wsManager.disconnect()
+                                        onBack()
                                     }
                                 )
                             }
@@ -427,10 +496,10 @@ fun LiveClassPage(
 
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFE11D48)
+                                    color = if (isLiveOnGoing) Color(0xFFE11D48) else Color(0xFF10B981)
                                 ) {
                                     Text(
-                                        text = "🔴 LIVE",
+                                        text = if (isLiveOnGoing) "🔴 LIVE" else "📺 RECORDING",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color.White,
@@ -450,6 +519,47 @@ fun LiveClassPage(
                                         .background(Color.Black.copy(alpha = 0.5f))
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
+
+                                Spacer(modifier = Modifier.weight(1f))
+
+                                // Slide / PDF button if available
+                                if (lectureSlideUrls.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            val firstSlide = lectureSlideUrls.firstOrNull()
+                                            if (!firstSlide.isNullOrBlank()) {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(firstSlide))
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    Log.w(TAG, "Cannot open slide URL: ${e.message}")
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.Black.copy(alpha = 0.5f))
+                                            .padding(horizontal = 4.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Description,
+                                                contentDescription = "Lecture Notes",
+                                                tint = Color(0xFF38BDF8),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = "স্লাইড",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -475,7 +585,7 @@ fun LiveClassPage(
                                 fontSize = 12.5.sp,
                                 color = Color(0xFF38BDF8),
                                 fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
                             )
 
                             HorizontalDivider(color = Color(0xFF334155))
@@ -484,7 +594,7 @@ fun LiveClassPage(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 10.dp),
+                                    .padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -500,6 +610,22 @@ fun LiveClassPage(
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
+
+                                Spacer(modifier = Modifier.weight(1f))
+
+                                // Connection indicator badge
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isConnected) Color(0xFF065F46) else Color(0xFF334155)
+                                ) {
+                                    Text(
+                                        text = if (isConnected) "কানেক্টেড" else "রেকর্ডিং মোড",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isConnected) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
 
                             // Chat Messages List
@@ -572,12 +698,15 @@ fun LiveClassPage(
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                     keyboardActions = KeyboardActions(onSend = {
                                         if (chatMessageInput.isNotBlank()) {
+                                            val textToSend = chatMessageInput.trim()
+                                            val myName = studentName.ifBlank { "আপনি" }
                                             chatMessages.add(
                                                 LiveChatMessage(
-                                                    senderName = studentName.ifBlank { "আপনি" },
-                                                    message = chatMessageInput.trim()
+                                                    senderName = myName,
+                                                    message = textToSend
                                                 )
                                             )
+                                            wsManager.sendChatMessage(textToSend, myName)
                                             chatMessageInput = ""
                                             keyboardController?.hide()
                                         }
@@ -588,12 +717,15 @@ fun LiveClassPage(
                                 IconButton(
                                     onClick = {
                                         if (chatMessageInput.isNotBlank()) {
+                                            val textToSend = chatMessageInput.trim()
+                                            val myName = studentName.ifBlank { "আপনি" }
                                             chatMessages.add(
                                                 LiveChatMessage(
-                                                    senderName = studentName.ifBlank { "আপনি" },
-                                                    message = chatMessageInput.trim()
+                                                    senderName = myName,
+                                                    message = textToSend
                                                 )
                                             )
+                                            wsManager.sendChatMessage(textToSend, myName)
                                             chatMessageInput = ""
                                             keyboardController?.hide()
                                         }

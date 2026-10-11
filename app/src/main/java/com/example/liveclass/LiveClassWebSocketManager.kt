@@ -20,15 +20,20 @@ class LiveClassWebSocketManager {
         private const val BASE_WS_URL = "wss://prod-in3.100ms.live/v2/ws"
     }
 
+    // 15s ping interval ensures carrier NATs and 100ms servers do not drop the connection during live playback
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // Keep alive for WebSocket
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
 
     private val _masterUrl = MutableStateFlow<String?>(null)
     val masterUrl: StateFlow<String?> = _masterUrl.asStateFlow()
+
+    private val _candidateUrls = MutableStateFlow<List<String>>(emptyList())
+    val candidateUrls: StateFlow<List<String>> = _candidateUrls.asStateFlow()
 
     private val _viewerCount = MutableStateFlow(0)
     val viewerCount: StateFlow<Int> = _viewerCount.asStateFlow()
@@ -39,11 +44,20 @@ class LiveClassWebSocketManager {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    private val _incomingChatMessages = MutableStateFlow<LiveChatMessage?>(null)
+    val incomingChatMessages: StateFlow<LiveChatMessage?> = _incomingChatMessages.asStateFlow()
+
     fun setMasterUrl(url: String, viewers: Int = 1) {
         _masterUrl.value = url
         _viewerCount.value = viewers.coerceAtLeast(1)
         _isConnected.value = true
         _error.value = null
+    }
+
+    fun addCandidateUrls(urls: List<String>) {
+        val current = _candidateUrls.value.toMutableList()
+        current.addAll(urls.filter { it.isNotBlank() && it != "null" })
+        _candidateUrls.value = current.distinct()
     }
 
     fun connect(
@@ -147,6 +161,27 @@ class LiveClassWebSocketManager {
                             _masterUrl.value = cleanUrl
                         }
                     }
+
+                    // Broadcast chat messages parsing
+                    if (method == "on-broadcast" || method == "broadcast") {
+                        val params = msg.optJSONObject("params")
+                        val infoStr = params?.optString("info")
+                        if (!infoStr.isNullOrBlank()) {
+                            try {
+                                val infoJson = JSONObject(infoStr)
+                                val chatText = infoJson.optString("message")
+                                val sender = infoJson.optString("sender", "শিক্ষার্থী")
+                                if (chatText.isNotBlank()) {
+                                    _incomingChatMessages.value = LiveChatMessage(
+                                        senderName = sender,
+                                        message = chatText,
+                                        isTeacher = sender.contains("Teacher", ignoreCase = true) ||
+                                                sender.contains("শিক্ষক") || sender.contains("Teacher")
+                                    )
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing WebSocket message: ${e.message}", e)
                 }
@@ -155,7 +190,14 @@ class LiveClassWebSocketManager {
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WebSocket Failure: ${t.message}", t)
                 _isConnected.value = false
-                _error.value = t.message ?: "WebSocket connection failed"
+                // CRITICAL FIX: If masterUrl is ALREADY ACQUIRED, the user's video player is actively
+                // streaming over HLS via ExoPlayer. The WebSocket is only a signaling/chat layer.
+                // A dropped WebSocket must NEVER kill active video playback or crash to fatal error!
+                if (_masterUrl.value.isNullOrBlank()) {
+                    _error.value = t.message ?: "WebSocket connection failed"
+                } else {
+                    Log.d(TAG, "WebSocket dropped while stream is already active; keeping playback uninterrupted.")
+                }
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
@@ -163,6 +205,28 @@ class LiveClassWebSocketManager {
                 _isConnected.value = false
             }
         })
+    }
+
+    fun sendChatMessage(text: String, studentName: String) {
+        val ws = webSocket ?: return
+        try {
+            val broadcastMsg = JSONObject().apply {
+                put("id", UUID.randomUUID().toString())
+                put("method", "broadcast")
+                put("params", JSONObject().apply {
+                    put("info", JSONObject().apply {
+                        put("message", text)
+                        put("sender", studentName)
+                        put("time", System.currentTimeMillis())
+                    }.toString())
+                    put("type", "chat")
+                })
+                put("jsonrpc", "2.0")
+            }
+            ws.send(broadcastMsg.toString())
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to send chat message over WebSocket: ${e.message}")
+        }
     }
 
     fun setDirectMasterUrl(url: String) {
@@ -179,6 +243,7 @@ class LiveClassWebSocketManager {
             webSocket = null
             _isConnected.value = false
             _masterUrl.value = null
+            _candidateUrls.value = emptyList()
             _viewerCount.value = 0
             _error.value = null
         } catch (e: Exception) {

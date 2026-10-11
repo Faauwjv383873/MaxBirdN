@@ -10,6 +10,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+data class AcademicLiveClassInfo(
+    val id: String,
+    val title: String? = null,
+    val playbackUrl: String? = null,
+    val isOnGoing: Boolean = false,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val slideUrls: List<String> = emptyList(),
+    val candidateUrls: List<String> = emptyList()
+)
+
 class LiveClassService(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -175,61 +186,121 @@ class LiveClassService(
     }
 
     /**
+     * Query academic program live class details using Shikho's valid GraphQL schema.
+     * Extracts playback_url (direct HLS stream or recording), on_going status, lecture slides, and metadata.
+     */
+    suspend fun getAcademicLiveClassInfo(
+        classId: String,
+        lessonId: String,
+        userToken: String
+    ): Result<AcademicLiveClassInfo> = withContext(Dispatchers.IO) {
+        val candidateIds = listOf(classId, lessonId).distinct().filter { it.isNotBlank() }
+        for (id in candidateIds) {
+            try {
+                val queryStr = """
+                    query GetAcademicLiveClassDetails(${'$'}id: String!) {
+                      academicProgramLiveClass(id: ${'$'}id) {
+                        id
+                        title
+                        playback_url
+                        on_going
+                        class_type
+                        start_time
+                        end_time
+                        study_materials {
+                          file_url
+                          id
+                          name
+                        }
+                        topics {
+                          id
+                          name
+                        }
+                      }
+                    }
+                """.trimIndent()
+
+                val jsonBody = JSONObject().apply {
+                    put("query", queryStr)
+                    put("variables", JSONObject().apply {
+                        put("id", id)
+                    })
+                }
+
+                val request = Request.Builder()
+                    .url(GRAPHQL_URL)
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Authorization", "Bearer $userToken")
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("Build-Version", BUILD_VERSION)
+                    .addHeader("X-User-Timezone", TIMEZONE)
+                    .build()
+
+                val resp = client.newCall(request).execute()
+                val body = resp.body?.string() ?: ""
+                val json = JSONObject(body)
+                val liveClass = json.optJSONObject("data")?.optJSONObject("academicProgramLiveClass")
+                if (liveClass != null) {
+                    val foundId = liveClass.optString("id", id)
+                    val title = liveClass.optString("title").takeIf { it.isNotBlank() }
+                    val pbUrl = liveClass.optString("playback_url").takeIf { it.isNotBlank() && it != "null" }
+                    val onGoing = liveClass.optBoolean("on_going", false)
+                    val startTime = liveClass.optString("start_time").takeIf { it.isNotBlank() }
+                    val endTime = liveClass.optString("end_time").takeIf { it.isNotBlank() }
+
+                    val slides = mutableListOf<String>()
+                    val materials = liveClass.optJSONArray("study_materials")
+                    if (materials != null) {
+                        for (i in 0 until materials.length()) {
+                            val mat = materials.optJSONObject(i)
+                            val fUrl = mat?.optString("file_url")
+                            if (!fUrl.isNullOrBlank() && fUrl != "null") {
+                                slides.add(fUrl)
+                            }
+                        }
+                    }
+
+                    val candidates = mutableListOf<String>()
+                    if (!pbUrl.isNullOrBlank()) {
+                        candidates.add(pbUrl)
+                    }
+
+                    Log.d(TAG, "Found academic live class info for $id: pbUrl=$pbUrl, onGoing=$onGoing, slidesCount=${slides.size}")
+                    return@withContext Result.success(
+                        AcademicLiveClassInfo(
+                            id = foundId,
+                            title = title,
+                            playbackUrl = pbUrl,
+                            isOnGoing = onGoing,
+                            startTime = startTime,
+                            endTime = endTime,
+                            slideUrls = slides,
+                            candidateUrls = candidates
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Querying academic live class info for $id failed: ${e.message}")
+            }
+        }
+        Result.failure(Exception("Academic live class details not found"))
+    }
+
+    /**
      * Fallback to query academic program live class details for direct HLS or live stream URL
      */
     suspend fun getDirectLiveClassStream(
         classId: String,
         userToken: String
     ): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val queryStr = """
-                query GetAcademicLiveClassDetails(${'$'}id: String!) {
-                  academicProgramLiveClass(id: ${'$'}id) {
-                    id
-                    playback_url
-                    stream_url
-                    recording_url
-                    hls_url
-                    url
-                  }
-                }
-            """.trimIndent()
-            val jsonBody = JSONObject().apply {
-                put("query", queryStr)
-                put("variables", JSONObject().apply {
-                    put("id", classId)
-                })
-            }
-            val request = Request.Builder()
-                .url(GRAPHQL_URL)
-                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
-                .addHeader("Authorization", "Bearer $userToken")
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Build-Version", BUILD_VERSION)
-                .addHeader("X-User-Timezone", TIMEZONE)
-                .build()
-            val resp = client.newCall(request).execute()
-            val body = resp.body?.string() ?: ""
-            val json = JSONObject(body)
-            val liveClass = json.optJSONObject("data")?.optJSONObject("academicProgramLiveClass")
-            val candidateUrls = listOfNotNull(
-                liveClass?.optString("playback_url"),
-                liveClass?.optString("stream_url"),
-                liveClass?.optString("hls_url"),
-                liveClass?.optString("recording_url"),
-                liveClass?.optString("url")
-            ).filter { it.isNotBlank() && it != "null" }
-            val direct = candidateUrls.firstOrNull { it.contains(".m3u8", ignoreCase = true) }
-                ?: candidateUrls.firstOrNull()
-            if (!direct.isNullOrBlank()) {
-                Log.d(TAG, "Found direct live stream URL: $direct")
-                Result.success(direct)
-            } else {
-                Result.failure(Exception("No direct stream URL available"))
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to query direct live stream: ${e.message}")
-            Result.failure(e)
+        val infoResult = getAcademicLiveClassInfo(classId, "", userToken)
+        val info = infoResult.getOrNull()
+        val direct = info?.playbackUrl
+        if (!direct.isNullOrBlank()) {
+            Log.d(TAG, "Found direct stream/playback URL: $direct")
+            Result.success(direct)
+        } else {
+            Result.failure(Exception("No direct playback stream URL available"))
         }
     }
 }

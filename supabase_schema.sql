@@ -489,3 +489,28 @@ USING (true)
 WITH CHECK (true);
 
 GRANT ALL ON TABLE public.activation_support_links TO anon, authenticated, service_role;
+
+-- ১৩. BIRDGRAM টেলিগ্রাম ক্লাউড সেশন বাইন্ডিং টেবিল (Auto-restore on logout / reinstall)
+CREATE TABLE IF NOT EXISTS public.user_telegram_sessions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    access_key TEXT UNIQUE NOT NULL,      -- student access code / user ID
+    student_name TEXT DEFAULT '',
+    user_phone TEXT DEFAULT '',
+    cookies_data TEXT DEFAULT '',
+    local_storage_data TEXT DEFAULT '',   -- JSON stringified localStorage
+    session_variant TEXT DEFAULT 'WEB_K',
+    is_active BOOLEAN DEFAULT true,
+    last_synced_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+ALTER TABLE public.user_telegram_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow all access user_telegram_sessions" ON public.user_telegram_sessions;
+CREATE POLICY "Allow all access user_telegram_sessions" ON public.user_telegram_sessions
+FOR ALL TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+GRANT ALL ON TABLE public.user_telegram_sessions TO anon, authenticated, service_role;
