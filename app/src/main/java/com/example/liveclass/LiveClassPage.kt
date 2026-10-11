@@ -39,6 +39,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+import android.app.Activity
+import com.example.LocalPictureInPictureMode
+import com.example.util.PipHelper
+
 private const val TAG = "LiveClassPage"
 
 sealed class LiveClassState {
@@ -53,7 +57,23 @@ data class LiveChatMessage(
     val senderName: String,
     val message: String,
     val timestamp: String = "এখন",
-    val isTeacher: Boolean = false
+    val isTeacher: Boolean = false,
+    val role: String = "student"
+)
+
+data class LiveResolutionOption(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+
+val LIVE_RESOLUTIONS = listOf(
+    LiveResolutionOption("auto", "Auto (স্বয়ংক্রিয়)", "নেটওয়ার্ক স্পিড অনুযায়ী এডাপ্টিভ"),
+    LiveResolutionOption("1080p", "1080p Full HD", "সর্বোচ্চ রেজুলেশন ও স্পষ্টতা"),
+    LiveResolutionOption("720p", "720p HD", "স্ট্যান্ডার্ড হাই ডেফিনিশন (রিকমেন্ডেড)"),
+    LiveResolutionOption("480p", "480p SD", "ব্যালেন্সড ডেটা ও কোয়ালিটি"),
+    LiveResolutionOption("360p", "360p Data Saver", "সাশ্রয়ী ডেটা খরচ"),
+    LiveResolutionOption("240p", "240p Low", "দুর্বল ইন্টারনেটের জন্য")
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,10 +95,15 @@ fun LiveClassPage(
     val service = remember { LiveClassService() }
     val wsManager = remember { LiveClassWebSocketManager() }
 
+    val isPipMode = LocalPictureInPictureMode.current
+    var selectedResolution by remember { mutableStateOf("auto") }
+    var showResolutionDialog by remember { mutableStateOf(false) }
+
     var uiState by remember { mutableStateOf<LiveClassState>(LiveClassState.Loading) }
     var studentName by remember {
         mutableStateOf(sessionManager.getUserFullName() ?: "শিক্ষার্থী")
     }
+    var selectedRole by remember { mutableStateOf("student") } // "teacher", "student", "all"
 
     var lectureSlideUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var isLiveOnGoing by remember { mutableStateOf(true) }
@@ -214,6 +239,31 @@ fun LiveClassPage(
     BackHandler {
         wsManager.disconnect()
         onBack()
+    }
+
+    // Direct Fullscreen PiP mode handler: when minimized to Picture-in-Picture window,
+    // render ONLY the video surface filling the 16:9 box without outer UI or chat!
+    if (isPipMode) {
+        val activePlaybackUrl = masterUrl ?: candidateUrls.firstOrNull { it.isNotBlank() }
+        if (!activePlaybackUrl.isNullOrBlank()) {
+            LivePlayer(
+                masterUrl = activePlaybackUrl,
+                candidateUrls = candidateUrls,
+                selectedResolution = selectedResolution,
+                isPipActive = true,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF38BDF8))
+            }
+        }
+        return
     }
 
     Scaffold(
@@ -390,7 +440,7 @@ fun LiveClassPage(
 
                                 Spacer(modifier = Modifier.height(24.dp))
 
-                                // Name Input Field
+                                 // Name Input Field
                                 OutlinedTextField(
                                     value = studentName,
                                     onValueChange = { studentName = it },
@@ -407,6 +457,45 @@ fun LiveClassPage(
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 )
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                // Role Selector: teacher, student, all (*)
+                                Text(
+                                    text = "রোল নির্বাচন করুন (Role):",
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val roles = listOf("teacher" to "Teacher", "student" to "Student", "all" to "* All")
+                                    roles.forEach { (key, label) ->
+                                        val isSelected = selectedRole == key
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSelected) Color(0xFF0284C7) else Color(0xFF1E293B),
+                                            border = BorderStroke(1.dp, if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { selectedRole = key }
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.padding(vertical = 8.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
 
                                 Spacer(modifier = Modifier.height(20.dp))
 
@@ -474,6 +563,8 @@ fun LiveClassPage(
                                 LivePlayer(
                                     masterUrl = activePlaybackUrl,
                                     candidateUrls = candidateUrls,
+                                    selectedResolution = selectedResolution,
+                                    isPipActive = false,
                                     onBack = {
                                         wsManager.disconnect()
                                         onBack()
@@ -545,8 +636,60 @@ fun LiveClassPage(
 
                                         Spacer(modifier = Modifier.weight(1f))
 
+                                        // Video Resolution Switcher Button
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color.Black.copy(alpha = 0.55f),
+                                            border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                                            modifier = Modifier.clickable { showResolutionDialog = true }
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Tune,
+                                                    contentDescription = "Resolution",
+                                                    tint = Color(0xFF38BDF8),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = when (selectedResolution.lowercase()) {
+                                                        "auto" -> "Auto"
+                                                        else -> selectedResolution.uppercase()
+                                                    },
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        // Picture in Picture (PiP) Button
+                                        IconButton(
+                                            onClick = {
+                                                val activity = context as? Activity
+                                                PipHelper.enterPipMode(activity, isPlaying = true)
+                                            },
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Black.copy(alpha = 0.5f))
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PictureInPictureAlt,
+                                                contentDescription = "Picture in Picture",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                        }
+
                                         // Slide / PDF button if available
                                         if (lectureSlideUrls.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             IconButton(
                                                 onClick = {
                                                     val firstSlide = lectureSlideUrls.firstOrNull()
@@ -610,7 +753,7 @@ fun LiveClassPage(
                                 fontSize = 12.5.sp,
                                 color = Color(0xFF38BDF8),
                                 fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
                             )
 
                             HorizontalDivider(color = Color(0xFF334155))
@@ -619,7 +762,7 @@ fun LiveClassPage(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
+                                    .padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -653,6 +796,58 @@ fun LiveClassPage(
                                 }
                             }
 
+                            // 3 Role Options Selection Bar: Teacher, Student, * All
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "রোল:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                                val rolesList = listOf(
+                                    Triple("teacher", "Teacher", Icons.Default.School),
+                                    Triple("student", "Student", Icons.Default.Person),
+                                    Triple("all", "* All", Icons.Default.Public)
+                                )
+                                rolesList.forEach { (roleKey, roleLabel, roleIcon) ->
+                                    val isSelected = selectedRole == roleKey
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isSelected) Color(0xFF0284C7) else Color(0xFF1E293B),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                                        ),
+                                        modifier = Modifier.clickable { selectedRole = roleKey }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = roleIcon,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = roleLabel,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             // Chat Messages List
                             LazyColumn(
                                 modifier = Modifier
@@ -678,12 +873,13 @@ fun LiveClassPage(
                                     }
                                 } else {
                                     items(chatMessages, key = { it.id }) { item ->
+                                        val isTeacherMsg = item.isTeacher || item.role == "teacher"
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
-                                            color = if (item.isTeacher) Color(0xFF1E293B) else Color(0xFF1E293B).copy(alpha = 0.6f),
+                                            color = if (isTeacherMsg) Color(0xFF1E293B) else Color(0xFF1E293B).copy(alpha = 0.6f),
                                             border = BorderStroke(
                                                 0.5.dp,
-                                                if (item.isTeacher) Color(0xFF38BDF8) else Color(0xFF334155)
+                                                if (isTeacherMsg) Color(0xFF38BDF8) else Color(0xFF334155)
                                             )
                                         ) {
                                             Column(modifier = Modifier.padding(8.dp)) {
@@ -691,11 +887,29 @@ fun LiveClassPage(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
+                                                    // Role Badge
+                                                    val (badgeLabel, badgeBg, badgeTextColor) = when {
+                                                        isTeacherMsg -> Triple("Teacher", Color(0xFF0284C7), Color.White)
+                                                        item.role == "all" || item.role == "*" -> Triple("* All", Color(0xFF4F46E5), Color.White)
+                                                        else -> Triple("Student", Color(0xFF059669), Color.White)
+                                                    }
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = badgeBg
+                                                    ) {
+                                                        Text(
+                                                            text = badgeLabel,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = badgeTextColor,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
+                                                    }
                                                     Text(
                                                         text = item.senderName,
                                                         fontSize = 11.5.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = if (item.isTeacher) Color(0xFF38BDF8) else Color(0xFFF1F5F9)
+                                                        color = if (isTeacherMsg) Color(0xFF38BDF8) else Color(0xFFF1F5F9)
                                                     )
                                                     Text(
                                                         text = "• ${item.timestamp}",
@@ -742,13 +956,22 @@ fun LiveClassPage(
                                         if (chatMessageInput.isNotBlank()) {
                                             val textToSend = chatMessageInput.trim()
                                             val myName = studentName.ifBlank { "আপনি" }
+                                            val isTeacher = selectedRole == "teacher"
                                             chatMessages.add(
                                                 LiveChatMessage(
                                                     senderName = myName,
-                                                    message = textToSend
+                                                    message = textToSend,
+                                                    timestamp = "এখন",
+                                                    isTeacher = isTeacher,
+                                                    role = selectedRole
                                                 )
                                             )
-                                            wsManager.sendChatMessage(textToSend, myName)
+                                            wsManager.sendChatMessage(
+                                                text = textToSend,
+                                                studentName = myName,
+                                                role = selectedRole,
+                                                targetRole = selectedRole
+                                            )
                                             chatMessageInput = ""
                                             keyboardController?.hide()
                                         }
@@ -761,13 +984,22 @@ fun LiveClassPage(
                                         if (chatMessageInput.isNotBlank()) {
                                             val textToSend = chatMessageInput.trim()
                                             val myName = studentName.ifBlank { "আপনি" }
+                                            val isTeacher = selectedRole == "teacher"
                                             chatMessages.add(
                                                 LiveChatMessage(
                                                     senderName = myName,
-                                                    message = textToSend
+                                                    message = textToSend,
+                                                    timestamp = "এখন",
+                                                    isTeacher = isTeacher,
+                                                    role = selectedRole
                                                 )
                                             )
-                                            wsManager.sendChatMessage(textToSend, myName)
+                                            wsManager.sendChatMessage(
+                                                text = textToSend,
+                                                studentName = myName,
+                                                role = selectedRole,
+                                                targetRole = selectedRole
+                                            )
                                             chatMessageInput = ""
                                             keyboardController?.hide()
                                         }
@@ -862,5 +1094,90 @@ fun LiveClassPage(
                 }
             }
         }
+    }
+
+    if (showResolutionDialog) {
+        AlertDialog(
+            onDismissRequest = { showResolutionDialog = false },
+            containerColor = Color(0xFF1E293B),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "ভিডিও রেজুলেশন (Resolution)",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    LIVE_RESOLUTIONS.forEach { option ->
+                        val isSelected = selectedResolution.equals(option.id, ignoreCase = true)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.25f) else Color(0xFF0F172A),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedResolution = option.id
+                                    showResolutionDialog = false
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = option.title,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color(0xFF38BDF8) else Color.White
+                                    )
+                                    Text(
+                                        text = option.subtitle,
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.6f)
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Selected",
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showResolutionDialog = false }) {
+                    Text("বাতিল", color = Color(0xFF94A3B8))
+                }
+            }
+        )
     }
 }

@@ -41,6 +41,8 @@ private const val TAG = "LivePlayer"
 fun LivePlayer(
     masterUrl: String,
     candidateUrls: List<String> = emptyList(),
+    selectedResolution: String = "auto",
+    isPipActive: Boolean = false,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     onError: ((String) -> Unit)? = null
@@ -55,6 +57,7 @@ fun LivePlayer(
     }
 
     var isEnded by remember { mutableStateOf(false) }
+    var isPlaying by remember { mutableStateOf(true) }
     var isPlayerError by remember { mutableStateOf(false) }
     var playerErrorMessage by remember { mutableStateOf("") }
     var retryCount by remember { mutableIntStateOf(0) }
@@ -80,6 +83,10 @@ fun LivePlayer(
             playWhenReady = true
 
             addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_ENDED -> {
@@ -195,6 +202,56 @@ fun LivePlayer(
         }
     }
 
+    // Apply dynamic resolution track selection constraints
+    LaunchedEffect(selectedResolution, exoPlayer) {
+        try {
+            when (selectedResolution.lowercase()) {
+                "1080p" -> {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(1920, 1080)
+                        .setMinVideoSize(1280, 721)
+                        .build()
+                }
+                "720p" -> {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(1280, 720)
+                        .build()
+                }
+                "480p" -> {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(854, 480)
+                        .build()
+                }
+                "360p" -> {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(640, 360)
+                        .build()
+                }
+                "240p" -> {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxVideoSize(426, 240)
+                        .build()
+                }
+                else -> {
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .clearVideoSizeConstraints()
+                        .build()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error applying resolution constraint: ${e.message}")
+        }
+    }
+
+    // Connect PiP Controller
+    com.example.util.SetupPipController(player = exoPlayer, isPlaying = isPlaying)
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -205,8 +262,8 @@ fun LivePlayer(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = exoPlayer
-                    useController = true
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                    useController = !isPipActive
+                    setShowBuffering(if (isPipActive) PlayerView.SHOW_BUFFERING_NEVER else PlayerView.SHOW_BUFFERING_ALWAYS)
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -215,6 +272,7 @@ fun LivePlayer(
             },
             update = { playerView ->
                 playerView.player = exoPlayer
+                playerView.useController = !isPipActive
             },
             modifier = Modifier.fillMaxSize()
         )

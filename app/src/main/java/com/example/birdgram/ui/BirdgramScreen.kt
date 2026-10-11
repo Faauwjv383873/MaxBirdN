@@ -16,21 +16,29 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlin.math.roundToInt
 import com.example.birdgram.BirdgramRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -308,21 +316,54 @@ fun BirdgramScreen(
             }
         )
 
-        // 2. Subtle Floating Home Return Button (Translucent, Elegant Pill at top-left edge)
-        IconButton(
-            onClick = onNavigateToHome,
+        // 2. Draggable Floating Home Button positioned at Top-End (Top-Right)
+        // Completely leaves Telegram's top-left 3-line hamburger menu (☰) 100% unobstructed and clickable!
+        var homeOffsetX by remember { mutableFloatStateOf(0f) }
+        var homeOffsetY by remember { mutableFloatStateOf(0f) }
+
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0xDD17212B),
+            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+            shadowElevation = 8.dp,
             modifier = Modifier
+                .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(start = 12.dp, top = 8.dp)
-                .size(36.dp)
-                .background(Color(0x6617212B), CircleShape)
+                .padding(end = 12.dp, top = 8.dp)
+                .offset { IntOffset(homeOffsetX.roundToInt(), homeOffsetY.roundToInt()) }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        homeOffsetX += dragAmount.x
+                        homeOffsetY += dragAmount.y
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onNavigateToHome() }
+                    )
+                }
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Return to Shikho Home",
-                tint = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(18.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                    .defaultMinSize(minHeight = 36.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Home,
+                    contentDescription = "Return to Shikho Home",
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "হোম",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
         }
 
         // 3. Ethereal Soaring Bird Splash Screen (Shown when launching/loading Birdgram)

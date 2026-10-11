@@ -162,24 +162,100 @@ class LiveClassWebSocketManager {
                         }
                     }
 
-                    // Broadcast chat messages parsing
-                    if (method == "on-broadcast" || method == "broadcast") {
+                    // Broadcast & Direct chat messages parsing (matching 100ms / Shikho real HAR file protocol)
+                    if (method == "on-broadcast" || method == "broadcast" || method == "on-message" || method == "message") {
                         val params = msg.optJSONObject("params")
-                        val infoStr = params?.optString("info")
-                        if (!infoStr.isNullOrBlank()) {
-                            try {
-                                val infoJson = JSONObject(infoStr)
-                                val chatText = infoJson.optString("message")
-                                val sender = infoJson.optString("sender", "শিক্ষার্থী")
-                                if (chatText.isNotBlank()) {
-                                    _incomingChatMessages.value = LiveChatMessage(
-                                        senderName = sender,
-                                        message = chatText,
-                                        isTeacher = sender.contains("Teacher", ignoreCase = true) ||
-                                                sender.contains("শিক্ষক") || sender.contains("Teacher")
-                                    )
+                        var chatText: String? = null
+                        var sender: String? = null
+                        var role: String? = null
+                        var timestampMillis = System.currentTimeMillis()
+
+                        // 1. Try reading info parameter (which in 100ms HAR can be a JSON string, a JSONObject, or plain text)
+                        val infoRaw = params?.opt("info")
+                        when (infoRaw) {
+                            is JSONObject -> {
+                                chatText = infoRaw.optString("message").takeIf { it.isNotBlank() }
+                                    ?: infoRaw.optString("msg").takeIf { it.isNotBlank() }
+                                    ?: infoRaw.optString("text").takeIf { it.isNotBlank() }
+                                sender = infoRaw.optString("sender").takeIf { it.isNotBlank() }
+                                    ?: infoRaw.optString("name").takeIf { it.isNotBlank() }
+                                role = infoRaw.optString("role").takeIf { it.isNotBlank() }
+                                if (infoRaw.has("time")) timestampMillis = infoRaw.optLong("time", timestampMillis)
+                            }
+                            is String -> {
+                                if (infoRaw.trim().startsWith("{") && infoRaw.trim().endsWith("}")) {
+                                    try {
+                                        val infoJson = JSONObject(infoRaw)
+                                        chatText = infoJson.optString("message").takeIf { it.isNotBlank() }
+                                            ?: infoJson.optString("msg").takeIf { it.isNotBlank() }
+                                            ?: infoJson.optString("text").takeIf { it.isNotBlank() }
+                                        sender = infoJson.optString("sender").takeIf { it.isNotBlank() }
+                                            ?: infoJson.optString("name").takeIf { it.isNotBlank() }
+                                        role = infoJson.optString("role").takeIf { it.isNotBlank() }
+                                        if (infoJson.has("time")) timestampMillis = infoJson.optLong("time", timestampMillis)
+                                    } catch (_: Exception) {
+                                        chatText = infoRaw
+                                    }
+                                } else {
+                                    chatText = infoRaw
                                 }
-                            } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 2. Fallbacks directly from params if not extracted from info
+                        if (chatText.isNullOrBlank()) {
+                            chatText = params?.optString("message")?.takeIf { it.isNotBlank() }
+                                ?: params?.optString("msg")?.takeIf { it.isNotBlank() }
+                                ?: params?.optString("text")?.takeIf { it.isNotBlank() }
+                        }
+
+                        if (sender.isNullOrBlank()) {
+                            val peer = params?.optJSONObject("peer")
+                            sender = peer?.optString("name")?.takeIf { it.isNotBlank() }
+                                ?: params?.optString("sender")?.takeIf { it.isNotBlank() }
+                                ?: params?.optString("from")?.takeIf { it.isNotBlank() }
+                                ?: "শিক্ষার্থী"
+                            if (role.isNullOrBlank()) {
+                                role = peer?.optString("role")?.takeIf { it.isNotBlank() }
+                            }
+                        }
+
+                        if (role.isNullOrBlank()) {
+                            val rolesArr = params?.optJSONArray("roles")
+                            if (rolesArr != null && rolesArr.length() > 0) {
+                                role = rolesArr.optString(0)
+                            } else {
+                                role = params?.optString("role")?.takeIf { it.isNotBlank() }
+                            }
+                        }
+
+                        // Determine normalized role: teacher, student, all
+                        val normalizedRole = when {
+                            role?.contains("teacher", ignoreCase = true) == true ||
+                            sender?.contains("Teacher", ignoreCase = true) == true ||
+                            sender?.contains("শিক্ষক") == true -> "teacher"
+                            role?.equals("*") == true || role?.contains("all", ignoreCase = true) == true -> "all"
+                            else -> "student"
+                        }
+
+                        val isTeacher = normalizedRole == "teacher"
+
+                        if (!chatText.isNullOrBlank()) {
+                            val formattedTime = try {
+                                val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                                sdf.format(java.util.Date(timestampMillis))
+                            } catch (_: Exception) {
+                                "এখন"
+                            }
+
+                            _incomingChatMessages.value = LiveChatMessage(
+                                id = UUID.randomUUID().toString(),
+                                senderName = sender ?: "শিক্ষার্থী",
+                                message = chatText,
+                                timestamp = formattedTime,
+                                isTeacher = isTeacher,
+                                role = normalizedRole
+                            )
                         }
                     }
                 } catch (e: Exception) {
@@ -207,9 +283,35 @@ class LiveClassWebSocketManager {
         })
     }
 
-    fun sendChatMessage(text: String, studentName: String) {
+    /**
+     * Send broadcast chat message conforming exactly to 100ms / Shikho real HAR file protocol.
+     * Roles supported: "teacher", "student", or "*" / "all"
+     */
+    fun sendChatMessage(
+        text: String,
+        studentName: String,
+        role: String = "student",
+        targetRole: String = "*"
+    ) {
         val ws = webSocket ?: return
         try {
+            val normalizedRole = when (role.lowercase()) {
+                "teacher" -> "teacher"
+                "student", "students" -> "student"
+                else -> "all"
+            }
+
+            val targetRolesArray = org.json.JSONArray().apply {
+                when (targetRole.lowercase()) {
+                    "teacher" -> put("teacher")
+                    "student", "students" -> {
+                        put("student")
+                        put("students")
+                    }
+                    else -> put("*")
+                }
+            }
+
             val broadcastMsg = JSONObject().apply {
                 put("id", UUID.randomUUID().toString())
                 put("method", "broadcast")
@@ -217,12 +319,15 @@ class LiveClassWebSocketManager {
                     put("info", JSONObject().apply {
                         put("message", text)
                         put("sender", studentName)
+                        put("role", normalizedRole)
                         put("time", System.currentTimeMillis())
                     }.toString())
                     put("type", "chat")
+                    put("roles", targetRolesArray)
                 })
                 put("jsonrpc", "2.0")
             }
+            Log.d(TAG, "Sending broadcast message (role: $normalizedRole, targets: $targetRolesArray): ${broadcastMsg.toString()}")
             ws.send(broadcastMsg.toString())
         } catch (e: Exception) {
             Log.w(TAG, "Failed to send chat message over WebSocket: ${e.message}")
