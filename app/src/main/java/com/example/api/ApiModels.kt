@@ -547,6 +547,16 @@ data class StudentLessonItem(
             if (live_class?.is_on_going == true || user_activity_state.equals("LIVE", ignoreCase = true)) {
                 return false
             }
+
+            val now = System.currentTimeMillis()
+            val startMs = classStartMs
+            val endMs = classEndMs
+
+            // While a live class is within its scheduled session window, it is NOT an archived recording
+            if (isLiveClass && startMs != Long.MAX_VALUE && now >= (startMs - 5 * 60 * 1000L) && (endMs == Long.MAX_VALUE || now < endMs)) {
+                return false
+            }
+
             // For live classes, check recording_url explicitly (Shikho's official VOD recording field)
             val recUrl = live_class?.recording_url?.takeIf { it.isNotBlank() && it != "null" }
                 ?: recording_url?.takeIf { it.isNotBlank() && it != "null" }
@@ -559,12 +569,11 @@ data class StudentLessonItem(
                 val direct = candidateStreamUrls
                 return direct.any { it.isNotBlank() && it != "null" }
             } else {
-                // For live classes: playback_url or stream_url represents the LIVE broadcast endpoint during class.
-                // It only becomes an archived recording if explicitly marked RECORDED or after the broadcast window.
+                // For live classes after the scheduled end time has passed:
                 val isExplicitEnded = user_activity_state.equals("RECORDED", true) ||
                                       user_activity_state.equals("COMPLETED", true) ||
-                                      user_activity_state.equals("ATTENDED", true)
-                val isPastLiveWindow = classStartMs != Long.MAX_VALUE && (System.currentTimeMillis() > classStartMs + (3 * 3600 * 1000L + 30 * 60 * 1000L))
+                                      user_activity_state.equals("ENDED", true)
+                val isPastLiveWindow = endMs != Long.MAX_VALUE && now >= endMs
                 if (isExplicitEnded || isPastLiveWindow) {
                     val direct = candidateStreamUrls
                     return direct.any { it.isNotBlank() && it != "null" }
@@ -682,17 +691,9 @@ data class StudentLessonItem(
                 return isExamLive
             }
 
-            // 1. Explicit server flag from live_class or user_activity_state
+            // 1. Explicit server flag: if server confirms live stream is actively ongoing
             if (live_class?.is_on_going == true || user_activity_state.equals("LIVE", ignoreCase = true)) {
                 return true
-            }
-
-            // If the server explicitly says live class is NOT ongoing, it's not live!
-            if (live_class?.is_on_going == false && user_activity_state?.equals("LIVE", ignoreCase = true) != true) {
-                val startMs = classStartMs
-                if (startMs != Long.MAX_VALUE && System.currentTimeMillis() >= startMs) {
-                    return false
-                }
             }
 
             // 2. Purely recorded class or static video is never live
@@ -713,7 +714,7 @@ data class StudentLessonItem(
                 return false
             }
 
-            // 5. Explicit finished states from user_activity_state
+            // 5. Explicit finished states from user_activity_state (except ATTENDED, which only means the student attended/joined)
             if (user_activity_state.equals("ENDED", ignoreCase = true) ||
                 user_activity_state.equals("COMPLETED", ignoreCase = true) ||
                 user_activity_state.equals("RECORDED", ignoreCase = true)
