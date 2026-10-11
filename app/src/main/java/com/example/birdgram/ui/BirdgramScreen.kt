@@ -293,6 +293,50 @@ fun BirdgramScreen(
                         }
                     }
 
+                    // Quick Study Actions Strip
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF0284C7).copy(alpha = 0.2f),
+                            border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                            onClick = {
+                                webViewRef?.loadUrl("https://t.me/maxbird_official")
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Campaign, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("অফিশিয়াল চ্যানেল", fontSize = 11.sp, color = Color(0xFFE2E8F0), fontWeight = FontWeight.Medium)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF10B981).copy(alpha = 0.18f),
+                            border = BorderStroke(0.8.dp, Color(0xFF34D399).copy(alpha = 0.4f)),
+                            onClick = {
+                                webViewRef?.loadUrl(sessionInfo.selectedVariant.url)
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Forum, null, tint = Color(0xFF34D399), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("আমার চ্যাট লিস্ট", fontSize = 11.sp, color = Color(0xFFE2E8F0), fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+
                     // Linear Progress Bar while page loads
                     if (isLoading) {
                         LinearProgressIndicator(
