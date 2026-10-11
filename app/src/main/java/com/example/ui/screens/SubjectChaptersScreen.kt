@@ -91,8 +91,9 @@ fun SubjectChaptersScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(
                             onClick = onBack,
@@ -106,8 +107,6 @@ fun SubjectChaptersScreen(
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
-
-                        Spacer(modifier = Modifier.width(4.dp))
 
                         // Subject Badge Dot + Subject Name
                         Box(

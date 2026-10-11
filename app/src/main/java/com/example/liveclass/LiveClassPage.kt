@@ -133,11 +133,15 @@ fun LiveClassPage(
             Log.d(TAG, "Fetched details: roomId=$roomId, onGoing=$isLiveOnGoing, directPlayback=${academicInfo?.playbackUrl}, totalCandidates=${cleanDiscovered.size}")
             wsManager.addCandidateUrls(cleanDiscovered)
 
-            // Step 2: If the live class is ALREADY OVER (on_going == false) and we have playback_url:
-            // Prefer the full recording playback_url directly so the student can watch the full lecture without 100ms timeout!
-            if (!isLiveOnGoing && !academicInfo?.playbackUrl.isNullOrBlank()) {
-                Log.d(TAG, "Live class has concluded. Loading full recording directly: ${academicInfo?.playbackUrl}")
+            // Step 2: Instantly set direct playback URL if available (whether ongoing or recorded) for zero-delay streaming
+            if (!academicInfo?.playbackUrl.isNullOrBlank()) {
+                Log.d(TAG, "Loading direct playback URL: ${academicInfo?.playbackUrl}")
                 wsManager.setMasterUrl(academicInfo!!.playbackUrl!!)
+                uiState = LiveClassState.Preview(viewerCount.coerceAtLeast(1))
+                return@launch
+            } else if (cleanDiscovered.isNotEmpty()) {
+                Log.d(TAG, "Loading candidate stream URL: ${cleanDiscovered.first()}")
+                wsManager.setMasterUrl(cleanDiscovered.first())
                 uiState = LiveClassState.Preview(viewerCount.coerceAtLeast(1))
                 return@launch
             }
