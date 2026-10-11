@@ -63,6 +63,7 @@ fun MainContainerScreen(
     val isDark = isSystemInDarkTheme()
     val context = LocalContext.current
     var lastBackPressedTime by remember { mutableLongStateOf(0L) }
+    val birdgramRepository = remember { com.example.birdgram.BirdgramRepository(context, sessionManager) }
 
     // Double Back Press to Exit (3 seconds window) & Tab back navigation
     BackHandler {
@@ -138,7 +139,7 @@ fun MainContainerScreen(
                 0 -> {
                     HomeScreen(
                         viewModel = homeViewModel,
-                        onNavigateToProfile = { selectedIndex = 3 },
+                        onNavigateToProfile = { selectedIndex = 4 },
                         onNavigateToEditProfile = onNavigateToEditProfile,
                         onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
                         onCourseSelected = { program ->
@@ -188,13 +189,18 @@ fun MainContainerScreen(
                     )
                 }
                 2 -> {
+                    com.example.birdgram.ui.BirdgramScreen(
+                        repository = birdgramRepository
+                    )
+                }
+                3 -> {
                     DownloadsScreen(
                         onBack = { selectedIndex = 0 },
                         onPlayVideo = onPlayVideo,
                         onOpenPdf = onOpenPdf
                     )
                 }
-                3 -> {
+                4 -> {
                     SettingsScreen(
                         sessionManager = sessionManager,
                         onNavigateToEditProfile = onNavigateToEditProfile,
@@ -202,7 +208,7 @@ fun MainContainerScreen(
                         onNavigateToProfile = onNavigateToProfile,
                         onNavigateToCourseEnrollment = onNavigateToCourseEnrollment,
                         onNavigateToSavedItems = onNavigateToSavedItems,
-                        onNavigateToDownloads = { selectedIndex = 2 },
+                        onNavigateToDownloads = { selectedIndex = 3 },
                         onNavigateToReportCard = { onNavigateToReportCard(null, null, null) },
                         onNavigateToNotification = onNavigateToNotification,
                         onNavigateToHeaderWallpaper = onNavigateToHeaderWallpaper,
@@ -210,7 +216,7 @@ fun MainContainerScreen(
                     )
                 }
                 else -> {
-                    ComingSoonScreen(tabItem = NavigationItem.items[tabIndex])
+                    ComingSoonScreen(tabItem = NavigationItem.items.getOrElse(tabIndex) { NavigationItem.items[0] })
                 }
             }
         }
@@ -249,10 +255,11 @@ fun ElementalFloatingBottomBar(
 ) {
     val themes = remember {
         listOf(
-            TabTheme(Color(0xFF261908), Color(0xFFF59E0B), Color(0xFFFBBF24)), // Amber
-            TabTheme(Color(0xFF082744), Color(0xFF0284C7), Color(0xFF38BDF8)), // Azure
-            TabTheme(Color(0xFF0C243D), Color(0xFF38BDF8), Color(0xFF7DD3FC)), // Sky
-            TabTheme(Color(0xFF201338), Color(0xFFA855F7), Color(0xFFC084FC))  // Violet
+            TabTheme(Color(0xFF261908), Color(0xFFF59E0B), Color(0xFFFBBF24)), // Amber (Home)
+            TabTheme(Color(0xFF082744), Color(0xFF0284C7), Color(0xFF38BDF8)), // Azure (Courses)
+            TabTheme(Color(0xFF042F2E), Color(0xFF06B6D4), Color(0xFF22D3EE)), // Telegram Cyan (Birdgram)
+            TabTheme(Color(0xFF0C243D), Color(0xFF38BDF8), Color(0xFF7DD3FC)), // Sky (Downloads)
+            TabTheme(Color(0xFF201338), Color(0xFFA855F7), Color(0xFFC084FC))  // Violet (Settings)
         )
     }
 
@@ -260,7 +267,7 @@ fun ElementalFloatingBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
             .height(66.dp)
             .shadow(
                 elevation = 26.dp,
@@ -353,20 +360,20 @@ fun ElementalFloatingBottomBar(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = item.selectedIcon,
                                     contentDescription = item.title,
                                     tint = theme.icon,
                                     modifier = Modifier
-                                        .size(20.dp)
+                                        .size(19.dp)
                                         .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
                                 Text(
                                     text = item.title,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
