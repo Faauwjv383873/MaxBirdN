@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.auth.SessionManager
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "LiveClassPage"
@@ -451,12 +452,25 @@ fun LiveClassPage(
                 // ==========================================
                 is LiveClassState.Playing -> {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // Top Video Section
+                        var showControls by remember { mutableStateOf(true) }
+
+                        // Auto-hide controls after 4 seconds of inactivity
+                        LaunchedEffect(showControls) {
+                            if (showControls) {
+                                delay(4000L)
+                                showControls = false
+                            }
+                        }
+
+                        // Top Video Section with click listener to toggle controls
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(16f / 9f)
                                 .background(Color.Black)
+                                .clickable {
+                                    showControls = !showControls
+                                }
                         ) {
                             val activePlaybackUrl = masterUrl ?: candidateUrls.firstOrNull { it.isNotBlank() }
 
@@ -471,96 +485,107 @@ fun LiveClassPage(
                                 )
                             }
 
-                            // Top Controls Overlay
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp)
-                                    .align(Alignment.TopCenter),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        wsManager.disconnect()
-                                        onBack()
-                                    },
+                            // Top Controls Overlay with Gradient Scrim
+                            if (showControls) {
+                                Box(
                                     modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.5f))
+                                        .fillMaxWidth()
+                                        .align(Alignment.TopCenter)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                                            )
+                                        )
+                                        .padding(12.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = Color.White
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isLiveOnGoing) Color(0xFFE11D48) else Color(0xFF10B981)
-                                ) {
-                                    Text(
-                                        text = if (isLiveOnGoing) "🔴 LIVE" else "📺 RECORDING",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                Text(
-                                    text = "${if (viewerCount > 0) viewerCount else 1} জন দেখছেন",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color.Black.copy(alpha = 0.5f))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-
-                                Spacer(modifier = Modifier.weight(1f))
-
-                                // Slide / PDF button if available
-                                if (lectureSlideUrls.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = {
-                                            val firstSlide = lectureSlideUrls.firstOrNull()
-                                            if (!firstSlide.isNullOrBlank()) {
-                                                try {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(firstSlide))
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    Log.w(TAG, "Cannot open slide URL: ${e.message}")
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color.Black.copy(alpha = 0.5f))
-                                            .padding(horizontal = 4.dp)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        IconButton(
+                                            onClick = {
+                                                wsManager.disconnect()
+                                                onBack()
+                                            },
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Black.copy(alpha = 0.5f))
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Description,
-                                                contentDescription = "Lecture Notes",
-                                                tint = Color(0xFF38BDF8),
-                                                modifier = Modifier.size(16.dp)
+                                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                contentDescription = "Back",
+                                                tint = Color.White
                                             )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (isLiveOnGoing) Color(0xFFE11D48) else Color(0xFF10B981)
+                                        ) {
                                             Text(
-                                                text = "স্লাইড",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
+                                                text = if (isLiveOnGoing) "🔴 LIVE" else "📺 RECORDING",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Text(
+                                            text = "${if (viewerCount > 0) viewerCount else 1} জন দেখছেন",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color.Black.copy(alpha = 0.5f))
+                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.weight(1f))
+
+                                        // Slide / PDF button if available
+                                        if (lectureSlideUrls.isNotEmpty()) {
+                                            IconButton(
+                                                onClick = {
+                                                    val firstSlide = lectureSlideUrls.firstOrNull()
+                                                    if (!firstSlide.isNullOrBlank()) {
+                                                        try {
+                                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(firstSlide))
+                                                            context.startActivity(intent)
+                                                        } catch (e: Exception) {
+                                                            Log.w(TAG, "Cannot open slide URL: ${e.message}")
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color.Black.copy(alpha = 0.5f))
+                                                    .padding(horizontal = 4.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Description,
+                                                        contentDescription = "Lecture Notes",
+                                                        tint = Color(0xFF38BDF8),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Text(
+                                                        text = "স্লাইড",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }

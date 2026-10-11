@@ -306,8 +306,11 @@ object ShikhoPlayerManager {
                 if (isLive || classType == PlayerClassType.LIVE) {
                     setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder()
-                            .setMaxPlaybackSpeed(1.02f)
-                            .setMinPlaybackSpeed(0.98f)
+                            .setTargetOffsetMs(3000L)
+                            .setMinOffsetMs(1000L)
+                            .setMaxOffsetMs(15000L)
+                            .setMaxPlaybackSpeed(1.04f)
+                            .setMinPlaybackSpeed(0.96f)
                             .build()
                     )
                 }
@@ -318,6 +321,9 @@ object ShikhoPlayerManager {
             DefaultDataSource.Factory(context)
         } else if (dataSourceFactory != null) {
             dataSourceFactory
+        } else if (isLive || classType == PlayerClassType.LIVE) {
+            // CRITICAL FIX: Never cache live stream segments to prevent 20-second freezes and stale cache playback
+            createHttpDataSourceFactory()
         } else if (context != null) {
             createCacheDataSourceFactory(context)
         } else {
