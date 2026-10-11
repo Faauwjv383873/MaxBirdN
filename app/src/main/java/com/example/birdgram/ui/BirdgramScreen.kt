@@ -1,13 +1,23 @@
 package com.example.birdgram.ui
 
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Build
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.*
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,64 +29,75 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.birdgram.BirdgramChat
-import com.example.birdgram.BirdgramChatType
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.birdgram.BirdgramRepository
-import com.example.birdgram.TelegramAuthStatus
+import com.example.birdgram.TelegramClientVariant
+import kotlinx.coroutines.launch
 
+/**
+ * BirdgramScreen - 100% Real Official Telegram Client.
+ *
+ * Connects directly to real Telegram servers:
+ * - Real phone number login & real Telegram verification codes (OTP).
+ * - Real user chat list, channels, groups, and contacts.
+ * - Real photos, voice notes, stickers, attachments.
+ * - Session permanently saved on the device.
+ */
+@SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BirdgramScreen(
     repository: BirdgramRepository,
+    onNavigateToHome: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val chats by repository.chats.collectAsState()
-    val messagesMap by repository.messages.collectAsState()
-    val authStatus by repository.authStatus.collectAsState()
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val sessionInfo by repository.sessionInfo.collectAsState()
 
-    var activeChatId by remember { mutableStateOf<String?>(null) }
-    var selectedCategoryIndex by remember { mutableIntStateOf(0) }
-    var searchQuery by remember { mutableStateOf("") }
-    var showSearchField by remember { mutableStateOf(false) }
-    var showConnectSheet by remember { mutableStateOf(false) }
-    var showCreateGroupDialog by remember { mutableStateOf(false) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var loadProgress by remember { mutableFloatStateOf(0f) }
+    var canGoBack by remember { mutableStateOf(false) }
+    var hasError by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
-    val activeChat = chats.find { it.id == activeChatId }
-
-    // If viewing an active conversation
-    if (activeChat != null) {
-        val chatMessages = messagesMap[activeChat.id] ?: emptyList()
-        BirdgramChatDetailScreen(
-            chat = activeChat,
-            messages = chatMessages,
-            onBack = { activeChatId = null },
-            onSendMessage = { text, imageUrl ->
-                repository.sendMessage(activeChat.id, text, imageUrl)
+    // File Chooser for Photo, Video, and Document uploads in Telegram chats
+    var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val intent = result.data
+            val uris = mutableListOf<Uri>()
+            if (intent?.clipData != null) {
+                val clipData = intent.clipData!!
+                for (i in 0 until clipData.itemCount) {
+                    uris.add(clipData.getItemAt(i).uri)
+                }
+            } else if (intent?.data != null) {
+                uris.add(intent.data!!)
             }
-        )
-        return
+            filePathCallback?.onReceiveValue(uris.toTypedArray())
+        } else {
+            filePathCallback?.onReceiveValue(null)
+        }
+        filePathCallback = null
     }
 
-    // Categories
-    val categories = listOf("সব চ্যাট", "স্টাডি গ্রুপ", "ব্যক্তিগত চ্যাট")
-
-    val filteredChats = remember(chats, selectedCategoryIndex, searchQuery) {
-        chats.filter { chat ->
-            val matchesCategory = when (selectedCategoryIndex) {
-                1 -> chat.type == BirdgramChatType.STUDY_GROUP
-                2 -> chat.type == BirdgramChatType.DIRECT
-                else -> true
-            }
-            val matchesSearch = if (searchQuery.isBlank()) true else {
-                chat.title.contains(searchQuery, ignoreCase = true) ||
-                        chat.lastMessage.contains(searchQuery, ignoreCase = true) ||
-                        (chat.subjectTag?.contains(searchQuery, ignoreCase = true) == true)
-            }
-            matchesCategory && matchesSearch
+    // Smart Back Handler: navigate back within Telegram chat history, else return to Home
+    BackHandler {
+        val web = webViewRef
+        if (web != null && web.canGoBack()) {
+            web.goBack()
+        } else {
+            onNavigateToHome()
         }
     }
 
@@ -84,22 +105,37 @@ fun BirdgramScreen(
         topBar = {
             Surface(
                 color = Color(0xFF0F172A),
-                shadowElevation = 4.dp,
+                shadowElevation = 6.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Telegram Styled Birdgram Logo
+                            if (canGoBack) {
+                                IconButton(
+                                    onClick = { webViewRef?.goBack() },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = Color.White
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+
+                            // Telegram Styled Birdgram Brand
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
@@ -115,7 +151,7 @@ fun BirdgramScreen(
                                     imageVector = Icons.Default.Send,
                                     contentDescription = null,
                                     tint = Color.White,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
 
@@ -125,7 +161,7 @@ fun BirdgramScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = "Birdgram",
-                                        fontSize = 19.sp,
+                                        fontSize = 18.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
                                     )
@@ -136,393 +172,371 @@ fun BirdgramScreen(
                                         border = BorderStroke(0.6.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
                                     ) {
                                         Text(
-                                            text = "Telegram API",
-                                            fontSize = 9.5.sp,
+                                            text = sessionInfo.selectedVariant.displayName,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF38BDF8),
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                         )
                                     }
                                 }
-                                Text(
-                                    text = "ফ্রি স্টাডি চ্যাট ও ডাউট সমাধান",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF94A3B8)
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF10B981))
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "রিয়েল টেলিগ্রাম অ্যাকাউন্ট • আসল চ্যাট লিস্ট",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF94A3B8)
+                                    )
+                                }
                             }
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { showSearchField = !showSearchField }) {
+                            // Reload button
+                            IconButton(
+                                onClick = {
+                                    hasError = false
+                                    webViewRef?.reload()
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
                                 Icon(
-                                    imageVector = if (showSearchField) Icons.Default.Close else Icons.Default.Search,
-                                    contentDescription = "Search",
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Reload",
                                     tint = Color(0xFF94A3B8)
                                 )
                             }
 
-                            IconButton(onClick = { showCreateGroupDialog = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.GroupAdd,
-                                    contentDescription = "Create Group",
-                                    tint = Color(0xFF38BDF8)
-                                )
+                            // More options menu
+                            Box {
+                                IconButton(
+                                    onClick = { showMenu = true },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Options",
+                                        tint = Color(0xFF94A3B8)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false },
+                                    modifier = Modifier.background(Color(0xFF1E293B))
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = if (sessionInfo.selectedVariant == TelegramClientVariant.WEB_K)
+                                                    "Web A ভার্সনে পরিবর্তন করুন"
+                                                else
+                                                    "Web K ভার্সনে পরিবর্তন করুন",
+                                                color = Color.White
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            val nextVariant = if (sessionInfo.selectedVariant == TelegramClientVariant.WEB_K)
+                                                TelegramClientVariant.WEB_A
+                                            else
+                                                TelegramClientVariant.WEB_K
+                                            repository.setClientVariant(nextVariant)
+                                            webViewRef?.loadUrl(nextVariant.url)
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.SwapHoriz, null, tint = Color(0xFF38BDF8))
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("Telegram অ্যাপে খুলুন", color = Color.White)
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("tg://"))
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/"))
+                                                context.startActivity(webIntent)
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.OpenInNew, null, tint = Color(0xFF34D399))
+                                        }
+                                    )
+
+                                    HorizontalDivider(color = Color(0xFF334155))
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("অ্যাকাউন্ট লগআউট / রিসেট", color = Color(0xFFF87171))
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            showLogoutDialog = true
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.ExitToApp, null, tint = Color(0xFFF87171))
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // Search input field
-                    if (showSearchField) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("গ্রুপ বা সহপাঠী খুঁজুন...", fontSize = 13.sp, color = Color(0xFF64748B)) },
-                            leadingIcon = { Icon(Icons.Default.Search, null, tint = Color(0xFF38BDF8)) },
-                            trailingIcon = {
-                                if (searchQuery.isNotBlank()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Clear, null, tint = Color(0xFF94A3B8))
-                                    }
-                                }
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF0284C7),
-                                unfocusedBorderColor = Color(0xFF334155),
-                                focusedContainerColor = Color(0xFF1E293B),
-                                unfocusedContainerColor = Color(0xFF1E293B),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            singleLine = true
+                    // Linear Progress Bar while page loads
+                    if (isLoading) {
+                        LinearProgressIndicator(
+                            progress = { loadProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.5.dp),
+                            color = Color(0xFF38BDF8),
+                            trackColor = Color(0xFF1E293B)
                         )
                     }
                 }
-            }
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showCreateGroupDialog = true },
-                containerColor = Color(0xFF0284C7),
-                contentColor = Color.White,
-                shape = RoundedCornerShape(18.dp),
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
-                modifier = Modifier
-                    .padding(bottom = 76.dp)
-                    .offset(y = (-6).dp)
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("নতুন স্টাডি গ্রুপ", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
             }
         },
         containerColor = Color(0xFF070D1B),
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .padding(bottom = 74.dp) // Leave clearance for floating bottom navigation dock
         ) {
-            // Telegram Status Banner
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { showConnectSheet = true },
-                shape = RoundedCornerShape(14.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF10B981).copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudSync,
-                            contentDescription = null,
-                            tint = Color(0xFF34D399),
-                            modifier = Modifier.size(18.dp)
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                    }
+                        setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                        // Enable Cookies & Session Persistence
+                        val cookieManager = CookieManager.getInstance()
+                        cookieManager.setAcceptCookie(true)
+                        cookieManager.setAcceptThirdPartyCookies(this, true)
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Telegram Cloud Server Sync",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF10B981))
-                            )
+                        // Comprehensive HTML5 Web Settings for modern Telegram Client
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            databaseEnabled = true
+                            allowFileAccess = true
+                            allowContentAccess = true
+                            useWideViewPort = true
+                            loadWithOverviewMode = true
+                            mediaPlaybackRequiresUserGesture = false
+                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            cacheMode = WebSettings.LOAD_DEFAULT
+                            javaScriptCanOpenWindowsAutomatically = true
+                            setSupportMultipleWindows(false)
+                            // Modern Chrome Mobile UA to ensure Telegram renders full Web app without restrictions
+                            userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.127 Mobile Safari/537.36"
                         }
-                        Text(
-                            text = "সব চ্যাট টেলিগ্রাম সার্ভারে সংরক্ষিত • জিরো ডাটাবেজ বিল",
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
-                        )
+
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                super.onPageStarted(view, url, favicon)
+                                isLoading = true
+                                hasError = false
+                                canGoBack = view?.canGoBack() == true
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                isLoading = false
+                                canGoBack = view?.canGoBack() == true
+                            }
+
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                error: WebResourceError?
+                            ) {
+                                super.onReceivedError(view, request, error)
+                                if (request?.isForMainFrame == true) {
+                                    isLoading = false
+                                    hasError = true
+                                }
+                            }
+
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): Boolean {
+                                val targetUrl = request?.url?.toString() ?: return false
+
+                                // Handle Telegram native deep links & app intents safely
+                                if (targetUrl.startsWith("tg://") || targetUrl.startsWith("intent://")) {
+                                    try {
+                                        val intent = Intent.parseUri(targetUrl, Intent.URI_INTENT_SCHEME)
+                                        if (intent != null) {
+                                            view?.context?.startActivity(intent)
+                                            return true
+                                        }
+                                    } catch (_: Exception) {
+                                        // Ignore unknown schemes without throwing ERR_UNKNOWN_URL_SCHEME
+                                        return true
+                                    }
+                                }
+
+                                // Handle telephone and mail links
+                                if (targetUrl.startsWith("tel:") || targetUrl.startsWith("mailto:")) {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                                        view?.context?.startActivity(intent)
+                                        return true
+                                    } catch (_: Exception) {
+                                        return true
+                                    }
+                                }
+
+                                // If it's a Telegram web link, stay inside this WebView
+                                if (targetUrl.contains("web.telegram.org") || targetUrl.contains("t.me")) {
+                                    return false
+                                }
+
+                                // External web links: open in browser
+                                return try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
+                                    view?.context?.startActivity(intent)
+                                    true
+                                } catch (_: Exception) {
+                                    false
+                                }
+                            }
+                        }
+
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                loadProgress = newProgress / 100f
+                                if (newProgress >= 100) {
+                                    isLoading = false
+                                }
+                                canGoBack = view?.canGoBack() == true
+                            }
+
+                            override fun onShowFileChooser(
+                                webView: WebView?,
+                                filePathCallbackInternal: ValueCallback<Array<Uri>>?,
+                                fileChooserParams: FileChooserParams?
+                            ): Boolean {
+                                filePathCallback?.onReceiveValue(null)
+                                filePathCallback = filePathCallbackInternal
+
+                                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                    type = "*/*"
+                                    addCategory(Intent.CATEGORY_OPENABLE)
+                                }
+                                try {
+                                    fileChooserLauncher.launch(intent)
+                                } catch (_: Exception) {
+                                    val fallbackIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                        type = "*/*"
+                                    }
+                                    fileChooserLauncher.launch(fallbackIntent)
+                                }
+                                return true
+                            }
+
+                            override fun onPermissionRequest(request: PermissionRequest?) {
+                                // Allow microphone (voice messages) and camera (QR scanner)
+                                request?.grant(request.resources)
+                            }
+                        }
+
+                        // Load user's selected official Telegram Web client
+                        loadUrl(sessionInfo.selectedVariant.url)
+                        webViewRef = this
                     }
-
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = "Details",
-                        tint = Color(0xFF38BDF8),
-                        modifier = Modifier.size(20.dp)
-                    )
+                },
+                update = { webView ->
+                    webViewRef = webView
                 }
-            }
+            )
 
-            // Categories Row
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Offline / Connection Error State
+            AnimatedVisibility(
+                visible = hasError,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.fillMaxSize()
             ) {
-                items(categories.size) { index ->
-                    val isSelected = selectedCategoryIndex == index
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedCategoryIndex = index },
-                        label = {
-                            Text(
-                                text = categories[index],
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF0284C7),
-                            selectedLabelColor = Color.White,
-                            containerColor = Color(0xFF1E293B),
-                            labelColor = Color(0xFF94A3B8)
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = isSelected,
-                            borderColor = Color(0xFF334155),
-                            selectedBorderColor = Color(0xFF38BDF8)
-                        ),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Chat List
-            if (filteredChats.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = 100.dp),
+                        .background(Color(0xFF0F172A))
+                        .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.ChatBubbleOutline,
-                            contentDescription = null,
-                            tint = Color(0xFF475569),
-                            modifier = Modifier.size(54.dp)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "কোনো চ্যাট পাওয়া যায়নি",
-                            fontSize = 14.sp,
-                            color = Color(0xFF94A3B8),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp, top = 6.dp)
-                ) {
-                    items(filteredChats, key = { it.id }) { chat ->
-                        BirdgramChatCard(
-                            chat = chat,
-                            onClick = { activeChatId = chat.id }
-                        )
-                        HorizontalDivider(
-                            color = Color(0xFF1E293B).copy(alpha = 0.6f),
-                            thickness = 0.8.dp,
-                            modifier = Modifier.padding(start = 74.dp, end = 16.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // Connect Bottom Sheet
-    if (showConnectSheet) {
-        BirdgramConnectBottomSheet(
-            authStatus = authStatus,
-            onDismiss = { showConnectSheet = false },
-            onRequestCode = { phone ->
-                repository.requestTelegramCode(phone) {}
-            },
-            onVerifyCode = { code ->
-                repository.verifyTelegramCode(code) {
-                    showConnectSheet = false
-                }
-            }
-        )
-    }
-
-    // Create Group Dialog
-    if (showCreateGroupDialog) {
-        CreateStudyGroupDialog(
-            onDismiss = { showCreateGroupDialog = false },
-            onCreate = { title, subject, msg ->
-                repository.createStudyGroup(title, subject, msg)
-                showCreateGroupDialog = false
-            }
-        )
-    }
-}
-
-/**
- * Single Chat Item Row
- */
-@Composable
-private fun BirdgramChatCard(
-    chat: BirdgramChat,
-    onClick: () -> Unit
-) {
-    Surface(
-        color = Color.Transparent,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Avatar
-            Box(
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            if (chat.type == BirdgramChatType.STUDY_GROUP)
-                                listOf(Color(0xFF0F766E), Color(0xFF0EA5E9))
-                            else
-                                listOf(Color(0xFF1E3A8A), Color(0xFF0284C7))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = chat.avatarInitial,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-
-                if (chat.isOnline) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF10B981))
-                            .border(2.dp, Color(0xFF070D1B), CircleShape)
-                            .align(Alignment.BottomEnd)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            // Details
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f, fill = false),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Text(
-                            text = chat.title,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(52.dp)
                         )
-                        if (chat.isVerified) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "টেলিগ্রাম সার্ভারে সংযোগ করা যায়নি",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "ইন্টারনেট সংযোগ চেক করুন অথবা অন্য ভার্সন (Web K / Web A) ট্রাই করুন।",
+                            fontSize = 13.sp,
+                            color = Color(0xFF94A3B8),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = {
+                                    hasError = false
+                                    isLoading = true
+                                    webViewRef?.reload()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("পুনরায় চেষ্টা করুন", fontWeight = FontWeight.Bold)
+                            }
 
-                    Text(
-                        text = chat.lastMessageTime,
-                        fontSize = 11.sp,
-                        color = if (chat.unreadCount > 0) Color(0xFF38BDF8) else Color(0xFF64748B)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = chat.lastMessage,
-                        fontSize = 13.sp,
-                        color = Color(0xFF94A3B8),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    if (chat.unreadCount > 0) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF0284C7),
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = chat.unreadCount.toString(),
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
+                            OutlinedButton(
+                                onClick = {
+                                    val nextVariant = if (sessionInfo.selectedVariant == TelegramClientVariant.WEB_K)
+                                        TelegramClientVariant.WEB_A
+                                    else
+                                        TelegramClientVariant.WEB_K
+                                    repository.setClientVariant(nextVariant)
+                                    hasError = false
+                                    isLoading = true
+                                    webViewRef?.loadUrl(nextVariant.url)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8))
+                            ) {
+                                Text("অন্য ভার্সন ট্রাই করুন", color = Color(0xFF38BDF8))
                             }
                         }
                     }
@@ -530,86 +544,44 @@ private fun BirdgramChatCard(
             }
         }
     }
-}
 
-/**
- * Dialog to create a new Study Group
- */
-@Composable
-private fun CreateStudyGroupDialog(
-    onDismiss: () -> Unit,
-    onCreate: (title: String, subject: String, initialMsg: String) -> Unit
-) {
-    var title by remember { mutableStateOf("") }
-    var subject by remember { mutableStateOf("পদার্থবিজ্ঞান") }
-    var initialMsg by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF0F172A),
-        title = {
-            Text("নতুন স্টাডি গ্রুপ তৈরি করুন", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("গ্রুপের নাম") },
-                    placeholder = { Text("যেমন: HSC '27 Math Discussion") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF38BDF8),
-                        unfocusedBorderColor = Color(0xFF475569),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
+    // Confirmation dialog for logging out / clearing saved session
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = {
+                Text("টেলিগ্রাম সেশন রিসেট করবেন?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "এটি আপনার ডিভাইসে সংরক্ষিত টেলিগ্রাম লগইন কুকি মুছে ফেলবে এবং আপনাকে পুনরায় ফোন নম্বর দিয়ে লগইন করতে হবে।",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 14.sp
                 )
-
-                OutlinedTextField(
-                    value = subject,
-                    onValueChange = { subject = it },
-                    label = { Text("বিষয় বা টপিক") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF38BDF8),
-                        unfocusedBorderColor = Color(0xFF475569),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-
-                OutlinedTextField(
-                    value = initialMsg,
-                    onValueChange = { initialMsg = it },
-                    label = { Text("প্রথম প্রশ্ন বা শুভেচ্ছা মেসেজ") },
-                    placeholder = { Text("সবাইকে স্বাগতম! এখানে পড়াশোনা নিয়ে আলোচনা হবে।") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF38BDF8),
-                        unfocusedBorderColor = Color(0xFF475569),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (title.isNotBlank()) onCreate(title, subject, initialMsg) },
-                enabled = title.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
-            ) {
-                Text("তৈরি করুন", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("বাতিল", color = Color(0xFF94A3B8))
-            }
-        }
-    )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutDialog = false
+                        repository.clearTelegramSession {
+                            coroutineScope.launch {
+                                webViewRef?.clearCache(true)
+                                webViewRef?.loadUrl(sessionInfo.selectedVariant.url)
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("রিসেট ও লগআউট", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("বাতিল", color = Color(0xFF94A3B8))
+                }
+            },
+            containerColor = Color(0xFF1E293B),
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 }

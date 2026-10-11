@@ -190,7 +190,8 @@ fun MainContainerScreen(
                 }
                 2 -> {
                     com.example.birdgram.ui.BirdgramScreen(
-                        repository = birdgramRepository
+                        repository = birdgramRepository,
+                        onNavigateToHome = { selectedIndex = 0 }
                     )
                 }
                 3 -> {
