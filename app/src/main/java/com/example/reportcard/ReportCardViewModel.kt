@@ -1,5 +1,6 @@
 package com.example.reportcard
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -50,7 +51,8 @@ data class ReportCardUiState(
     val userName: String = "",
     val userAvatar: String? = null,
     val userSchool: String? = null,
-    val userPhone: String? = null
+    val userPhone: String? = null,
+    val canViewProfiles: Boolean = false
 )
 
 class ReportCardViewModel(
@@ -501,6 +503,15 @@ class ReportCardViewModel(
         }
     }
 
+    fun checkProfileViewPermission(context: Context, forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            val cached = com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)
+            _uiState.update { it.copy(canViewProfiles = cached) }
+            val fresh = com.example.security.DeviceActivationRepository.checkProfileViewPermission(context, forceRefresh = forceRefresh)
+            _uiState.update { it.copy(canViewProfiles = fresh) }
+        }
+    }
+
     fun setSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
         searchJob?.cancel()
@@ -542,11 +553,14 @@ class ReportCardViewModel(
             val q = trimmed.lowercase()
             val memoryMatches = _uiState.value.leaderboardData?.data?.filter { item ->
                 val u = item.user
-                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true
-                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true
+                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true || item.full_name?.lowercase()?.contains(q) == true
+                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true || item.mobile?.replace("-", "")?.contains(q) == true
                 val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
                         u?.school?.lowercase()?.contains(q) == true ||
-                        item.effectiveCollege?.lowercase()?.contains(q) == true
+                        item.effectiveCollege?.lowercase()?.contains(q) == true ||
+                        item.school?.lowercase()?.contains(q) == true ||
+                        item.college?.lowercase()?.contains(q) == true ||
+                        item.institution?.lowercase()?.contains(q) == true
                 val rollMatch = u?.roll?.lowercase()?.contains(q) == true || item.roll_no?.lowercase()?.contains(q) == true
                 nameMatch || phoneMatch || collegeMatch || rollMatch
             } ?: emptyList()
@@ -554,6 +568,18 @@ class ReportCardViewModel(
             val initialMerged = (localDbItems + memoryMatches).distinctBy { item ->
                 val uId = item.effectiveUserId?.takeIf { it.isNotBlank() }
                 uId ?: "${item.rank}_${item.effectiveName}"
+            }.filter { item ->
+                val u = item.user
+                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true || item.full_name?.lowercase()?.contains(q) == true
+                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true || item.mobile?.replace("-", "")?.contains(q) == true
+                val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
+                        u?.school?.lowercase()?.contains(q) == true ||
+                        item.effectiveCollege?.lowercase()?.contains(q) == true ||
+                        item.school?.lowercase()?.contains(q) == true ||
+                        item.college?.lowercase()?.contains(q) == true ||
+                        item.institution?.lowercase()?.contains(q) == true
+                val rollMatch = u?.roll?.lowercase()?.contains(q) == true || item.roll_no?.lowercase()?.contains(q) == true
+                nameMatch || phoneMatch || collegeMatch || rollMatch
             }.sortedWith(compareBy({ it.rank ?: 999999 }, { it.effectiveScore * -1 }))
 
             // Emit instant local search results immediately
@@ -565,7 +591,6 @@ class ReportCardViewModel(
             }
 
             // 3. Direct Server-Side Global Search via Analytics API
-            // Queries the backend database directly across all thousands of accounts (e.g. rank 1130+)
             val apiSearchResults = try {
                 val searchReq = LeaderboardRankingRequest(
                     program_id = progId,
@@ -609,15 +634,19 @@ class ReportCardViewModel(
                 emptyList()
             }
 
+            // STRICT FILTERING: Only accept items that actually match the student query q
             val serverDiscoveredItems = (apiSearchResults + allSubjectApiResults).filter { item ->
                 val u = item.user
-                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true
-                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true
+                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true || item.full_name?.lowercase()?.contains(q) == true
+                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true || item.mobile?.replace("-", "")?.contains(q) == true
                 val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
                         u?.school?.lowercase()?.contains(q) == true ||
-                        item.effectiveCollege?.lowercase()?.contains(q) == true
+                        item.effectiveCollege?.lowercase()?.contains(q) == true ||
+                        item.school?.lowercase()?.contains(q) == true ||
+                        item.college?.lowercase()?.contains(q) == true ||
+                        item.institution?.lowercase()?.contains(q) == true
                 val rollMatch = u?.roll?.lowercase()?.contains(q) == true || item.roll_no?.lowercase()?.contains(q) == true
-                nameMatch || phoneMatch || collegeMatch || rollMatch || q.length >= 2
+                nameMatch || phoneMatch || collegeMatch || rollMatch
             }
 
             if (serverDiscoveredItems.isNotEmpty()) {
@@ -625,9 +654,22 @@ class ReportCardViewModel(
             }
 
             // 5. Final comprehensive merge of (Local DB + Memory + Server Search API)
+            // Guaranteed: All items in finalMerged strictly match query q
             val finalMerged = (initialMerged + serverDiscoveredItems).distinctBy { item ->
                 val uId = item.effectiveUserId?.takeIf { it.isNotBlank() }
                 uId ?: "${item.rank}_${item.effectiveName}"
+            }.filter { item ->
+                val u = item.user
+                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true || item.full_name?.lowercase()?.contains(q) == true
+                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true || item.mobile?.replace("-", "")?.contains(q) == true
+                val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
+                        u?.school?.lowercase()?.contains(q) == true ||
+                        item.effectiveCollege?.lowercase()?.contains(q) == true ||
+                        item.school?.lowercase()?.contains(q) == true ||
+                        item.college?.lowercase()?.contains(q) == true ||
+                        item.institution?.lowercase()?.contains(q) == true
+                val rollMatch = u?.roll?.lowercase()?.contains(q) == true || item.roll_no?.lowercase()?.contains(q) == true
+                nameMatch || phoneMatch || collegeMatch || rollMatch
             }.sortedWith(compareBy({ it.rank ?: 999999 }, { it.effectiveScore * -1 }))
 
             val totalCount = try {
