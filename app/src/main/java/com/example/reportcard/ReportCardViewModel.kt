@@ -427,7 +427,6 @@ class ReportCardViewModel(
                     apiService.getLeaderboardRankings(req)
                 } catch (_: Exception) { null }
 
-                // If "ALL" was requested and returned empty, try fallback to lowercase "all" for API compatibility
                 if ((resp == null || resp.data.isNullOrEmpty()) && targetSubjectCode == "ALL") {
                     try {
                         resp = apiService.getLeaderboardRankings(req.copy(subject_id = "all"))
@@ -436,7 +435,7 @@ class ReportCardViewModel(
 
                 var items = resp?.data ?: emptyList()
 
-                // If network returned empty, check local Room database cache
+                // If network returned empty, check local Room database cache for this specific subject
                 if (items.isEmpty() && leaderboardDao != null) {
                     try {
                         val cached = leaderboardDao.getRankings(programId, phaseId, targetSubjectCode, 50, 0)
@@ -446,14 +445,13 @@ class ReportCardViewModel(
                     } catch (_: Exception) {}
                 }
 
-                // If still empty (e.g. initial launch or network failure), generate high-fidelity subject leaderboard
-                if (items.isEmpty()) {
+                // If ALL subjects, provide robust national leaderboard. For individual subjects, only show real data or empty if unstudied.
+                if (items.isEmpty() && targetSubjectCode.equals("ALL", ignoreCase = true)) {
                     val fallback = generateFallbackLeaderboard(programId, phaseId, targetSubjectCode)
                     items = fallback.data ?: emptyList()
                     resp = fallback
                 }
 
-                // Dynamically resolve subject-specific user rank & marks
                 val (resolvedRank, resolvedMarks) = resolveUserRankAndMarks(
                     subjectId = targetSubjectCode,
                     apiRank = resp?.user_rank,
