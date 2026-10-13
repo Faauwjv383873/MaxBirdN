@@ -349,30 +349,11 @@ fun ReportCardScreen(
                         val leaderboard = uiState.leaderboardData
                         val rawUsers = leaderboard?.data ?: emptyList()
 
-                        // If searching, prioritize direct database search results (with fallback to filtered raw users)
                         val isSearching = uiState.searchQuery.isNotBlank()
-                        val q = uiState.searchQuery.trim().lowercase()
                         val filteredUsers = if (!isSearching) {
                             rawUsers
                         } else {
-                            val candidateList = if (uiState.dbSearchResults.isNotEmpty()) {
-                                uiState.dbSearchResults
-                            } else {
-                                rawUsers
-                            }
-                            candidateList.filter { item ->
-                                val u = item.user
-                                val nameMatch = u?.name?.lowercase()?.contains(q) == true || item.name?.lowercase()?.contains(q) == true || item.full_name?.lowercase()?.contains(q) == true
-                                val phoneMatch = u?.phone?.replace("-", "")?.contains(q) == true || item.phone?.replace("-", "")?.contains(q) == true || item.mobile?.replace("-", "")?.contains(q) == true
-                                val collegeMatch = u?.effectiveCollege?.lowercase()?.contains(q) == true ||
-                                        u?.school?.lowercase()?.contains(q) == true ||
-                                        item.effectiveCollege?.lowercase()?.contains(q) == true ||
-                                        item.school?.lowercase()?.contains(q) == true ||
-                                        item.college?.lowercase()?.contains(q) == true ||
-                                        item.institution?.lowercase()?.contains(q) == true
-                                val rollMatch = u?.roll?.lowercase()?.contains(q) == true || item.roll_no?.lowercase()?.contains(q) == true
-                                nameMatch || phoneMatch || collegeMatch || rollMatch
-                            }
+                            uiState.dbSearchResults
                         }
 
                         if (isSearching) {
