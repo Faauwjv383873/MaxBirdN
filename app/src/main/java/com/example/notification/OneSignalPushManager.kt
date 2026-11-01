@@ -162,8 +162,46 @@ object OneSignalPushManager {
         } catch (_: Throwable) {}
     }
 
+    private fun ensureFirebaseInitialized(context: Context) {
+        try {
+            val appContext = context.applicationContext
+            val defaultKey = String(
+                android.util.Base64.decode(
+                    "QUl6YVN5QmM0SmgyRG1ZRFZaWDQzVlVEVnBQVVJ4ZXVqSDE3TGpN",
+                    android.util.Base64.DEFAULT
+                ),
+                Charsets.UTF_8
+            ).trim()
+            val existingApps = com.google.firebase.FirebaseApp.getApps(appContext)
+            val defaultApp = existingApps.firstOrNull { it.name == com.google.firebase.FirebaseApp.DEFAULT_APP_NAME }
+            if (defaultApp == null) {
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setProjectId("maxbird-notification")
+                    .setApplicationId("1:915326183735:android:9d6e6c275d9ede207992b2")
+                    .setApiKey(defaultKey)
+                    .setGcmSenderId("915326183735")
+                    .setStorageBucket("maxbird-notification.firebasestorage.app")
+                    .build()
+                com.google.firebase.FirebaseApp.initializeApp(appContext, options)
+            } else if (!defaultApp.options.apiKey.startsWith("AIza")) {
+                try {
+                    defaultApp.delete()
+                } catch (_: Throwable) {}
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setProjectId("maxbird-notification")
+                    .setApplicationId("1:915326183735:android:9d6e6c275d9ede207992b2")
+                    .setApiKey(defaultKey)
+                    .setGcmSenderId("915326183735")
+                    .setStorageBucket("maxbird-notification.firebasestorage.app")
+                    .build()
+                com.google.firebase.FirebaseApp.initializeApp(appContext, options)
+            }
+        } catch (_: Throwable) {}
+    }
+
     private fun acquireFcmAndSync(context: Context, studentNameOverride: String? = null) {
         try {
+            ensureFirebaseInitialized(context)
             val fcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null }
             if (fcm != null) {
                 try {

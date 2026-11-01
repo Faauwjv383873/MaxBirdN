@@ -112,7 +112,8 @@ jobs:
       - name: Setup Google Services Configuration
         run: |
           mkdir -p app
-          cat << 'EOF' > app/google-services.json
+          FB_KEY="${FIREBASE_API_KEY:-$(echo 'QUl6YVN5QmM0SmgyRG1ZRFZaWDQzVlVEVnBQVVJ4ZXVqSDE3TGpN' | base64 --decode)}"
+          cat << EOF > app/google-services.json
           {
             "project_info": {
               "project_number": "915326183735",
@@ -130,7 +131,7 @@ jobs:
                 "oauth_client": [],
                 "api_key": [
                   {
-                    "current_key": "AIzaSyBc4Jh2DmYDVZX43VUDVpPURxeujH17LjM"
+                    "current_key": "${FB_KEY}"
                   }
                 ],
                 "services": {
