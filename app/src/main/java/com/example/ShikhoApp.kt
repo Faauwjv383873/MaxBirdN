@@ -56,5 +56,8 @@ class ShikhoApp : Application() {
         ClassAlarmScheduler.createNotificationChannel(this)
         com.example.notification.ShikhoNotificationManager.createNotificationChannels(this)
         com.example.download.AppDownloadNotificationHelper.createNotificationChannel(this)
+
+        // 3. Initialize OneSignal + FCM Push Notification Registration & Sync
+        com.example.notification.OneSignalPushManager.init(this)
     }
 }

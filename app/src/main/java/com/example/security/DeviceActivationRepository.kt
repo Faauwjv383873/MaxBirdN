@@ -436,6 +436,12 @@ object DeviceActivationRepository {
                         return@withContext StudentVerificationStatus.Approved()
                     }
                     getPrefs(context).edit().putBoolean(KEY_PENDING_REQUESTED_LOCAL, true).commit()
+                    com.example.notification.OneSignalPushManager.notifyAdminDeviceAccessRequest(
+                        context = context,
+                        studentName = cleanName,
+                        displayDeviceId = displayDeviceId,
+                        deviceModel = deviceModel
+                    )
                     return@withContext StudentVerificationStatus.Pending(studentName = cleanName)
                 }
             } catch (e: Throwable) {
@@ -475,6 +481,12 @@ object DeviceActivationRepository {
             val upsertResp = httpClient.newCall(upsertReq).execute()
             if (upsertResp.isSuccessful) {
                 getPrefs(context).edit().putBoolean(KEY_PENDING_REQUESTED_LOCAL, true).commit()
+                com.example.notification.OneSignalPushManager.notifyAdminDeviceAccessRequest(
+                    context = context,
+                    studentName = cleanName,
+                    displayDeviceId = displayDeviceId,
+                    deviceModel = deviceModel
+                )
                 return@withContext StudentVerificationStatus.Pending(studentName = cleanName)
             } else {
                 return@withContext StudentVerificationStatus.Error("আবেদন পাঠানো যায়নি (HTTP ${upsertResp.code})। ইন্টারনেট সংযোগ চেক করুন।")

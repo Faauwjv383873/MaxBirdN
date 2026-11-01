@@ -88,9 +88,6 @@ class MainActivity : ComponentActivity() {
             } else {
                 val projectId = com.google.firebase.FirebaseApp.getInstance().options.projectId
                 android.util.Log.d("MainActivity", "✅ Firebase Project: $projectId")
-                if (projectId != "shikho-tech") {
-                    android.util.Log.e("MainActivity", "❌ Wrong Firebase project! Expected: shikho-tech, Got: $projectId")
-                }
             }
         } catch (e: Throwable) {
             android.util.Log.e("MainActivity", "Firebase check failed: ${e.message}", e)
@@ -213,6 +210,8 @@ class MainActivity : ComponentActivity() {
 
                     // Immediately sync topic subscriptions (SHIKHO_ALL, user, program, phase)
                     ShikhoNotificationManager.syncAllTopicSubscriptions(applicationContext)
+                    // Sync FCM token and Player ID with OneSignal + Supabase
+                    com.example.notification.OneSignalPushManager.triggerSyncAsync(applicationContext)
                 } else {
                     android.util.Log.i("MainActivity", "FCM registration token deferred/unavailable in current environment")
                 }

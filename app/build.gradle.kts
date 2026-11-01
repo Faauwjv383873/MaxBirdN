@@ -77,13 +77,26 @@ android {
       }
     }
     val supabaseUrl = (System.getenv("SUPABASE_URL")
+      ?: (findProperty("SUPABASE_URL") as? String)
       ?: envProps.getProperty("SUPABASE_URL")
       ?: "").trim().removeSurrounding("\"")
     val supabaseAnonKey = (System.getenv("SUPABASE_ANON_KEY")
+      ?: (findProperty("SUPABASE_ANON_KEY") as? String)
       ?: envProps.getProperty("SUPABASE_ANON_KEY")
       ?: "").trim().removeSurrounding("\"")
+    val oneSignalAppId = (System.getenv("ONESIGNAL_APP_ID")
+      ?: (findProperty("ONESIGNAL_APP_ID") as? String)
+      ?: envProps.getProperty("ONESIGNAL_APP_ID")
+      ?: "").trim().removeSurrounding("\"")
+    val oneSignalRestApiKey = (System.getenv("ONESIGNAL_REST_API_KEY")
+      ?: (findProperty("ONESIGNAL_REST_API_KEY") as? String)
+      ?: envProps.getProperty("ONESIGNAL_REST_API_KEY")
+      ?: "").trim().removeSurrounding("\"")
+
     buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
     buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+    buildConfigField("String", "ONESIGNAL_APP_ID", "\"$oneSignalAppId\"")
+    buildConfigField("String", "ONESIGNAL_REST_API_KEY", "\"$oneSignalRestApiKey\"")
 
     fun resolveBoolFlag(propKey: String, envKey: String, defaultVal: Boolean): Boolean {
       val rawProp = (findProperty(propKey) as? String)?.trim()?.lowercase()
@@ -177,6 +190,8 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
   ignoreList.add("SUPABASE_URL")
   ignoreList.add("SUPABASE_ANON_KEY")
+  ignoreList.add("ONESIGNAL_APP_ID")
+  ignoreList.add("ONESIGNAL_REST_API_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.ERROR }

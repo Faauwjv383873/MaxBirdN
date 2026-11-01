@@ -93,7 +93,7 @@
             android:resource="@color/black" />
         <meta-data
             android:name="firebase_messaging_auto_init_enabled"
-            android:value="false" />
+            android:value="true" />
     </application>
 
 </manifest>

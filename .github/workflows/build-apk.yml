@@ -65,6 +65,8 @@ jobs:
       STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
+      ONESIGNAL_REST_API_KEY: ${{ secrets.ONESIGNAL_REST_API_KEY }}
       VERSION_CODE: ${{ inputs.version_code != '' && inputs.version_code || github.run_number }}
       VERSION_NAME: ${{ inputs.version_name != '' && inputs.version_name || format('1.0.{0}', github.run_number) }}
       ENABLE_SCREENSHOT_PROTECTION: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.enable_screenshot_protection) || 'true' }}
@@ -110,8 +112,38 @@ jobs:
       - name: Setup Google Services Configuration
         run: |
           mkdir -p app
-          echo "ewogICJwcm9qZWN0X2luZm8iOiB7CiAgICAicHJvamVjdF9udW1iZXIiOiAiMTczNjk2MTk4NjM4IiwKICAgICJwcm9qZWN0X2lkIjogInNoaWtoby10ZWNoIiwKICAgICJzdG9yYWdlX2J1Y2tldCI6ICJzaGlraG8tdGVjaC5hcHBzcG90LmNvbSIKICB9LAogICJjbGllbnQiOiBbCiAgICB7CiAgICAgICJjbGllbnRfaW5mbyI6IHsKICAgICAgICAibW9iaWxlc2RrX2FwcF9pZCI6ICIxOjE3MzY5NjE5ODYzODphbmRyb2lkOmE3ZGQxNzJmYzQ0ZDA5MjE2YzUwZmYiLAogICAgICAgICJhbmRyb2lkX2NsaWVudF9pbmZvIjogewogICAgICAgICAgInBhY2thZ2VfbmFtZSI6ICJjb20ubWF4YmlyZC5mZi5hcHAiCiAgICAgICAgfQogICAgICB9LAogICAgICAib2F1dGhfY2xpZW50IjogW10sCiAgICAgICJhcGlfa2V5IjogWwogICAgICAgIHsKICAgICAgICAgICJjdXJyZW50X2tleSI6ICJBSXphU3lBVmptUEF5S1Z0T2F6cGFwLVhyeTgzUEZjOHE1SjFzOE0iCiAgICAgICAgfQogICAgICBdLAogICAgICAic2VydmljZXMiOiB7CiAgICAgICAgImFwcGludml0ZV9zZXJ2aWNlIjogewogICAgICAgICAgIm90aGVyX3BsYXRmb3JtX29hdXRoX2NsaWVudCI6IFtdCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXSwKICAiY29uZmlndXJhdGlvbl92ZXJzaW9uIjogIjEiCn0K" | base64 -d > app/google-services.json
-          echo "✅ app/google-services.json generated successfully."
+          cat << 'EOF' > app/google-services.json
+          {
+            "project_info": {
+              "project_number": "915326183735",
+              "project_id": "maxbird-notification",
+              "storage_bucket": "maxbird-notification.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:915326183735:android:9d6e6c275d9ede207992b2",
+                  "android_client_info": {
+                    "package_name": "com.maxbird.ff.app"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyBc4Jh2DmYDVZX43VUDVpPURxeujH17LjM"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          echo "✅ app/google-services.json (maxbird-notification) configured successfully."
 
       # -----------------------------------------------------------
       # 1. PREPARE ENVIRONMENT & KEYSTORES (MANDATORY BEFORE ANY BUILD)

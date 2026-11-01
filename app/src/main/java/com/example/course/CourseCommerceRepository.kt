@@ -1267,6 +1267,13 @@ object CourseCommerceRepository {
                         patchResp.close()
                         markOptimisticCourseRequested(context, programId, programTitle)
                         fetchCourseCommerceStatus(context)
+                        com.example.notification.OneSignalPushManager.notifyAdminCourseAccessRequest(
+                            context = context,
+                            studentName = studentName,
+                            studentPhone = normPhone,
+                            programTitle = programTitle,
+                            programId = programId
+                        )
                         return@withContext Result.success("অ্যাডমিনের কাছে কোর্সে এক্সেস রিকোয়েস্ট পাঠানো হয়েছে! অ্যাডমিন দাম সেট করে এক্সেস দিলে এখানে দেখতে পাবেন।")
                     }
                     patchResp?.close()
@@ -1323,6 +1330,13 @@ object CourseCommerceRepository {
                                 )
                                 markOptimisticCourseRequested(context, programId, programTitle)
                                 fetchCourseCommerceStatus(context)
+                                com.example.notification.OneSignalPushManager.notifyAdminCourseAccessRequest(
+                                    context = context,
+                                    studentName = studentName,
+                                    studentPhone = normPhone,
+                                    programTitle = programTitle,
+                                    programId = programId
+                                )
                                 return@withContext Result.success(msg)
                             }
                         }
@@ -1376,6 +1390,13 @@ object CourseCommerceRepository {
                     if (upsertResp.isSuccessful) {
                         markOptimisticCourseRequested(context, programId, programTitle)
                         fetchCourseCommerceStatus(context)
+                        com.example.notification.OneSignalPushManager.notifyAdminCourseAccessRequest(
+                            context = context,
+                            studentName = studentName,
+                            studentPhone = normPhone,
+                            programTitle = programTitle,
+                            programId = programId
+                        )
                         return@withContext Result.success("অ্যাডমিনের কাছে কোর্সে এক্সেস রিকোয়েস্ট পাঠানো হয়েছে! অ্যাডমিন দাম সেট করে এক্সেস দিলে এখানে দেখতে পাবেন।")
                     } else {
                         lastErrorBody = upsertResp.body?.string() ?: ""
@@ -1407,6 +1428,13 @@ object CourseCommerceRepository {
                 if (plainResp.isSuccessful || plainResp.code == 409) {
                     markOptimisticCourseRequested(context, programId, programTitle)
                     fetchCourseCommerceStatus(context)
+                    com.example.notification.OneSignalPushManager.notifyAdminCourseAccessRequest(
+                        context = context,
+                        studentName = studentName,
+                        studentPhone = normPhone,
+                        programTitle = programTitle,
+                        programId = programId
+                    )
                     return@withContext Result.success("অ্যাডমিনের কাছে কোর্সে এক্সেস রিকোয়েস্ট পাঠানো হয়েছে! অ্যাডমিন দাম সেট করে এক্সেস দিলে এখানে দেখতে পাবেন।")
                 }
             } catch (_: Throwable) {}
@@ -1550,6 +1578,16 @@ object CourseCommerceRepository {
                                     "আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাই করে এপ্রুভ করলেই কোর্সটি আনলক হয়ে যাবে।"
                                 )
                                 fetchCourseCommerceStatus(context)
+                                com.example.notification.OneSignalPushManager.notifyAdminCoursePaymentSubmitted(
+                                    context = context,
+                                    studentName = studentName,
+                                    studentPhone = normPhone,
+                                    programTitle = programTitle,
+                                    paymentMethod = paymentMethod,
+                                    amount = amountInt,
+                                    transactionId = cleanTrx,
+                                    planTitle = selectedPlan.titleBn
+                                )
                                 return@withContext Result.success(msg)
                             }
                         }
@@ -1667,6 +1705,16 @@ object CourseCommerceRepository {
 
             if (txSucceeded) {
                 fetchCourseCommerceStatus(context)
+                com.example.notification.OneSignalPushManager.notifyAdminCoursePaymentSubmitted(
+                    context = context,
+                    studentName = studentName,
+                    studentPhone = normPhone,
+                    programTitle = programTitle,
+                    paymentMethod = paymentMethod,
+                    amount = amountInt,
+                    transactionId = cleanTrx,
+                    planTitle = selectedPlan.titleBn
+                )
                 return@withContext Result.success("আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাই করে এপ্রুভ করলেই কোর্সটি আনলক হয়ে যাবে।")
             } else {
                 return@withContext Result.failure(Exception("পেমেন্ট জমা দিতে সমস্যা হয়েছে (HTTP $lastTxCode)।"))
@@ -1812,6 +1860,13 @@ object CourseCommerceRepository {
 
             if (patchSucceeded) {
                 fetchCourseCommerceStatus(context)
+                com.example.notification.OneSignalPushManager.notifyAdminFreeTrialStarted(
+                    context = context,
+                    studentName = account.studentName,
+                    studentPhone = account.normPhone.ifBlank { account.rawPhone },
+                    programTitle = programTitle,
+                    durationLabelBn = durationLabelBn
+                )
                 return@withContext Result.success("🎉 অভিনন্দন! আপনার $durationLabelBn ফ্রি ট্রায়াল চালু হয়েছে। এখন আপনি কোর্সটির ক্লাসগুলো ফ্রিতে দেখতে পারবেন।")
             } else {
                 return@withContext Result.failure(Exception("ফ্রি ট্রায়াল চালু করতে সমস্যা হয়েছে। অনুগ্রহ করে ডাটাবেজে ট্রায়াল SQL রান করা আছে কিনা নিশ্চিত করুন।"))

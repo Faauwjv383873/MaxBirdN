@@ -41,50 +41,103 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
         val sessionManager = SessionManager(applicationContext)
         sessionManager.setFcmToken(token)
 
-        // Sync all subscriptions with the new token
+        // Sync all subscriptions with the new token (FCM topics + OneSignal Player + Supabase)
         ShikhoNotificationManager.syncAllTopicSubscriptions(applicationContext)
+        OneSignalPushManager.triggerSyncAsync(applicationContext)
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         Log.d(TAG, "FCM Message received from: ${remoteMessage.from}")
-        ShikhoNotificationManager.logTerminal("PUSH", "📩 Real FCM Message Received from: ${remoteMessage.from}")
-
-        val sessionManager = SessionManager(applicationContext)
-        if (!sessionManager.isAllNotificationsEnabled()) {
-            Log.d(TAG, "Push notifications are disabled in user settings. Skipping display.")
-            return
-        }
+        ShikhoNotificationManager.logTerminal("PUSH", "📩 Push Notification Received from: ${remoteMessage.from}")
 
         val data = remoteMessage.data
         val notification = remoteMessage.notification
 
+        // Parse OneSignal's custom JSON payload (`{"i": "notif_id", "a": {...}}`) if present
+        val oneSignalAdditionalData = try {
+            val customRaw = data["custom"]
+            if (!customRaw.isNullOrBlank() && customRaw.trim().startsWith("{")) {
+                org.json.JSONObject(customRaw).optJSONObject("a")
+            } else null
+        } catch (_: Throwable) {
+            null
+        }
+
+        val eventType = (
+            data["event_type"]
+                ?: data["type"]
+                ?: data["content_type"]
+                ?: oneSignalAdditionalData?.optString("event_type", "")
+                ?: oneSignalAdditionalData?.optString("type", "")
+                ?: ""
+        ).trim()
+
+        // Critical Admin -> Student notifications (Device Approved/Rejected, Course Approved, Payment Verified)
+        // must ALWAYS be shown even if general marketing notifications are toggled off.
+        val isCriticalAdminUpdate = eventType.contains("DEVICE", ignoreCase = true) ||
+            eventType.contains("COURSE", ignoreCase = true) ||
+            eventType.contains("PAYMENT", ignoreCase = true) ||
+            eventType.contains("TRIAL", ignoreCase = true) ||
+            eventType.contains("INSTALLMENT", ignoreCase = true) ||
+            eventType.contains("APPROV", ignoreCase = true) ||
+            eventType.contains("REJECT", ignoreCase = true) ||
+            data.containsKey("alert") ||
+            data.containsKey("custom")
+
+        val sessionManager = SessionManager(applicationContext)
+        if (!isCriticalAdminUpdate && !sessionManager.isAllNotificationsEnabled()) {
+            Log.d(TAG, "Push notifications are disabled in user settings. Skipping display.")
+            return
+        }
+
         val title = notification?.title
             ?: data["title"]
             ?: data["heading"]
-            ?: "শিখো লাইভ নোটিফিকেশন"
+            ?: oneSignalAdditionalData?.optString("title", "")?.takeIf { it.isNotBlank() }
+            ?: "শিখো নোটিফিকেশন"
 
+        // Note: OneSignal sends the notification body in `data["alert"]`!
         val body = notification?.body
+            ?: data["alert"]
             ?: data["body"]
             ?: data["message"]
             ?: data["description"]
+            ?: oneSignalAdditionalData?.optString("body", "")?.takeIf { it.isNotBlank() }
+            ?: oneSignalAdditionalData?.optString("message", "")?.takeIf { it.isNotBlank() }
             ?: ""
 
         val imageUrl = notification?.imageUrl?.toString()
+            ?: data["bicon"]
+            ?: data["big_picture"]
             ?: data["image"]
             ?: data["image_url"]
             ?: data["banner"]
+            ?: oneSignalAdditionalData?.optString("image_url", "")?.takeIf { it.isNotBlank() }
 
         val deeplink = data["deeplink"]
             ?: data["url"]
             ?: data["link"]
             ?: data["click_action"]
+            ?: oneSignalAdditionalData?.optString("deeplink", "")?.takeIf { it.isNotBlank() }
             ?: ""
 
-        val type = data["type"] ?: data["content_type"] ?: ""
-        val contentId = data["content_id"] ?: data["id"] ?: data["lesson_id"] ?: ""
+        val contentId = data["content_id"]
+            ?: data["program_id"]
+            ?: data["id"]
+            ?: data["lesson_id"]
+            ?: oneSignalAdditionalData?.optString("program_id", "")
+            ?: ""
 
-        // Process and display notification in background scope
+        // Process and display notification + refresh device/course status in background scope
         CoroutineScope(Dispatchers.IO).launch {
+            // Automatically sync device approval and course commerce state when Admin sends a status update push!
+            runCatching {
+                com.example.security.DeviceActivationRepository.checkStudentVerificationStatus(applicationContext)
+            }
+            runCatching {
+                com.example.course.CourseCommerceRepository.fetchCourseCommerceStatus(applicationContext)
+            }
+
             val bitmap = if (!imageUrl.isNullOrBlank()) {
                 downloadBitmap(imageUrl)
             } else null
@@ -95,7 +148,7 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
                 imageUrl = imageUrl,
                 largeBitmap = bitmap,
                 deeplink = deeplink,
-                type = type,
+                type = eventType,
                 contentId = contentId
             )
         }
