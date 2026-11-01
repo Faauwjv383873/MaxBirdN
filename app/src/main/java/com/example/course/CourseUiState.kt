@@ -30,6 +30,8 @@ data class CourseUiState(
 
     // Course Commerce, Access Requests, Custom Pricing, Free Trial & Installments (কিস্তি)
     val commerceSnapshot: CourseCommerceSnapshot = CourseCommerceSnapshot(),
+    val shikhoServerJoinedIds: Set<String> = emptySet(),
+    val joiningShikhoServerProgramId: String? = null,
     val requestingAccessProgramId: String? = null,
     val startingTrialProgramId: String? = null,
     val submittingPaymentProgramId: String? = null,
