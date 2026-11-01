@@ -209,31 +209,38 @@ object OneSignalPushManager {
                 } catch (_: Throwable) {}
                 fcm.token.addOnCompleteListener { task ->
                     val token = if (task.isSuccessful) task.result else null
-                    if (!token.isNullOrBlank()) {
+                    val resolvedToken = if (!token.isNullOrBlank()) {
                         SessionManager(context).setFcmToken(token)
-                        scope.launch {
-                            syncStudentDeviceWithOneSignal(
-                                context = context,
-                                fcmToken = token,
-                                studentNameOverride = studentNameOverride
-                            )
-                        }
+                        token
                     } else {
-                        val cachedToken = SessionManager(context).getFcmToken()
-                        if (!cachedToken.isNullOrBlank()) {
-                            scope.launch {
-                                syncStudentDeviceWithOneSignal(
-                                    context = context,
-                                    fcmToken = cachedToken,
-                                    studentNameOverride = studentNameOverride
-                                )
-                            }
-                        }
+                        SessionManager(context).getFcmToken().orEmpty()
                     }
+                    scope.launch {
+                        syncStudentDeviceWithOneSignal(
+                            context = context,
+                            fcmToken = resolvedToken,
+                            studentNameOverride = studentNameOverride
+                        )
+                    }
+                }
+            } else {
+                scope.launch {
+                    syncStudentDeviceWithOneSignal(
+                        context = context,
+                        fcmToken = SessionManager(context).getFcmToken().orEmpty(),
+                        studentNameOverride = studentNameOverride
+                    )
                 }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "acquireFcmAndSync warning: ${e.message}")
+            scope.launch {
+                syncStudentDeviceWithOneSignal(
+                    context = context,
+                    fcmToken = SessionManager(context).getFcmToken().orEmpty(),
+                    studentNameOverride = studentNameOverride
+                )
+            }
         }
     }
 
@@ -345,7 +352,7 @@ object OneSignalPushManager {
                 studentName = studentName,
                 oneSignalPlayerId = playerId,
                 fcmToken = resolvedFcm,
-                externalUserId = externalUserId
+                studentKey = externalUserId
             )
         } catch (e: Throwable) {
             Log.w(TAG, "syncStudentDeviceWithOneSignal error: ${e.message}")
@@ -359,23 +366,22 @@ object OneSignalPushManager {
         studentName: String,
         oneSignalPlayerId: String,
         fcmToken: String,
-        externalUserId: String
+        studentKey: String
     ) {
         try {
             val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
             if (supabaseUrl.isBlank() || anonKey.isBlank()) return
-            if (oneSignalPlayerId.isBlank() && fcmToken.isBlank()) return
 
-            // 1. Try RPC `sync_student_push_identity`
+            // 1. Call exact Supabase RPC `sync_student_push_identity`
+            // Signature: sync_student_push_identity(p_device_hash, p_display_device_id, p_student_phone, p_student_key, p_onesignal_player_id, p_fcm_token)
             try {
                 val rpcPayload = JSONObject().apply {
                     put("p_device_hash", deviceHardwareHash)
                     put("p_display_device_id", displayDeviceId)
                     put("p_student_phone", studentPhone)
-                    put("p_student_name", studentName)
+                    put("p_student_key", studentKey)
                     put("p_onesignal_player_id", oneSignalPlayerId)
                     put("p_fcm_token", fcmToken)
-                    put("p_external_user_id", externalUserId)
                 }
                 val rpcReq = Request.Builder()
                     .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/sync_student_push_identity")
@@ -390,11 +396,19 @@ object OneSignalPushManager {
             // 2. Direct PATCH on `devices` table for this device
             try {
                 val devPatch = JSONObject().apply {
+                    put("device_id", deviceHardwareHash)
                     if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                     if (fcmToken.isNotBlank()) put("fcm_token", fcmToken)
+                    if (studentName.isNotBlank()) {
+                        put("student_name", studentName)
+                        put("student_note", studentName)
+                    }
+                    if (studentPhone.isNotBlank()) {
+                        put("student_phone", studentPhone)
+                    }
                 }
                 val devReq = Request.Builder()
-                    .url("${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)")
+                    .url("${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,device_id.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)")
                     .addHeader("apikey", anonKey)
                     .addHeader("Authorization", "Bearer $anonKey")
                     .addHeader("Content-Type", "application/json")
@@ -404,14 +418,14 @@ object OneSignalPushManager {
             } catch (_: Throwable) {}
 
             // 3. Direct PATCH on `course_access_enrollments` if student is logged in
-            if (studentPhone.isNotBlank()) {
+            if (studentPhone.isNotBlank() && (oneSignalPlayerId.isNotBlank() || fcmToken.isNotBlank())) {
                 try {
                     val enrPatch = JSONObject().apply {
                         if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                         if (fcmToken.isNotBlank()) put("fcm_token", fcmToken)
                     }
                     val enrReq = Request.Builder()
-                        .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?or=(student_phone.eq.$studentPhone,user_phone.eq.$studentPhone,shikho_account_key.eq.$studentPhone)")
+                        .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?or=(student_phone.eq.$studentPhone,user_phone.eq.$studentPhone,shikho_account_key.eq.$studentPhone,student_key.eq.$studentPhone)")
                         .addHeader("apikey", anonKey)
                         .addHeader("Authorization", "Bearer $anonKey")
                         .addHeader("Content-Type", "application/json")
@@ -437,12 +451,17 @@ object OneSignalPushManager {
         deviceModel: String
     ) {
         val cleanName = studentName.trim().ifBlank { "নতুন শিক্ষার্থী" }
-        val title = "🔐 নতুন ডিভাইস এক্সেস রিকোয়েস্ট!"
+        val deviceHash = runCatching { DeviceSecurityManager.getDeviceHardwareHash(context) }.getOrDefault(displayDeviceId)
+        val studentPhone = runCatching { SessionManager(context).getNormalizedUserPhone() }.getOrDefault("")
+        val title = "🔔 নতুন ডিভাইস এক্সেস রিকোয়েস্ট!"
         val message = "$cleanName ($deviceModel • ID: $displayDeviceId) অ্যাপে প্রবেশের জন্য এক্সেস আবেদন করেছেন।"
         val data = JSONObject().apply {
+            put("notification_type", "ADMIN_DEVICE_ACCESS_REQUEST")
             put("event_type", "DEVICE_ACCESS_REQUEST")
             put("type", "DEVICE_ACCESS_REQUEST")
+            put("device_hash", deviceHash)
             put("student_name", cleanName)
+            put("student_phone", studentPhone.ifBlank { "N/A" })
             put("display_device_id", displayDeviceId)
             put("device_model", deviceModel)
         }
@@ -464,6 +483,7 @@ object OneSignalPushManager {
         val title = "📚 নতুন কোর্স এক্সেস রিকোয়েস্ট!"
         val message = "$cleanName ($studentPhone) '$programTitle' কোর্সের দাম, কিস্তি ও ফ্রি ট্রায়াল এক্সেস চেয়েছেন।"
         val data = JSONObject().apply {
+            put("notification_type", "ADMIN_COURSE_ACCESS_REQUEST")
             put("event_type", "COURSE_ACCESS_REQUEST")
             put("type", "COURSE_ACCESS_REQUEST")
             put("student_name", cleanName)
@@ -492,6 +512,7 @@ object OneSignalPushManager {
         val title = "💳 নতুন কোর্স পেমেন্ট জমা হয়েছে (৳$amount)!"
         val message = "$cleanName ($studentPhone) '$programTitle' এর জন্য $paymentMethod এ ৳$amount পাঠিয়েছেন (TrxID: $transactionId)।"
         val data = JSONObject().apply {
+            put("notification_type", "ADMIN_COURSE_PAYMENT_SUBMITTED")
             put("event_type", "COURSE_PAYMENT_SUBMITTED")
             put("type", "COURSE_PAYMENT_SUBMITTED")
             put("student_name", cleanName)
@@ -520,6 +541,7 @@ object OneSignalPushManager {
         val title = "🎁 স্টুডেন্ট ফ্রি ট্রায়াল শুরু করেছে!"
         val message = "$cleanName ($studentPhone) '$programTitle' কোর্সে $durationLabelBn ফ্রি ট্রায়াল চালু করেছেন।"
         val data = JSONObject().apply {
+            put("notification_type", "ADMIN_FREE_TRIAL_STARTED")
             put("event_type", "FREE_TRIAL_STARTED")
             put("type", "FREE_TRIAL_STARTED")
             put("student_name", cleanName)
@@ -544,34 +566,36 @@ object OneSignalPushManager {
                 val appId = getOneSignalAppId(appContext)
                 val restKey = getOneSignalRestApiKey(appContext)
 
-                // 1. First invoke Supabase RPC `notify_admin_via_onesignal` (server-side push via pg_net if configured)
+                // 1. Direct OneSignal REST API call when ONESIGNAL_APP_ID & ONESIGNAL_REST_API_KEY are available
+                //    Otherwise fallback to Supabase RPC `notify_admin_via_onesignal`
+                //    Signature: notify_admin_via_onesignal(p_title, p_message, p_event_type, p_extra_data)
                 var sentViaRpc = false
-                try {
-                    val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
-                    if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
-                        val rpcPayload = JSONObject().apply {
-                            put("p_title", title)
-                            put("p_message", message)
-                            put("p_event_type", data.optString("type", "ADMIN_ALERT"))
-                            put("p_extra_data", data)
-                        }
-                        val rpcReq = Request.Builder()
-                            .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/notify_admin_via_onesignal")
-                            .addHeader("apikey", anonKey)
-                            .addHeader("Authorization", "Bearer $anonKey")
-                            .addHeader("Content-Type", "application/json")
-                            .post(rpcPayload.toString().toRequestBody("application/json".toMediaType()))
-                            .build()
-                        httpClient.newCall(rpcReq).execute().use { resp ->
-                            if (resp.isSuccessful) {
-                                val respStr = resp.body?.string() ?: ""
-                                if (respStr.contains("\"ok\":true") || respStr.contains("\"sent\":true") || respStr.contains("\"success\":true")) {
+                if (appId.isBlank() || restKey.isBlank()) {
+                    try {
+                        val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
+                        if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
+                            val eventType = data.optString("event_type", "ADMIN_ALERT").ifBlank { "ADMIN_ALERT" }
+                            val rpcPayload = JSONObject().apply {
+                                put("p_title", title)
+                                put("p_message", message)
+                                put("p_event_type", eventType)
+                                put("p_extra_data", data)
+                            }
+                            val rpcReq = Request.Builder()
+                                .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/notify_admin_via_onesignal")
+                                .addHeader("apikey", anonKey)
+                                .addHeader("Authorization", "Bearer $anonKey")
+                                .addHeader("Content-Type", "application/json")
+                                .post(rpcPayload.toString().toRequestBody("application/json".toMediaType()))
+                                .build()
+                            httpClient.newCall(rpcReq).execute().use { resp ->
+                                if (resp.isSuccessful) {
                                     sentViaRpc = true
                                 }
                             }
                         }
-                    }
-                } catch (_: Throwable) {}
+                    } catch (_: Throwable) {}
+                }
 
                 // 2. Direct OneSignal REST API call if ONESIGNAL_APP_ID & ONESIGNAL_REST_API_KEY are in BuildConfig / Cache
                 if (!sentViaRpc && appId.isNotBlank() && restKey.isNotBlank()) {

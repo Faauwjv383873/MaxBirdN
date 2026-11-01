@@ -315,6 +315,9 @@ class AuthViewModel(
                         )
                     }
                     sessionManager.saveUserPhone(phone)
+                    runCatching {
+                        com.example.notification.OneSignalPushManager.triggerSyncAsync(sessionManager.appContext)
+                    }
 
                     if (isSignup) {
                         sessionManager.setJustSignedUp(true)
@@ -429,6 +432,9 @@ class AuthViewModel(
                         userId = tokens.user_id
                     )
                     sessionManager.saveUserPhone(phone)
+                    runCatching {
+                        com.example.notification.OneSignalPushManager.triggerSyncAsync(sessionManager.appContext)
+                    }
 
                     _authState.value = AuthState.LoginSuccess
                     try {
@@ -498,6 +504,12 @@ class AuthViewModel(
                         group = profile.study_group ?: "Humanities",
                         vendor = "BD"
                     )
+                    runCatching {
+                        com.example.notification.OneSignalPushManager.triggerSyncAsync(
+                            context = sessionManager.appContext,
+                            studentNameOverride = fullName.ifBlank { first }
+                        )
+                    }
 
                     _authState.value = AuthState.ProfileLoaded(profile)
                 } else {

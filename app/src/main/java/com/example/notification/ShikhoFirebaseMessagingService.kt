@@ -64,15 +64,17 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         val eventType = (
-            data["event_type"]
+            data["notification_type"]
+                ?: data["event_type"]
                 ?: data["type"]
                 ?: data["content_type"]
-                ?: oneSignalAdditionalData?.optString("event_type", "")
-                ?: oneSignalAdditionalData?.optString("type", "")
+                ?: oneSignalAdditionalData?.optString("notification_type", "")?.takeIf { it.isNotBlank() }
+                ?: oneSignalAdditionalData?.optString("event_type", "")?.takeIf { it.isNotBlank() }
+                ?: oneSignalAdditionalData?.optString("type", "")?.takeIf { it.isNotBlank() }
                 ?: ""
         ).trim()
 
-        // Critical Admin -> Student notifications (Device Approved/Rejected, Course Approved, Payment Verified)
+        // Critical Admin -> Student notifications (Device Approved/Blocked/Unblocked, Course Approved, Payment Verified)
         // must ALWAYS be shown even if general marketing notifications are toggled off.
         val isCriticalAdminUpdate = eventType.contains("DEVICE", ignoreCase = true) ||
             eventType.contains("COURSE", ignoreCase = true) ||
@@ -81,6 +83,8 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
             eventType.contains("INSTALLMENT", ignoreCase = true) ||
             eventType.contains("APPROV", ignoreCase = true) ||
             eventType.contains("REJECT", ignoreCase = true) ||
+            eventType.contains("BLOCK", ignoreCase = true) ||
+            eventType.contains("UNBLOCK", ignoreCase = true) ||
             data.containsKey("alert") ||
             data.containsKey("custom")
 

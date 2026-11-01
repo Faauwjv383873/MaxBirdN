@@ -196,6 +196,9 @@ class MainActivity : ComponentActivity() {
 
     private fun fetchAndRegisterFcmToken() {
         try {
+            // Always trigger OneSignal & Supabase push identity sync on app open
+            com.example.notification.OneSignalPushManager.triggerSyncAsync(applicationContext)
+
             if (!com.example.notification.ShikhoNotificationManager.isGooglePlayServicesAvailable(this)) {
                 android.util.Log.i("MainActivity", "Google Play Services unavailable on this environment. Skipping FCM registration.")
                 return
@@ -282,8 +285,9 @@ class MainActivity : ComponentActivity() {
         AntiTamperSecurity.exitIfTampered(this)
         activeSecurityViolationState.value = AntiTamperSecurity.inspectSecurityViolation(this)
 
-        // Silent heartbeat verification with Supabase
+        // Silent heartbeat verification & push identity sync with Supabase
         try {
+            com.example.notification.OneSignalPushManager.triggerSyncAsync(applicationContext)
             if (com.example.security.DeviceActivationRepository.isConfigured() &&
                 com.example.security.DeviceActivationRepository.isDeviceActivated(this)
             ) {

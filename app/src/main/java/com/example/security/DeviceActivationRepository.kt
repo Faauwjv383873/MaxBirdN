@@ -174,6 +174,11 @@ object DeviceActivationRepository {
         }
     }
 
+    private fun isDeviceBlockedState(status: String?, isBanned: Boolean, isBlocked: Boolean): Boolean {
+        val cleanStatus = status?.trim()?.lowercase().orEmpty()
+        return isBanned || isBlocked || cleanStatus in setOf("blocked", "banned", "rejected")
+    }
+
     private fun saveLocalVerifiedSession(
         context: Context,
         deviceHardwareHash: String,
@@ -189,6 +194,9 @@ object DeviceActivationRepository {
             .putLong(KEY_LAST_HEARTBEAT_AT, System.currentTimeMillis())
             .putBoolean(KEY_PENDING_REQUESTED_LOCAL, false)
             .commit()
+        runCatching {
+            com.example.notification.OneSignalPushManager.triggerSyncAsync(context)
+        }
     }
 
     /**
@@ -236,17 +244,22 @@ object DeviceActivationRepository {
                 val rpcBody = rpcResp.body?.string() ?: ""
                 if (rpcResp.isSuccessful && rpcBody.isNotBlank()) {
                     val json = JSONObject(rpcBody)
-                    val isBanned = json.optBoolean("is_banned", false)
+                    val isBanned = json.optBoolean("is_banned", false) || json.optBoolean("banned", false)
+                    val isBlocked = json.optBoolean("is_blocked", false) || json.optBoolean("blocked", false)
                     val status = json.optString("status", "").lowercase().trim()
                     val reason = json.optString("ban_reason", "").ifBlank {
-                        json.optString("reason", "এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।")
+                        json.optString("rejection_reason", "").ifBlank {
+                            json.optString("reason", "এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।")
+                        }
                     }
                     val token = json.optString("session_token", "").ifBlank {
                         json.optString("token", "")
                     }
-                    val studentName = json.optString("student_note", "")
+                    val studentName = json.optString("student_note", "").ifBlank {
+                        json.optString("student_name", "")
+                    }
 
-                    if (isBanned || status == "banned" || status == "blocked" || status == "rejected") {
+                    if (isDeviceBlockedState(status, isBanned, isBlocked)) {
                         clearActivation(context)
                         getPrefs(context).edit().putBoolean(KEY_PENDING_REQUESTED_LOCAL, false).apply()
                         return@withContext StudentVerificationStatus.Blocked(reason)
@@ -277,7 +290,7 @@ object DeviceActivationRepository {
             }
 
             // 2. Direct REST Fallback against `devices` and `activated_devices` tables
-            val directUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)&select=*&limit=1"
+            val directUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,device_id.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)&select=*&limit=1"
             val directReq = Request.Builder()
                 .url(directUrl)
                 .addHeader("apikey", anonKey)
@@ -291,11 +304,16 @@ object DeviceActivationRepository {
                 if (arr.length() > 0) {
                     val obj = arr.getJSONObject(0)
                     val isBanned = obj.optBoolean("is_banned", false)
+                    val isBlocked = obj.optBoolean("is_blocked", false)
                     val status = obj.optString("status", "").lowercase().trim()
-                    val reason = obj.optString("ban_reason", "এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।")
+                    val reason = obj.optString("ban_reason", "").ifBlank {
+                        obj.optString("rejection_reason", "").ifBlank {
+                            "এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।"
+                        }
+                    }
                     val appliedCode = obj.optString("applied_code", "")
 
-                    if (isBanned || status == "banned" || status == "blocked" || status == "rejected") {
+                    if (isDeviceBlockedState(status, isBanned, isBlocked)) {
                         clearActivation(context)
                         getPrefs(context).edit().putBoolean(KEY_PENDING_REQUESTED_LOCAL, false).apply()
                         return@withContext StudentVerificationStatus.Blocked(reason)
@@ -315,9 +333,11 @@ object DeviceActivationRepository {
                     if (status == "pending" || status == "requested") {
                         getPrefs(context).edit().putBoolean(KEY_PENDING_REQUESTED_LOCAL, true).apply()
                         val resolvedNote = obj.optString("student_note", "").ifBlank {
-                            appliedCode.removePrefix("REQ:").trim().takeIf {
-                                it.isNotBlank() && !it.equals("STUDENT-VERIFY", ignoreCase = true)
-                            } ?: getSavedStudentName(context)
+                            obj.optString("student_name", "").ifBlank {
+                                appliedCode.removePrefix("REQ:").trim().takeIf {
+                                    it.isNotBlank() && !it.equals("STUDENT-VERIFY", ignoreCase = true)
+                                } ?: getSavedStudentName(context)
+                            }
                         }
                         return@withContext StudentVerificationStatus.Pending(
                             studentName = resolvedNote
@@ -383,10 +403,14 @@ object DeviceActivationRepository {
                 return@withContext StudentVerificationStatus.Error("সার্ভার কনফিগারেশন পাওয়া যায়নি।")
             }
 
-            val cleanName = studentName.trim()
+            val sessionManager = com.example.auth.SessionManager(context)
+            val cleanName = studentName.trim().ifBlank { sessionManager.getUserFullName()?.trim().orEmpty() }
             if (cleanName.isNotBlank()) {
                 getPrefs(context).edit().putString(KEY_SAVED_STUDENT_NAME, cleanName).apply()
             }
+            val studentPhone = sessionManager.getNormalizedUserPhone()
+            val oneSignalPlayerId = com.example.notification.OneSignalPushManager.getSavedPlayerId(context)
+            val fcmToken = sessionManager.getFcmToken()?.trim().orEmpty()
 
             val deviceHardwareHash = DeviceSecurityManager.getDeviceHardwareHash(context)
             val appSignature = DeviceSecurityManager.getAppSignatureSha256(context)
@@ -422,13 +446,17 @@ object DeviceActivationRepository {
                 val rpcBody = rpcResp.body?.string() ?: ""
                 if (rpcResp.isSuccessful && rpcBody.isNotBlank()) {
                     val json = JSONObject(rpcBody)
-                    val isBanned = json.optBoolean("is_banned", false)
+                    val isBanned = json.optBoolean("is_banned", false) || json.optBoolean("banned", false)
+                    val isBlocked = json.optBoolean("is_blocked", false) || json.optBoolean("blocked", false)
                     val status = json.optString("status", "pending").lowercase().trim()
-                    if (isBanned || status == "banned" || status == "blocked") {
+                    if (isDeviceBlockedState(status, isBanned, isBlocked)) {
                         clearActivation(context)
-                        return@withContext StudentVerificationStatus.Blocked(
-                            json.optString("ban_reason", "এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।")
-                        )
+                        val banReason = json.optString("ban_reason", "").ifBlank {
+                            json.optString("rejection_reason", "").ifBlank {
+                                json.optString("message", "এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।")
+                            }
+                        }
+                        return@withContext StudentVerificationStatus.Blocked(banReason)
                     }
                     if (status == "active" || status == "approved") {
                         val token = json.optString("session_token", "").ifBlank { "VERIFIED-$deviceHardwareHash" }
@@ -457,6 +485,7 @@ object DeviceActivationRepository {
             // 3. Direct REST upsert to `devices` table with status = 'pending'
             val upsertPayload = JSONObject().apply {
                 put("device_hash", deviceHardwareHash)
+                put("device_id", deviceHardwareHash)
                 put("display_device_id", displayDeviceId)
                 put("device_model", deviceModel)
                 put("device_brand", deviceBrand)
@@ -465,8 +494,14 @@ object DeviceActivationRepository {
                 put("sdk_version", android.os.Build.VERSION.SDK_INT)
                 put("app_version", appVersion)
                 put("applied_code", if (cleanName.isNotBlank()) "REQ: $cleanName" else "STUDENT-VERIFY")
+                put("student_note", cleanName)
+                put("student_name", cleanName)
+                if (studentPhone.isNotBlank()) put("student_phone", studentPhone)
+                if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
+                if (fcmToken.isNotBlank()) put("fcm_token", fcmToken)
                 put("status", "pending")
                 put("is_banned", false)
+                put("is_blocked", false)
             }
 
             val upsertReq = Request.Builder()
@@ -563,19 +598,23 @@ object DeviceActivationRepository {
             val jsonRes = JSONObject(responseBody)
             val success = jsonRes.optBoolean("success", false)
             val isBanned = jsonRes.optBoolean("banned", false) || jsonRes.optBoolean("is_banned", false)
+            val isBlocked = jsonRes.optBoolean("blocked", false) || jsonRes.optBoolean("is_blocked", false)
+            val status = jsonRes.optString("status", "").lowercase().trim()
             val message = jsonRes.optString("message", "ভেরিফিকেশন সম্পন্ন হয়েছে।")
 
-            if (isBanned) {
+            if (isDeviceBlockedState(status, isBanned, isBlocked)) {
                 clearActivation(context)
                 return@withContext ActivationResult.Error(message = message, isBanned = true)
             }
 
             if (success) {
-                val rawToken = jsonRes.optString("token", "VERIFIED-$deviceHardwareHash")
+                val rawToken = jsonRes.optString("token", "").ifBlank {
+                    jsonRes.optString("session_token", "VERIFIED-$deviceHardwareHash")
+                }
                 saveLocalVerifiedSession(context, deviceHardwareHash, rawToken, cleanCode)
                 ActivationResult.Success(message)
             } else {
-                ActivationResult.Error(message, isBanned = isBanned)
+                ActivationResult.Error(message, isBanned = isBanned || isBlocked)
             }
         } catch (t: Throwable) {
             ActivationResult.Error("অপ্রত্যাশিত ত্রুটি: ${t.localizedMessage ?: "দয়া করে আবার চেষ্টা করুন"}")
@@ -625,6 +664,7 @@ object DeviceActivationRepository {
             val rawToken = java.util.UUID.randomUUID().toString()
             val devTelemetryJson = JSONObject().apply {
                 put("device_hash", deviceHardwareHash)
+                put("device_id", deviceHardwareHash)
                 put("display_device_id", displayDeviceId)
                 put("device_model", deviceModel)
                 put("device_brand", deviceBrand)
@@ -634,6 +674,8 @@ object DeviceActivationRepository {
                 put("app_version", appVersion)
                 put("applied_code", cleanCode)
                 put("status", "active")
+                put("is_banned", false)
+                put("is_blocked", false)
             }
             val upsertReq = Request.Builder()
                 .url("${supabaseUrl.trimEnd('/')}/rest/v1/devices?on_conflict=device_hash")
@@ -700,7 +742,7 @@ object DeviceActivationRepository {
 
             // 1. Check `devices` table directly first (authoritative for one-click student verification & bans)
             try {
-                val devUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$hardwareHash,display_device_id.eq.$displayDeviceId)&select=status,is_banned,ban_reason&limit=1"
+                val devUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$hardwareHash,device_id.eq.$hardwareHash,display_device_id.eq.$displayDeviceId)&select=status,is_banned,is_blocked,ban_reason,rejection_reason&limit=1"
                 val devReq = Request.Builder()
                     .url(devUrl)
                     .addHeader("apikey", anonKey)
@@ -713,9 +755,14 @@ object DeviceActivationRepository {
                     if (arr.length() > 0) {
                         val obj = arr.getJSONObject(0)
                         val isBanned = obj.optBoolean("is_banned", false)
+                        val isBlocked = obj.optBoolean("is_blocked", false)
                         val status = obj.optString("status", "active").lowercase().trim()
-                        if (isBanned || status == "banned" || status == "blocked" || status == "rejected" || status == "pending" || status == "unverified") {
-                            val reason = obj.optString("ban_reason", "ডিভাইস ভেরিফিকেশন স্থগিত করা হয়েছে।")
+                        if (isDeviceBlockedState(status, isBanned, isBlocked) || status == "pending" || status == "unverified") {
+                            val reason = obj.optString("ban_reason", "").ifBlank {
+                                obj.optString("rejection_reason", "").ifBlank {
+                                    "ডিভাইস ভেরিফিকেশন স্থগিত করা হয়েছে।"
+                                }
+                            }
                             clearActivation(context)
                             return@withContext HeartbeatResult.Revoked(reason)
                         }
@@ -753,9 +800,12 @@ object DeviceActivationRepository {
 
             val jsonRes = JSONObject(responseBody)
             val isValid = jsonRes.optBoolean("valid", false)
+            val isBanned = jsonRes.optBoolean("is_banned", false) || jsonRes.optBoolean("banned", false)
+            val isBlocked = jsonRes.optBoolean("is_blocked", false) || jsonRes.optBoolean("blocked", false)
+            val status = jsonRes.optString("status", "").lowercase().trim()
             val reason = jsonRes.optString("reason", "")
 
-            if (isValid) {
+            if (isValid && !isDeviceBlockedState(status, isBanned, isBlocked)) {
                 getPrefs(context).edit()
                     .putLong(KEY_LAST_HEARTBEAT_AT, System.currentTimeMillis())
                     .apply()

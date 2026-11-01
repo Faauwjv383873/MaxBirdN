@@ -461,15 +461,18 @@ object CourseCommerceRepository {
         val progId = obj.optString("program_id", "").trim()
         if (progId.isBlank()) return null
 
-        val rawStatus = obj.optString("status", "REQUESTED").trim().uppercase()
-        val totalPrice = obj.optDouble("total_price", 0.0).let { if (it.isNaN()) 0.0 else it }
+        val rawStatus = obj.optString("status", "")
+            .ifBlank { obj.optString("access_status", "REQUESTED") }
+            .trim()
+            .uppercase()
+        val totalPrice = obj.optDouble("total_price", obj.optDouble("total_fee", 0.0)).let { if (it.isNaN()) 0.0 else it }
         val paidAmount = obj.optDouble("paid_amount", 0.0).let { if (it.isNaN()) 0.0 else it }
         val dueAmount = obj.optDouble("due_amount", (totalPrice - paidAmount).coerceAtLeast(0.0)).let { if (it.isNaN()) 0.0 else it }
+        val rawPlansAny = obj.opt("installment_plans_json") ?: obj.opt("installment_plans")
         val hasMultiPlanInJson = runCatching {
-            val raw = obj.opt("installment_plans_json")
-            val arr = when (raw) {
-                is JSONArray -> raw
-                is String -> if (raw.trim().startsWith("[")) JSONArray(raw.trim()) else null
+            val arr = when (rawPlansAny) {
+                is JSONArray -> rawPlansAny
+                is String -> if (rawPlansAny.trim().startsWith("[")) JSONArray(rawPlansAny.trim()) else null
                 else -> null
             }
             var foundMulti = false
@@ -491,35 +494,43 @@ object CourseCommerceRepository {
             obj.has("installment_enabled") && !obj.optBoolean("installment_enabled", false) && !obj.optBoolean("allow_installments", false) -> false
             else -> obj.optBoolean("allow_installments", true)
         }
-        val nextDueIso = obj.optString("next_due_date", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
+        val nextDueIso = (
+            obj.optString("next_due_date", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
+                ?: obj.optString("next_installment_due_at", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
+        )
         val nextDueMillis = parseIsoTimestampMillis(nextDueIso)
 
         // Parse Free Trial fields configured by Admin App
-        val rawTrialDays = obj.optInt("trial_days", obj.optInt("free_trial_days", 0)).coerceAtLeast(0)
+        val rawTrialDays = obj.optInt(
+            "trial_days",
+            obj.optInt("trial_days_granted", obj.optInt("free_trial_days", 0))
+        ).coerceAtLeast(0)
         val rawTrialHours = obj.optInt("trial_hours", obj.optInt("free_trial_hours", 0)).coerceAtLeast(0)
         val trialStartedIso = obj.optString("trial_started_at", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
         val trialEndsIso = (
             obj.optString("trial_ends_at", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
+                ?: obj.optString("trial_expires_at", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
                 ?: obj.optString("trial_end_date", "").takeIf { it.isNotBlank() && !it.equals("null", true) }
         )
         val trialEndsMillis = parseIsoTimestampMillis(trialEndsIso)
         val trialEnabled = when {
-            obj.has("trial_enabled") -> obj.optBoolean("trial_enabled", false)
-            obj.has("allow_free_trial") -> obj.optBoolean("allow_free_trial", false)
+            obj.has("trial_enabled") && obj.optBoolean("trial_enabled", false) -> true
+            obj.has("allow_free_trial") && obj.optBoolean("allow_free_trial", false) -> true
             rawStatus == "TRIAL_ACTIVE" -> true
             trialEndsMillis != null && System.currentTimeMillis() < trialEndsMillis -> true
             rawTrialDays > 0 || rawTrialHours > 0 -> true
-            else -> false
+            else -> obj.optBoolean("trial_enabled", obj.optBoolean("allow_free_trial", false))
         }
         val effectiveTrialDays = if (trialEnabled && rawTrialDays == 0 && rawTrialHours == 0) 1 else rawTrialDays
         val isTrialUsed = obj.optBoolean("is_trial_used", false) ||
+            obj.optBoolean("trial_used", false) ||
             trialStartedIso != null ||
             rawStatus == "TRIAL_EXPIRED" ||
             (trialEndsMillis != null && System.currentTimeMillis() >= trialEndsMillis)
 
         val mappedState = when (rawStatus) {
-            "REQUESTED" -> CourseAccessState.ACCESS_REQUESTED
-            "APPROVED_TO_BUY", "TRIAL_EXPIRED" -> CourseAccessState.APPROVED_TO_BUY
+            "REQUESTED", "ACCESS_REQUESTED", "PENDING_APPROVAL" -> CourseAccessState.ACCESS_REQUESTED
+            "APPROVED_TO_BUY", "APPROVED_UNPAID", "TRIAL_EXPIRED" -> CourseAccessState.APPROVED_TO_BUY
             "TRIAL_ACTIVE" -> {
                 if (trialEndsMillis != null && System.currentTimeMillis() < trialEndsMillis) {
                     CourseAccessState.ACTIVE
@@ -527,7 +538,7 @@ object CourseCommerceRepository {
                     CourseAccessState.APPROVED_TO_BUY
                 }
             }
-            "PAYMENT_PENDING" -> CourseAccessState.PAYMENT_PENDING
+            "PAYMENT_PENDING", "PENDING_VERIFICATION" -> CourseAccessState.PAYMENT_PENDING
             "PAYMENT_REJECTED", "REJECTED" -> CourseAccessState.PAYMENT_REJECTED
             "ACTIVE" -> {
                 if (paidAmount <= 0.0 && trialEndsMillis != null && System.currentTimeMillis() >= trialEndsMillis) {
@@ -538,14 +549,14 @@ object CourseCommerceRepository {
                     CourseAccessState.ACTIVE
                 }
             }
-            "OVERDUE" -> CourseAccessState.INSTALLMENT_OVERDUE
-            "REVOKED" -> CourseAccessState.LOCKED_BLURRED
+            "OVERDUE", "INSTALLMENT_OVERDUE" -> CourseAccessState.INSTALLMENT_OVERDUE
+            "REVOKED", "BLOCKED", "LOCKED_BLURRED" -> CourseAccessState.LOCKED_BLURRED
             else -> CourseAccessState.LOCKED_BLURRED
         }
 
-        val plans = parseInstallmentPlans(obj.opt("installment_plans_json"), totalPrice, allowInst)
+        val plans = parseInstallmentPlans(rawPlansAny, totalPrice, allowInst)
         val totalInst = obj.optInt("total_installments", 1).coerceAtLeast(1)
-        val completedInst = obj.optInt("completed_installments", 0).coerceAtLeast(0)
+        val completedInst = obj.optInt("completed_installments", obj.optInt("paid_installments", 0)).coerceAtLeast(0)
         val intervalDays = obj.optInt("installment_interval_days", 7).coerceAtLeast(1)
         val remainingInst = (totalInst - completedInst).coerceAtLeast(1)
         val nextInstAmt = obj.optDouble("next_installment_amount", 0.0).let {
@@ -831,10 +842,12 @@ object CourseCommerceRepository {
         val rowStudentPhone = SessionManager.normalizePhone(item.optString("student_phone", ""))
         val rowUserPhone = SessionManager.normalizePhone(item.optString("user_phone", ""))
         val rowAccountKeyRaw = item.optString("shikho_account_key", "").trim()
+        val rowStudentKeyRaw = item.optString("student_key", "").trim()
         val rowUserIdRaw = item.optString("shikho_user_id", "").trim()
         val rowDeviceIdRaw = item.optString("device_id", "").trim()
 
         val rowAccountPhone = SessionManager.normalizePhone(rowAccountKeyRaw)
+        val rowStudentKeyPhone = SessionManager.normalizePhone(rowStudentKeyRaw)
         val rowUserIdPhone = SessionManager.normalizePhone(rowUserIdRaw)
         val rowDevicePhone = SessionManager.normalizePhone(rowDeviceIdRaw)
 
@@ -843,6 +856,7 @@ object CourseCommerceRepository {
             if (rowStudentPhone == account.normPhone ||
                 rowUserPhone == account.normPhone ||
                 rowAccountPhone == account.normPhone ||
+                rowStudentKeyPhone == account.normPhone ||
                 rowUserIdPhone == account.normPhone ||
                 rowDevicePhone == account.normPhone
             ) {
@@ -856,7 +870,8 @@ object CourseCommerceRepository {
                 (rowUserPhone.isNotBlank() && account.normPhone.isNotBlank() && rowUserPhone != account.normPhone)
             if (!rowHasDifferentPhone) {
                 if (rowUserIdRaw.equals(account.userId, ignoreCase = true) ||
-                    rowAccountKeyRaw.equals(account.userId, ignoreCase = true)
+                    rowAccountKeyRaw.equals(account.userId, ignoreCase = true) ||
+                    rowStudentKeyRaw.equals(account.userId, ignoreCase = true)
                 ) {
                     return true
                 }
@@ -1000,9 +1015,76 @@ object CourseCommerceRepository {
             val seenEnrollmentIds = mutableSetOf<String>()
             val seenTxIds = mutableSetOf<String>()
 
-            // 1. Direct REST Query on `course_access_enrollments` & `course_payment_transactions`
-            // Matches strictly by student's phone number (`01XXXXXXXXX`) and `shikho_user_id` across ALL devices!
+            val deviceHardwareHash = DeviceSecurityManager.getDeviceHardwareHash(context)
+            val displayDeviceId = DeviceSecurityManager.getDisplayDeviceId(context)
             var restFetchSucceeded = false
+
+            // 1. Call exact Supabase RPC `get_student_course_commerce_status(p_device_id, p_shikho_account_key)` first
+            //    This RPC also auto-evaluates expired trials and overdue installments on the server!
+            val rpcUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/rpc/get_student_course_commerce_status"
+            val candidateRpcBodies = listOf(
+                JSONObject().apply {
+                    put("p_device_id", deviceHardwareHash)
+                    put("p_shikho_account_key", account.accountKey)
+                },
+                JSONObject().apply {
+                    put("p_device_id", account.accountKey)
+                    put("p_shikho_account_key", account.accountKey)
+                }
+            )
+
+            for (rpcBody in candidateRpcBodies) {
+                try {
+                    val req = Request.Builder()
+                        .url(rpcUrl)
+                        .addHeader("apikey", anonKey)
+                        .addHeader("Authorization", "Bearer $anonKey")
+                        .addHeader("Content-Type", "application/json")
+                        .post(rpcBody.toString().toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    val resp = httpClient.newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        val bodyStr = resp.body?.string() ?: ""
+                        if (bodyStr.trim().startsWith("{")) {
+                            val json = JSONObject(bodyStr)
+                            if (!rootJson.has("payment_settings") && json.optJSONObject("payment_settings") != null) {
+                                rootJson.put("payment_settings", json.optJSONObject("payment_settings"))
+                            }
+                            val enrArr = json.optJSONArray("enrollments")
+                            if (enrArr != null) {
+                                restFetchSucceeded = true
+                                for (i in 0 until enrArr.length()) {
+                                    val item = enrArr.optJSONObject(i) ?: continue
+                                    if (doesRowBelongToStudent(item, account)) {
+                                        val rowId = item.optString("id", "").trim()
+                                        if (rowId.isBlank() || seenEnrollmentIds.add(rowId)) {
+                                            matchedEnrollments.put(item)
+                                        }
+                                    }
+                                }
+                            }
+                            val txArr = json.optJSONArray("transactions")
+                            if (txArr != null) {
+                                for (i in 0 until txArr.length()) {
+                                    val txItem = txArr.optJSONObject(i) ?: continue
+                                    val enrId = txItem.optString("enrollment_id", "").trim()
+                                    if (doesRowBelongToStudent(txItem, account) || (enrId.isNotBlank() && enrId in seenEnrollmentIds)) {
+                                        val txRowId = txItem.optString("id", "").trim()
+                                        if (txRowId.isBlank() || seenTxIds.add(txRowId)) {
+                                            matchedTransactions.put(txItem)
+                                        }
+                                    }
+                                }
+                            }
+                            if (matchedEnrollments.length() > 0) break
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            // 2. Direct REST Query on `course_access_enrollments` & `course_payment_transactions`
+            // Matches strictly by student's phone number (`01XXXXXXXXX`) and `shikho_user_id` across ALL devices!
             try {
                 val enrUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?select=*&order=updated_at.desc"
                 val enrReq = Request.Builder()
@@ -1021,22 +1103,22 @@ object CourseCommerceRepository {
                             val rowId = item.optString("id", "").trim()
                             if (rowId.isBlank() || seenEnrollmentIds.add(rowId)) {
                                 matchedEnrollments.put(item)
-                                // Auto-heal legacy rows that had a hardware device_id or missing normalized phone
+                                // Auto-heal legacy rows while preserving real hardware `device_hash` for OneSignal triggers
                                 val rowPhone = item.optString("student_phone", "").trim()
                                 val rowAcctKey = item.optString("shikho_account_key", "").trim()
-                                val rowDevId = item.optString("device_id", "").trim()
+                                val rowDevHash = item.optString("device_hash", "").trim()
                                 if (rowId.isNotBlank() && account.normPhone.isNotBlank() &&
-                                    (rowPhone != account.normPhone || rowAcctKey != account.accountKey || rowDevId != account.accountKey)
+                                    (rowPhone != account.normPhone || rowAcctKey != account.accountKey || rowDevHash != deviceHardwareHash)
                                 ) {
                                     runCatching {
                                         val healJson = JSONObject().apply {
                                             put("student_phone", account.normPhone)
                                             put("user_phone", account.normPhone)
                                             put("shikho_account_key", account.accountKey)
+                                            put("student_key", account.accountKey)
                                             put("shikho_user_id", account.userId.ifBlank { account.accountKey })
-                                            put("device_id", account.accountKey)
-                                            put("device_hash", account.accountKey)
-                                            put("display_device_id", account.accountKey)
+                                            put("device_hash", deviceHardwareHash)
+                                            put("display_device_id", displayDeviceId)
                                         }
                                         val healReq = Request.Builder()
                                             .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?id=eq.$rowId")
@@ -1077,74 +1159,6 @@ object CourseCommerceRepository {
                     }
                 }
             } catch (_: Throwable) {}
-
-            // 2. Also query RPC `get_student_course_commerce_status` using the student's phone number / account key
-            val rpcUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/rpc/get_student_course_commerce_status"
-            val candidateRpcBodies = listOf(
-                JSONObject().apply {
-                    put("p_user_phone", account.normPhone)
-                    put("p_shikho_account_key", account.accountKey)
-                    put("p_shikho_user_id", account.userId.ifBlank { account.accountKey })
-                    put("p_device_id", account.accountKey)
-                },
-                JSONObject().apply {
-                    put("p_device_id", account.accountKey)
-                    put("p_shikho_account_key", account.accountKey)
-                },
-                JSONObject().apply {
-                    put("p_device_hash", account.accountKey)
-                    put("p_display_device_id", account.accountKey)
-                    put("p_shikho_user_id", account.userId.ifBlank { account.accountKey })
-                    put("p_user_phone", account.normPhone)
-                }
-            )
-
-            for (rpcBody in candidateRpcBodies) {
-                try {
-                    val req = Request.Builder()
-                        .url(rpcUrl)
-                        .addHeader("apikey", anonKey)
-                        .addHeader("Authorization", "Bearer $anonKey")
-                        .addHeader("Content-Type", "application/json")
-                        .post(rpcBody.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
-
-                    val resp = httpClient.newCall(req).execute()
-                    if (resp.isSuccessful) {
-                        val bodyStr = resp.body?.string() ?: ""
-                        if (bodyStr.trim().startsWith("{")) {
-                            val json = JSONObject(bodyStr)
-                            val enrArr = json.optJSONArray("enrollments")
-                            if (enrArr != null) {
-                                restFetchSucceeded = true
-                                for (i in 0 until enrArr.length()) {
-                                    val item = enrArr.optJSONObject(i) ?: continue
-                                    if (doesRowBelongToStudent(item, account)) {
-                                        val rowId = item.optString("id", "").trim()
-                                        if (rowId.isBlank() || seenEnrollmentIds.add(rowId)) {
-                                            matchedEnrollments.put(item)
-                                        }
-                                    }
-                                }
-                            }
-                            val txArr = json.optJSONArray("transactions")
-                            if (txArr != null) {
-                                for (i in 0 until txArr.length()) {
-                                    val txItem = txArr.optJSONObject(i) ?: continue
-                                    val enrId = txItem.optString("enrollment_id", "").trim()
-                                    if (doesRowBelongToStudent(txItem, account) || (enrId.isNotBlank() && enrId in seenEnrollmentIds)) {
-                                        val txRowId = txItem.optString("id", "").trim()
-                                        if (txRowId.isBlank() || seenTxIds.add(txRowId)) {
-                                            matchedTransactions.put(txItem)
-                                        }
-                                    }
-                                }
-                            }
-                            break
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
 
             if (restFetchSucceeded) {
                 rootJson.put("enrollments", matchedEnrollments)
@@ -1222,25 +1236,78 @@ object CourseCommerceRepository {
             val normPhone = account.normPhone.ifBlank { account.rawPhone }
             val userId = account.userId.ifBlank { accountKey }
             val studentName = account.studentName
+            val deviceHardwareHash = DeviceSecurityManager.getDeviceHardwareHash(context)
+            val displayDeviceId = DeviceSecurityManager.getDisplayDeviceId(context)
+            val oneSignalPlayerId = com.example.notification.OneSignalPushManager.getSavedPlayerId(context)
             val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }.format(Date())
 
-            // 0. Check if an enrollment row for this student + programId already exists in Supabase
+            // 1. Call exact Supabase RPC `request_course_purchase_access` first
+            // Signature: request_course_purchase_access(p_device_id, p_shikho_account_key, p_student_name, p_student_phone, p_student_class, p_student_group, p_program_id, p_program_title)
+            val rpcUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/rpc/request_course_purchase_access"
+            val rpcBody = JSONObject().apply {
+                put("p_device_id", deviceHardwareHash)
+                put("p_shikho_account_key", accountKey)
+                put("p_student_name", studentName)
+                put("p_student_phone", normPhone)
+                put("p_student_class", classCode ?: "")
+                put("p_student_group", groupCode ?: "")
+                put("p_program_id", programId)
+                put("p_program_title", programTitle)
+            }
+
+            try {
+                val req = Request.Builder()
+                    .url(rpcUrl)
+                    .addHeader("apikey", anonKey)
+                    .addHeader("Authorization", "Bearer $anonKey")
+                    .addHeader("Content-Type", "application/json")
+                    .post(rpcBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val resp = httpClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string() ?: ""
+                    if (bodyStr.trim().startsWith("{")) {
+                        val json = JSONObject(bodyStr)
+                        if (json.optBoolean("success", false) || json.optString("status", "").isNotBlank()) {
+                            val msg = json.optString(
+                                "message",
+                                "অ্যাডমিনের কাছে কোর্সে এক্সেস রিকোয়েস্ট পাঠানো হয়েছে! অ্যাডমিন দাম সেট করে এক্সেস দিলে এখানে দেখতে পাবেন।"
+                            )
+                            markOptimisticCourseRequested(context, programId, programTitle)
+                            fetchCourseCommerceStatus(context)
+                            com.example.notification.OneSignalPushManager.notifyAdminCourseAccessRequest(
+                                context = context,
+                                studentName = studentName,
+                                studentPhone = normPhone,
+                                programTitle = programTitle,
+                                programId = programId
+                            )
+                            return@withContext Result.success(msg)
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            // 2. Check if an enrollment row for this student + programId already exists in Supabase
             val existingRow = findExistingEnrollmentForStudent(supabaseUrl, anonKey, account, programId)
             if (existingRow != null) {
                 val existingId = existingRow.optString("id", "").trim()
                 val existingStatus = existingRow.optString("status", "").trim().uppercase()
                 if (existingId.isNotBlank()) {
                     val patchObj = JSONObject().apply {
-                        put("device_id", accountKey)
-                        put("device_hash", accountKey)
-                        put("display_device_id", accountKey)
+                        put("device_id", deviceHardwareHash)
+                        put("device_hash", deviceHardwareHash)
+                        put("display_device_id", displayDeviceId)
                         put("shikho_account_key", accountKey)
+                        put("student_key", accountKey)
                         put("shikho_user_id", userId)
                         put("student_name", studentName)
                         put("student_phone", normPhone)
                         put("user_phone", normPhone)
+                        if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                         put("student_class", classCode ?: "")
                         put("student_group", groupCode ?: "")
                         put("program_title", programTitle)
@@ -1248,8 +1315,9 @@ object CourseCommerceRepository {
                         put("group_code", groupCode ?: "")
                         put("batch_id", batchId ?: "")
                         put("banner_url", bannerUrl ?: "")
-                        if (existingStatus !in listOf("APPROVED_TO_BUY", "ACTIVE", "PAYMENT_PENDING", "OVERDUE")) {
+                        if (existingStatus !in listOf("APPROVED_TO_BUY", "APPROVED_UNPAID", "ACTIVE", "TRIAL_ACTIVE", "PAYMENT_PENDING", "OVERDUE", "INSTALLMENT_OVERDUE")) {
                             put("status", "REQUESTED")
+                            put("access_status", "REQUESTED")
                             put("rejection_reason", "")
                             put("requested_at", nowIso)
                         }
@@ -1280,80 +1348,18 @@ object CourseCommerceRepository {
                 }
             }
 
-            // 1. Try RPC `request_course_purchase_access` keyed by student phone / accountKey
-            val rpcUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/rpc/request_course_purchase_access"
-            val rpcPayloads = listOf(
-                JSONObject().apply {
-                    put("p_device_id", accountKey)
-                    put("p_shikho_account_key", accountKey)
-                    put("p_student_name", studentName)
-                    put("p_student_phone", normPhone)
-                    put("p_student_class", classCode ?: "")
-                    put("p_student_group", groupCode ?: "")
-                    put("p_program_id", programId)
-                    put("p_program_title", programTitle)
-                },
-                JSONObject().apply {
-                    put("p_device_hash", accountKey)
-                    put("p_display_device_id", accountKey)
-                    put("p_shikho_user_id", userId)
-                    put("p_user_phone", normPhone)
-                    put("p_student_name", studentName)
-                    put("p_program_id", programId)
-                    put("p_program_title", programTitle)
-                    put("p_class_code", classCode ?: "")
-                    put("p_group_code", groupCode ?: "")
-                    put("p_batch_id", batchId ?: "")
-                    put("p_banner_url", bannerUrl ?: "")
-                }
-            )
-
-            for (rpcBody in rpcPayloads) {
-                try {
-                    val req = Request.Builder()
-                        .url(rpcUrl)
-                        .addHeader("apikey", anonKey)
-                        .addHeader("Authorization", "Bearer $anonKey")
-                        .addHeader("Content-Type", "application/json")
-                        .post(rpcBody.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
-
-                    val resp = httpClient.newCall(req).execute()
-                    if (resp.isSuccessful) {
-                        val bodyStr = resp.body?.string() ?: ""
-                        if (bodyStr.trim().startsWith("{")) {
-                            val json = JSONObject(bodyStr)
-                            if (json.optBoolean("success", false) || json.optString("status", "").isNotBlank()) {
-                                val msg = json.optString(
-                                    "message",
-                                    "অ্যাডমিনের কাছে কোর্সে এক্সেস রিকোয়েস্ট পাঠানো হয়েছে! অ্যাডমিন দাম সেট করে এক্সেস দিলে এখানে দেখতে পাবেন।"
-                                )
-                                markOptimisticCourseRequested(context, programId, programTitle)
-                                fetchCourseCommerceStatus(context)
-                                com.example.notification.OneSignalPushManager.notifyAdminCourseAccessRequest(
-                                    context = context,
-                                    studentName = studentName,
-                                    studentPhone = normPhone,
-                                    programTitle = programTitle,
-                                    programId = programId
-                                )
-                                return@withContext Result.success(msg)
-                            }
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-
-            // 2. Direct REST Fallback into `course_access_enrollments` matching exact DB unique constraint `(device_id, shikho_account_key, program_id)`
+            // 3. Direct REST Fallback into `course_access_enrollments` matching exact DB unique constraint `(device_id, shikho_account_key, program_id)`
             val fullEnrollmentPayload = JSONObject().apply {
-                put("device_id", accountKey)
-                put("device_hash", accountKey)
-                put("display_device_id", accountKey)
+                put("device_id", deviceHardwareHash)
+                put("device_hash", deviceHardwareHash)
+                put("display_device_id", displayDeviceId)
                 put("shikho_account_key", accountKey)
+                put("student_key", accountKey)
                 put("shikho_user_id", userId)
                 put("student_name", studentName)
                 put("student_phone", normPhone)
                 put("user_phone", normPhone)
+                if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                 put("student_class", classCode ?: "")
                 put("student_group", groupCode ?: "")
                 put("program_id", programId)
@@ -1363,6 +1369,7 @@ object CourseCommerceRepository {
                 put("batch_id", batchId ?: "")
                 put("banner_url", bannerUrl ?: "")
                 put("status", "REQUESTED")
+                put("access_status", "REQUESTED")
                 put("requested_at", nowIso)
                 put("updated_at", nowIso)
             }
@@ -1488,6 +1495,9 @@ object CourseCommerceRepository {
             val normPhone = account.normPhone.ifBlank { account.rawPhone }
             val userId = account.userId.ifBlank { accountKey }
             val studentName = account.studentName
+            val deviceHardwareHash = DeviceSecurityManager.getDeviceHardwareHash(context)
+            val displayDeviceId = DeviceSecurityManager.getDisplayDeviceId(context)
+            val oneSignalPlayerId = com.example.notification.OneSignalPushManager.getSavedPlayerId(context)
 
             val existingItem = getCachedSnapshot(context).enrollmentsByProgramId[programId]
             var enrollmentId = existingItem?.enrollmentId?.takeIf { it.isNotBlank() }
@@ -1497,17 +1507,18 @@ object CourseCommerceRepository {
                     ?.takeIf { it.isNotBlank() }
             }
 
-            // Ensure the enrollment row is unified with the student's phone number / accountKey before RPC runs
+            // Ensure the enrollment row is unified with the student's phone number / accountKey and real hardware device_hash
             if (enrollmentId != null) {
                 runCatching {
                     val syncJson = JSONObject().apply {
-                        put("device_id", accountKey)
-                        put("device_hash", accountKey)
-                        put("display_device_id", accountKey)
+                        put("device_hash", deviceHardwareHash)
+                        put("display_device_id", displayDeviceId)
                         put("shikho_account_key", accountKey)
+                        put("student_key", accountKey)
                         put("shikho_user_id", userId)
                         put("student_phone", normPhone)
                         put("user_phone", normPhone)
+                        if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                     }
                     val syncReq = Request.Builder()
                         .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?id=eq.$enrollmentId")
@@ -1520,80 +1531,60 @@ object CourseCommerceRepository {
                 }
             }
 
-            // 1. Try RPC `submit_course_payment_transaction` keyed by student phone / accountKey
+            // 1. Call exact Supabase RPC `submit_course_payment_transaction`
+            // Signature: submit_course_payment_transaction(p_device_id, p_shikho_account_key, p_student_name, p_program_id, p_program_title, p_plan_id, p_plan_title, p_total_installments, p_installment_interval_days, p_payment_method, p_sender_mobile, p_amount, p_transaction_id)
             val rpcUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/rpc/submit_course_payment_transaction"
-            val rpcPayloads = listOf(
-                JSONObject().apply {
-                    put("p_device_id", accountKey)
-                    put("p_shikho_account_key", accountKey)
-                    put("p_student_name", studentName)
-                    put("p_program_id", programId)
-                    put("p_program_title", programTitle)
-                    put("p_plan_id", selectedPlan.planId)
-                    put("p_plan_title", selectedPlan.titleBn)
-                    put("p_total_installments", selectedPlan.installmentsCount)
-                    put("p_installment_interval_days", selectedPlan.intervalDays)
-                    put("p_payment_method", paymentMethod)
-                    put("p_sender_mobile", cleanMobile)
-                    put("p_amount", amountInt)
-                    put("p_transaction_id", cleanTrx)
-                },
-                JSONObject().apply {
-                    put("p_device_hash", accountKey)
-                    put("p_display_device_id", accountKey)
-                    put("p_shikho_user_id", userId)
-                    put("p_user_phone", normPhone)
-                    put("p_student_name", studentName)
-                    put("p_program_id", programId)
-                    put("p_program_title", programTitle)
-                    put("p_payment_method", paymentMethod)
-                    put("p_sender_mobile", cleanMobile)
-                    put("p_amount", amountInt)
-                    put("p_transaction_id", cleanTrx)
-                    put("p_selected_plan_id", selectedPlan.planId)
-                    put("p_selected_plan_title", selectedPlan.titleBn)
-                    put("p_total_installments", selectedPlan.installmentsCount)
-                    put("p_interval_days", selectedPlan.intervalDays)
-                }
-            )
+            val rpcBody = JSONObject().apply {
+                put("p_device_id", deviceHardwareHash)
+                put("p_shikho_account_key", accountKey)
+                put("p_student_name", studentName)
+                put("p_program_id", programId)
+                put("p_program_title", programTitle)
+                put("p_plan_id", selectedPlan.planId)
+                put("p_plan_title", selectedPlan.titleBn)
+                put("p_total_installments", selectedPlan.installmentsCount)
+                put("p_installment_interval_days", selectedPlan.intervalDays)
+                put("p_payment_method", paymentMethod)
+                put("p_sender_mobile", cleanMobile)
+                put("p_amount", amountInt)
+                put("p_transaction_id", cleanTrx)
+            }
 
-            for (rpcBody in rpcPayloads) {
-                try {
-                    val req = Request.Builder()
-                        .url(rpcUrl)
-                        .addHeader("apikey", anonKey)
-                        .addHeader("Authorization", "Bearer $anonKey")
-                        .addHeader("Content-Type", "application/json")
-                        .post(rpcBody.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
+            try {
+                val req = Request.Builder()
+                    .url(rpcUrl)
+                    .addHeader("apikey", anonKey)
+                    .addHeader("Authorization", "Bearer $anonKey")
+                    .addHeader("Content-Type", "application/json")
+                    .post(rpcBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
 
-                    val resp = httpClient.newCall(req).execute()
-                    if (resp.isSuccessful) {
-                        val bodyStr = resp.body?.string() ?: ""
-                        if (bodyStr.trim().startsWith("{")) {
-                            val json = JSONObject(bodyStr)
-                            if (json.optBoolean("success", false)) {
-                                val msg = json.optString(
-                                    "message",
-                                    "আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাই করে এপ্রুভ করলেই কোর্সটি আনলক হয়ে যাবে।"
-                                )
-                                fetchCourseCommerceStatus(context)
-                                com.example.notification.OneSignalPushManager.notifyAdminCoursePaymentSubmitted(
-                                    context = context,
-                                    studentName = studentName,
-                                    studentPhone = normPhone,
-                                    programTitle = programTitle,
-                                    paymentMethod = paymentMethod,
-                                    amount = amountInt,
-                                    transactionId = cleanTrx,
-                                    planTitle = selectedPlan.titleBn
-                                )
-                                return@withContext Result.success(msg)
-                            }
+                val resp = httpClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string() ?: ""
+                    if (bodyStr.trim().startsWith("{")) {
+                        val json = JSONObject(bodyStr)
+                        if (json.optBoolean("success", false)) {
+                            val msg = json.optString(
+                                "message",
+                                "আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাই করে এপ্রুভ করলেই কোর্সটি আনলক হয়ে যাবে।"
+                            )
+                            fetchCourseCommerceStatus(context)
+                            com.example.notification.OneSignalPushManager.notifyAdminCoursePaymentSubmitted(
+                                context = context,
+                                studentName = studentName,
+                                studentPhone = normPhone,
+                                programTitle = programTitle,
+                                paymentMethod = paymentMethod,
+                                amount = amountInt,
+                                transactionId = cleanTrx,
+                                planTitle = selectedPlan.titleBn
+                            )
+                            return@withContext Result.success(msg)
                         }
                     }
-                } catch (_: Throwable) {}
-            }
+                }
+            } catch (_: Throwable) {}
 
             // 2. Direct REST Fallback into `course_payment_transactions`
             // Strictly uses ONLY columns that exist in `public.course_payment_transactions`!
@@ -1608,13 +1599,16 @@ object CourseCommerceRepository {
             val txVariants = listOf(
                 JSONObject().apply {
                     if (longEnrId != null) put("enrollment_id", longEnrId)
-                    put("device_id", accountKey)
-                    put("device_hash", accountKey)
-                    put("display_device_id", accountKey)
+                    put("device_id", deviceHardwareHash)
+                    put("device_hash", deviceHardwareHash)
+                    put("display_device_id", displayDeviceId)
                     put("shikho_account_key", accountKey)
+                    put("student_key", accountKey)
                     put("shikho_user_id", userId)
                     put("user_phone", normPhone)
+                    put("student_phone", normPhone)
                     put("student_name", studentName)
+                    if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                     put("program_id", programId)
                     put("program_title", programTitle)
                     put("plan_id", selectedPlan.planId)
@@ -1787,14 +1781,15 @@ object CourseCommerceRepository {
                 else -> "১ দিনের"
             }
 
-            // 1. Try RPC `start_course_free_trial` if configured in Supabase
+            // 1. Call exact Supabase RPC `start_course_free_trial(p_student_key, p_program_id, p_program_title)`
             var rpcSucceeded = false
+            var rpcMessage = ""
+            val studentKey = account.normPhone.ifBlank { account.accountKey }.ifBlank { DeviceSecurityManager.getDeviceHardwareHash(context) }
             try {
                 val rpcPayload = JSONObject().apply {
-                    put("p_device_id", account.accountKey)
-                    put("p_shikho_account_key", account.accountKey)
-                    put("p_student_phone", account.normPhone.ifBlank { account.rawPhone })
+                    put("p_student_key", studentKey)
                     put("p_program_id", programId)
+                    put("p_program_title", programTitle)
                 }
                 val rpcReq = Request.Builder()
                     .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/start_course_free_trial")
@@ -1810,28 +1805,39 @@ object CourseCommerceRepository {
                             val json = JSONObject(bodyStr)
                             if (json.optBoolean("success", false)) {
                                 rpcSucceeded = true
+                                rpcMessage = json.optString("message", "")
+                            } else {
+                                val errMsg = json.optString("message", "")
+                                if (errMsg.isNotBlank() && alreadyUsed) {
+                                    return@withContext Result.failure(Exception(errMsg))
+                                }
                             }
                         }
                     }
                 }
             } catch (_: Throwable) {}
 
-            // 2. Also PATCH `course_access_enrollments` directly so it works even before/without RPC
+            // 2. Also PATCH `course_access_enrollments` directly if RPC was not used
             val rowId = existingRow?.optString("id", "")?.trim().orEmpty()
                 .ifBlank { cachedItem?.enrollmentId.orEmpty() }
 
             var patchSucceeded = rpcSucceeded
-            if (rowId.isNotBlank()) {
+            if (!rpcSucceeded && rowId.isNotBlank()) {
                 val patchPayloads = listOf(
                     JSONObject().apply {
                         put("status", "TRIAL_ACTIVE")
+                        put("access_status", "TRIAL_ACTIVE")
                         put("trial_enabled", true)
+                        put("allow_free_trial", true)
                         put("trial_started_at", nowIso)
                         put("trial_ends_at", endIso)
+                        put("trial_expires_at", endIso)
                         put("is_trial_used", true)
+                        put("trial_used", true)
                         put("updated_at", nowIso)
                     },
                     JSONObject().apply {
+                        put("status", "TRIAL_ACTIVE")
                         put("trial_enabled", true)
                         put("trial_started_at", nowIso)
                         put("trial_ends_at", endIso)
@@ -1867,7 +1873,10 @@ object CourseCommerceRepository {
                     programTitle = programTitle,
                     durationLabelBn = durationLabelBn
                 )
-                return@withContext Result.success("🎉 অভিনন্দন! আপনার $durationLabelBn ফ্রি ট্রায়াল চালু হয়েছে। এখন আপনি কোর্সটির ক্লাসগুলো ফ্রিতে দেখতে পারবেন।")
+                val finalMsg = rpcMessage.ifBlank {
+                    "🎉 অভিনন্দন! আপনার $durationLabelBn ফ্রি ট্রায়াল চালু হয়েছে। এখন আপনি কোর্সটির ক্লাসগুলো ফ্রিতে দেখতে পারবেন।"
+                }
+                return@withContext Result.success(finalMsg)
             } else {
                 return@withContext Result.failure(Exception("ফ্রি ট্রায়াল চালু করতে সমস্যা হয়েছে। অনুগ্রহ করে ডাটাবেজে ট্রায়াল SQL রান করা আছে কিনা নিশ্চিত করুন।"))
             }
