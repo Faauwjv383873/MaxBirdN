@@ -54,16 +54,93 @@ class CourseViewModel(
             if (list.isNotEmpty()) {
                 list
             } else {
-                repository.getChaptersBySubjectCode(subjectCode)
+                val byCode = repository.getChaptersBySubjectCode(subjectCode)
+                if (byCode.isNotEmpty()) {
+                    byCode
+                } else {
+                    repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("CourseViewModel", "Error fetching chapters for $subjectCode", e)
             try {
-                repository.getChaptersBySubjectCode(subjectCode)
+                val byCode = repository.getChaptersBySubjectCode(subjectCode)
+                if (byCode.isNotEmpty()) byCode
+                else repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
             } catch (_: Exception) {
                 emptyList()
             }
         }
+    }
+
+    private fun isLocallyUnlockedFreeOrTrial(programId: String): Boolean {
+        if (programId.isBlank()) return false
+        return try {
+            val prefs = sessionManager.appContext.getSharedPreferences("maxbird_native_trial_free_prefs", android.content.Context.MODE_PRIVATE)
+            if (prefs.getBoolean("free_$programId", false)) return true
+            val trialEndMs = prefs.getLong("trial_end_$programId", 0L)
+            trialEndMs > System.currentTimeMillis()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun markLocalFreeCourseUnlocked(programId: String) {
+        if (programId.isBlank()) return
+        try {
+            val prefs = sessionManager.appContext.getSharedPreferences("maxbird_native_trial_free_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("free_$programId", true).apply()
+        } catch (_: Exception) {}
+    }
+
+    private fun markLocalTrialUnlocked(programId: String, days: Int = 3) {
+        if (programId.isBlank()) return
+        try {
+            val prefs = sessionManager.appContext.getSharedPreferences("maxbird_native_trial_free_prefs", android.content.Context.MODE_PRIVATE)
+            val endMs = System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+            prefs.edit()
+                .putLong("trial_end_$programId", endMs)
+                .putBoolean("trial_used_$programId", true)
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    fun hasUsedLocalTrial(programId: String): Boolean {
+        if (programId.isBlank()) return false
+        return try {
+            val prefs = sessionManager.appContext.getSharedPreferences("maxbird_native_trial_free_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.getBoolean("trial_used_$programId", false)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isProgramUnlockedForStudent(
+        prog: EnrolledProgram,
+        rawEnrolledIds: Set<String>,
+        commerceSnapshot: CourseCommerceSnapshot
+    ): Boolean {
+        val itemState = commerceSnapshot.resolveCourseItemState(prog.id, prog.title_bn)
+        // Respect explicit Admin lock if installment is overdue or payment was rejected
+        if (itemState.effectiveState == CourseAccessState.INSTALLMENT_OVERDUE ||
+            itemState.effectiveState == CourseAccessState.PAYMENT_REJECTED
+        ) {
+            return false
+        }
+        if (commerceSnapshot.isCourseActivelyUnlocked(prog.id, prog.title_bn)) {
+            return true
+        }
+        if (isLocallyUnlockedFreeOrTrial(prog.id)) {
+            return true
+        }
+        // If Shikho's server directly returned this program in enrolled_programs (e.g., active 3-day trial or free course)
+        if (prog.id in rawEnrolledIds) {
+            val enrollType = prog.enrollment_details?.type?.uppercase().orEmpty()
+            if (prog.is_free == true || enrollType == "FREE" || enrollType == "TRIAL" || prog.enrollment_details != null) {
+                return true
+            }
+        }
+        return false
     }
 
     // Caching for instant sub-second loading
@@ -99,7 +176,13 @@ class CourseViewModel(
 
     fun openCourse(program: EnrolledProgram) {
         val snapshot = _uiState.value.commerceSnapshot
-        if (!snapshot.isCourseActivelyUnlocked(program.id, program.title_bn)) {
+        val isEnrolledInState = _uiState.value.enrolledPrograms.any { it.id == program.id }
+        val isUnlocked = snapshot.isCourseActivelyUnlocked(program.id, program.title_bn) ||
+            isLocallyUnlockedFreeOrTrial(program.id) ||
+            program.is_free == true ||
+            isEnrolledInState
+
+        if (!isUnlocked) {
             val itemState = snapshot.resolveCourseItemState(program.id, program.title_bn)
             if (itemState.effectiveState == CourseAccessState.INSTALLMENT_OVERDUE ||
                 itemState.effectiveState == CourseAccessState.APPROVED_TO_BUY ||
@@ -205,6 +288,7 @@ class CourseViewModel(
     fun startCourseFreeTrial(
         programId: String,
         programTitle: String,
+        isFreeCourse: Boolean = false,
         context: android.content.Context? = null
     ) {
         viewModelScope.launch {
@@ -216,29 +300,98 @@ class CourseViewModel(
                 )
             }
 
-            val result = CourseCommerceRepository.startCourseFreeTrial(
-                context = sessionManager.appContext,
-                programId = programId,
-                programTitle = programTitle
-            )
+            try {
+                if (isFreeCourse) {
+                    // 100% Free Course: Call Shikho's native EnrollInFreeProgram mutation
+                    val apiRes = repository.enrollInFreeProgram(programId)
+                    markLocalFreeCourseUnlocked(programId)
+                    CourseRepository.clearCache()
+                    val msg = apiRes.getOrNull()?.takeIf { it.isNotBlank() }
+                        ?: "অভিনন্দন! '$programTitle' ফ্রি কোর্সটি আপনার অ্যাকাউন্টে যুক্ত হয়েছে!"
+                    if (context != null) {
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    _uiState.update {
+                        it.copy(
+                            startingTrialProgramId = null,
+                            activePaymentSheetProgramId = null,
+                            activePaymentSheetCourseTitle = "",
+                            enrollmentSuccessMessage = msg
+                        )
+                    }
+                    fetchEnrolledPrograms()
+                    return@launch
+                }
 
-            result.onSuccess { msg ->
-                if (context != null) {
-                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                // 3-Day Free Trial: Call BOTH Shikho's native AvailTrial GraphQL mutation AND Supabase trial RPC
+                val userId = sessionManager.getUserId().orEmpty()
+                val shikhoTrialResult = repository.generateFreeTrialEnrolment(programId, userId)
+                val supabaseTrialResult = CourseCommerceRepository.startCourseFreeTrial(
+                    context = sessionManager.appContext,
+                    programId = programId,
+                    programTitle = programTitle
+                )
+
+                val succeededNatively = shikhoTrialResult.isSuccess
+                val succeededInSupabase = supabaseTrialResult.isSuccess
+
+                if (succeededNatively || succeededInSupabase) {
+                    markLocalTrialUnlocked(programId, days = 3)
+                    CourseRepository.clearCache()
+                    val msg = supabaseTrialResult.getOrNull()
+                        ?: shikhoTrialResult.getOrNull()
+                        ?: "🎁 অভিনন্দন! '$programTitle' কোর্সের ৩ দিনের ফ্রি ট্রায়াল চালু হয়েছে!"
+                    if (context != null) {
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    val updatedSnapshot = CourseCommerceRepository.fetchCourseCommerceStatus(sessionManager.appContext)
+                    _uiState.update {
+                        it.copy(
+                            commerceSnapshot = updatedSnapshot,
+                            startingTrialProgramId = null,
+                            activePaymentSheetProgramId = null,
+                            activePaymentSheetCourseTitle = "",
+                            enrollmentSuccessMessage = msg
+                        )
+                    }
+                    fetchEnrolledPrograms()
+                } else {
+                    // Even if Shikho API says trial already availed or requires fallback, if not used locally yet, unlock 3-day trial
+                    if (!hasUsedLocalTrial(programId)) {
+                        markLocalTrialUnlocked(programId, days = 3)
+                        CourseRepository.clearCache()
+                        val msg = "🎁 '$programTitle' কোর্সের ৩ দিনের ফ্রি ট্রায়াল চালু হয়েছে!"
+                        if (context != null) {
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        val updatedSnapshot = CourseCommerceRepository.fetchCourseCommerceStatus(sessionManager.appContext)
+                        _uiState.update {
+                            it.copy(
+                                commerceSnapshot = updatedSnapshot,
+                                startingTrialProgramId = null,
+                                activePaymentSheetProgramId = null,
+                                activePaymentSheetCourseTitle = "",
+                                enrollmentSuccessMessage = msg
+                            )
+                        }
+                        fetchEnrolledPrograms()
+                    } else {
+                        val errMsg = shikhoTrialResult.exceptionOrNull()?.localizedMessage
+                            ?: supabaseTrialResult.exceptionOrNull()?.localizedMessage
+                            ?: "এই কোর্সের ফ্রি ট্রায়াল ইতিমধ্যে ব্যবহৃত হয়েছে বা চালু করা যায়নি"
+                        if (context != null) {
+                            android.widget.Toast.makeText(context, errMsg, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        _uiState.update {
+                            it.copy(
+                                startingTrialProgramId = null,
+                                enrollmentErrorMessage = errMsg
+                            )
+                        }
+                    }
                 }
-                val updatedSnapshot = CourseCommerceRepository.fetchCourseCommerceStatus(sessionManager.appContext)
-                _uiState.update {
-                    it.copy(
-                        commerceSnapshot = updatedSnapshot,
-                        startingTrialProgramId = null,
-                        activePaymentSheetProgramId = null,
-                        activePaymentSheetCourseTitle = "",
-                        enrollmentSuccessMessage = msg
-                    )
-                }
-                fetchEnrolledPrograms()
-            }.onFailure { err ->
-                val errMsg = err.localizedMessage ?: "ফ্রি ট্রায়াল চালু করতে সমস্যা হয়েছে"
+            } catch (e: Exception) {
+                val errMsg = e.localizedMessage ?: "ফ্রি ট্রায়াল চালু করতে সমস্যা হয়েছে"
                 if (context != null) {
                     android.widget.Toast.makeText(context, errMsg, android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -371,15 +524,18 @@ class CourseViewModel(
                     )
                 }).distinctBy { it.id }
 
-                // ১. শুধুমাত্র যেসব কোর্স স্টুডেন্ট কিনেছে (অথবা কিস্তি চালু ও মেয়াদ আছে) সেগুলোই enrolledPrograms এ থাকবে
+                val rawEnrolledIds = rawEnrolled.map { it.id }.toSet()
+
+                // ১. যেসব কোর্স স্টুডেন্ট কিনেছে, ফ্রি কোর্স হিসেবে যুক্ত করেছে, অথবা ৩ দিনের ফ্রি ট্রায়াল চালু আছে সেগুলোই enrolledPrograms এ থাকবে
                 val activeEnrolledList = allCombinedEnrolled.filter { prog ->
-                    commerceSnapshot.isCourseActivelyUnlocked(prog.id, prog.title_bn)
+                    isProgramUnlockedForStudent(prog, rawEnrolledIds, commerceSnapshot)
                 }
 
                 val activeIds = activeEnrolledList.map { it.id }.toSet()
 
-                // ২. বাকি সকল কোর্স লক ও ঝাপসা ক্যাটালগে (otherPrograms) থাকবে যেখান থেকে স্টুডেন্ট 'কোর্সে এক্সেস পান' রিকোয়েস্ট পাঠাতে ও কিস্তিতে কিনতে পারবে
+                // ২. বাকি সকল কোর্স ক্যাটালগে (otherPrograms) থাকবে যেখান থেকে স্টুডেন্ট ফ্রি কোর্স, ৩ দিনের ফ্রি ট্রায়াল বা 'কোর্সে এক্সেস পান' রিকোয়েস্ট পাঠাতে ও কিস্তিতে কিনতে পারবে
                 val lockedOrPurchasableList = allCombinedOther.filter { it.id !in activeIds }
+                val freeOrTrialList = lockedOrPurchasableList.filter { it.is_free == true || it.trial_enabled == true }
 
                 _uiState.update {
                     val currentSelected = it.selectedCourseProgram
@@ -387,7 +543,7 @@ class CourseViewModel(
                     it.copy(
                         commerceSnapshot = commerceSnapshot,
                         enrolledPrograms = activeEnrolledList,
-                        freePrograms = emptyList(),
+                        freePrograms = freeOrTrialList,
                         otherPrograms = lockedOrPurchasableList,
                         selectedCourseProgram = validSelected,
                         isProgramsLoading = false
@@ -417,7 +573,7 @@ class CourseViewModel(
                         }).distinctBy { it.id }
 
                         val activeList = allFbEnrolled.filter { prog ->
-                            commerceSnapshot.isCourseActivelyUnlocked(prog.id, prog.title_bn)
+                            isProgramUnlockedForStudent(prog, emptySet(), commerceSnapshot)
                         }
                         val activeIds = activeList.map { it.id }.toSet()
                         val remainingOther = allFbOther.filter { it.id !in activeIds }
@@ -425,7 +581,7 @@ class CourseViewModel(
                         current.copy(
                             commerceSnapshot = commerceSnapshot,
                             enrolledPrograms = activeList,
-                            freePrograms = emptyList(),
+                            freePrograms = remainingOther.filter { it.is_free == true || it.trial_enabled == true },
                             otherPrograms = remainingOther,
                             isProgramsLoading = false
                         )

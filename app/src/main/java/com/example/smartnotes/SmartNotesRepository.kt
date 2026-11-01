@@ -291,7 +291,8 @@ query ResourceAttachmentsOfChapter(
     suspend fun getSubjectChapters(
         programId: String,
         phaseId: String?,
-        subjectCode: String
+        subjectCode: String,
+        subjectTitle: String = ""
     ): List<AcademicChapterItem> {
         return try {
             if (!phaseId.isNullOrBlank() && programId.isNotBlank()) {
@@ -302,7 +303,9 @@ query ResourceAttachmentsOfChapter(
                 val list = courseRepository.getAcademicProgramChaptersFallback(programId, subjectCode)
                 if (list.isNotEmpty()) return list
             }
-            courseRepository.getChaptersBySubjectCode(subjectCode)
+            val byCode = courseRepository.getChaptersBySubjectCode(subjectCode)
+            if (byCode.isNotEmpty()) return byCode
+            courseRepository.fetchFallbackHierarchyChapters(subjectCode, subjectTitle)
         } catch (e: Exception) {
             Log.e("SmartNotesRepo", "Error fetching subject chapters: ${e.message}", e)
             emptyList()

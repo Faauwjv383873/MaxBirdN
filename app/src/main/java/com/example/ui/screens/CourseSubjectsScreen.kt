@@ -231,6 +231,7 @@ fun CourseSubjectsScreen(
                             viewModel.startCourseFreeTrial(
                                 programId = otherProgram.id,
                                 programTitle = otherProgram.title_bn ?: "কোর্স",
+                                isFreeCourse = otherProgram.is_free == true,
                                 context = context
                             )
                         },
@@ -414,6 +415,16 @@ private fun MyCoursesListView(
                         )
                     }
                 }
+                val freeOrTrialCount = other.count { it.is_free == true || it.trial_enabled == true }
+                if (freeOrTrialCount > 0) {
+                    item {
+                        CourseFilterChip(
+                            label = "🎁 ফ্রি ও ট্রায়াল (${toBengaliDigits(freeOrTrialCount)})",
+                            selected = selectedFilter == "free_trial",
+                            onClick = { selectedFilter = "free_trial" }
+                        )
+                    }
+                }
                 if (other.isNotEmpty()) {
                     item {
                         CourseFilterChip(
@@ -518,8 +529,13 @@ private fun MyCoursesListView(
                     }
                 }
 
-                // Locked / Purchasable Courses Section (Clear, unblurred cards)
-                if (other.isNotEmpty() && (selectedFilter == "all" || selectedFilter == "other")) {
+                // Locked / Purchasable / Free & Trial Courses Section (Clear, unblurred cards)
+                val filteredOther = if (selectedFilter == "free_trial") {
+                    other.filter { it.is_free == true || it.trial_enabled == true }
+                } else {
+                    other
+                }
+                if (filteredOther.isNotEmpty() && (selectedFilter == "all" || selectedFilter == "other" || selectedFilter == "free_trial")) {
                     item {
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
@@ -531,13 +547,17 @@ private fun MyCoursesListView(
                         ) {
                             Column {
                                 Text(
-                                    text = if (enrolled.isEmpty()) "সকল কোর্সসমূহ (এক্সেস নিন ও ভর্তি হোন)" else "অন্যান্য কোর্সসমূহ (এক্সেস নিন ও কিনুন)",
+                                    text = when {
+                                        selectedFilter == "free_trial" -> "🎁 ৩ দিনের ফ্রি ট্রায়াল ও সম্পূর্ণ ফ্রি কোর্সসমূহ"
+                                        enrolled.isEmpty() -> "সকল কোর্সসমূহ (ফ্রি ট্রায়াল ও এক্সেস নিন)"
+                                        else -> "অন্যান্য কোর্সসমূহ (ফ্রি ট্রায়াল ও কিনুন)"
+                                    },
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "পছন্দের কোর্সে 'কোর্সে এক্সেস পান' ক্লিক করলে অ্যাডমিন দাম, কিস্তি ও ফ্রি ট্রায়াল সেট করে দিবেন",
+                                    text = "যেকোনো কোর্সে ৩ দিনের ফ্রি ট্রায়াল চালু করুন অথবা 'কোর্সে এক্সেস পান' ক্লিক করে ভর্তি হোন",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -546,7 +566,7 @@ private fun MyCoursesListView(
                     }
 
                     items(
-                        items = other,
+                        items = filteredOther,
                         key = { "other_${it.id}" }
                     ) { program ->
                         val commerceItem = uiState.commerceSnapshot.resolveCourseItemState(
@@ -1134,13 +1154,29 @@ private fun OtherCourseBannerCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val isNativeFree = program.is_free == true
+                    val isNativeTrialAvailable = !isNativeFree && !commerceState.isTrialUsed && (program.trial_enabled == true || commerceState.canStartFreeTrial)
                     val (badgeText, badgeBg, badgeBorder, badgeIcon) = when (state) {
-                        CourseAccessState.LOCKED_BLURRED -> Quadruple(
-                            "কোর্সে এক্সেস নিন",
-                            Color.Black.copy(alpha = 0.45f),
-                            Color.White.copy(alpha = 0.35f),
-                            Icons.Default.Lock
-                        )
+                        CourseAccessState.LOCKED_BLURRED -> when {
+                            isNativeFree -> Quadruple(
+                                "🎉 সম্পূর্ণ ফ্রি কোর্স",
+                                Color(0xFF10B981).copy(alpha = 0.35f),
+                                Color(0xFF34D399).copy(alpha = 0.75f),
+                                Icons.Default.CardGiftcard
+                            )
+                            isNativeTrialAvailable -> Quadruple(
+                                "🎁 ৩ দিনের ফ্রি ট্রায়াল উপলব্ধ",
+                                Color(0xFF7C3AED).copy(alpha = 0.35f),
+                                Color(0xFFC4B5FD).copy(alpha = 0.75f),
+                                Icons.Default.CardGiftcard
+                            )
+                            else -> Quadruple(
+                                "কোর্সে এক্সেস নিন",
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.White.copy(alpha = 0.35f),
+                                Icons.Default.Lock
+                            )
+                        }
                         CourseAccessState.ACCESS_REQUESTED -> Quadruple(
                             "এক্সেস রিকোয়েস্ট পেন্ডিং",
                             Color(0xFFF59E0B).copy(alpha = 0.28f),
@@ -1523,50 +1559,154 @@ private fun OtherCourseBannerCard(
                 // Primary Action Button depending on state
                 when (state) {
                     CourseAccessState.LOCKED_BLURRED -> {
-                        Surface(
-                            shape = RoundedCornerShape(26.dp),
-                            color = Color.White,
-                            shadowElevation = 4.dp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(26.dp))
-                                .clickable(enabled = !isRequestingAccess, onClick = onRequestAccess)
-                                .testTag("request_course_access_button_${program.id}")
-                        ) {
-                            Row(
+                        val isFreeCourse = program.is_free == true
+                        val canClaimDirectTrial = !isFreeCourse && !commerceState.isTrialUsed && !commerceState.isTrialExpiredNow
+
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (isFreeCourse) {
+                                Surface(
+                                    shape = RoundedCornerShape(26.dp),
+                                    color = Color(0xFF4ADE80),
+                                    shadowElevation = 4.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(26.dp))
+                                        .clickable(enabled = !isStartingTrial, onClick = onStartFreeTrial)
+                                        .testTag("enroll_free_course_button_${program.id}")
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 13.dp, horizontal = 14.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (isStartingTrial) {
+                                            CircularProgressIndicator(
+                                                color = Color(0xFF064E3B),
+                                                strokeWidth = 2.dp,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "ফ্রি কোর্স যুক্ত হচ্ছে...",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFF064E3B)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF064E3B),
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "🎉 সম্পূর্ণ ফ্রিতে ভর্তি হোন (Free)",
+                                                fontSize = 14.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFF064E3B)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else if (canClaimDirectTrial) {
+                                // Direct 1-click 3-Day Free Trial Button right on the card!
+                                Surface(
+                                    shape = RoundedCornerShape(26.dp),
+                                    color = Color(0xFFFEF08A),
+                                    shadowElevation = 4.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(26.dp))
+                                        .clickable(enabled = !isStartingTrial, onClick = onStartFreeTrial)
+                                        .testTag("start_direct_trial_button_${program.id}")
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp, horizontal = 14.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (isStartingTrial) {
+                                            CircularProgressIndicator(
+                                                color = Color(0xFF0F172A),
+                                                strokeWidth = 2.dp,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "৩ দিনের ফ্রি ট্রায়াল চালু হচ্ছে...",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFF0F172A)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.CardGiftcard,
+                                                contentDescription = null,
+                                                tint = Color(0xFF7C3AED),
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "🎁 ৩ দিনের ফ্রি ট্রায়াল চালু করুন",
+                                                fontSize = 14.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFF0F172A)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(26.dp),
+                                color = Color.White,
+                                shadowElevation = 4.dp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 13.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .clip(RoundedCornerShape(26.dp))
+                                    .clickable(enabled = !isRequestingAccess, onClick = onRequestAccess)
+                                    .testTag("request_course_access_button_${program.id}")
                             ) {
-                                if (isRequestingAccess) {
-                                    CircularProgressIndicator(
-                                        color = Color(0xFF0F172A),
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "রিকোয়েস্ট পাঠানো হচ্ছে...",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0F172A)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.VpnKey,
-                                        contentDescription = null,
-                                        tint = Color(0xFF5648F9),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "কোর্সে এক্সেস পান",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color(0xFF0F172A)
-                                    )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 13.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isRequestingAccess) {
+                                        CircularProgressIndicator(
+                                            color = Color(0xFF0F172A),
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "রিকোয়েস্ট পাঠানো হচ্ছে...",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.VpnKey,
+                                            contentDescription = null,
+                                            tint = Color(0xFF5648F9),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "কোর্সে এক্সেস পান (পূর্ণ মেয়াদে কিনুন)",
+                                            fontSize = 14.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                    }
                                 }
                             }
                         }

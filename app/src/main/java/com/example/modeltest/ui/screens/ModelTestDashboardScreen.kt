@@ -65,6 +65,9 @@ fun ModelTestDashboardScreen(
     onOpenModelTest: (lesson: StudentLessonItem) -> Unit,
     onOpenClass: (lesson: StudentLessonItem) -> Unit,
     onNavigateHome: () -> Unit,
+    onNavigateToAnimatedLessons: () -> Unit = {},
+    onNavigateToPracticeQuiz: () -> Unit = {},
+    onNavigateToSmartNotes: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -83,35 +86,84 @@ fun ModelTestDashboardScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = subjectTitle.ifBlank { "মডেল টেস্ট" },
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surface,
+                                    subjectColor.copy(alpha = 0.08f),
+                                    subjectColor.copy(alpha = 0.14f)
+                                )
+                            )
                         )
-                        Text(
-                            text = "মডেল টেস্ট ও লাইভ ক্লাস",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = subjectTitle.ifBlank { "মডেল টেস্ট" },
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // Decorative Bengali letters artwork on the right (অ খ ক)
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(width = 56.dp, height = 42.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "অ",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFFACC15),
+                                modifier = Modifier.align(Alignment.TopStart)
+                            )
+                            Text(
+                                text = "খ",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF93C5FD),
+                                modifier = Modifier.align(Alignment.TopEnd)
+                            )
+                            Text(
+                                text = "ক",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF38BDF8),
+                                modifier = Modifier.align(Alignment.BottomCenter)
+                            )
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+                }
+            }
         },
         bottomBar = {
             Surface(
@@ -147,6 +199,103 @@ fun ModelTestDashboardScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Top 3 Feature Cards: অ্যানিমেটেড লেসনস | প্র্যাকটিস কুইজ | ই-বুক
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 1. অ্যানিমেটেড লেসনস
+                    ModelTestTopFeatureCard(
+                        title = "অ্যানিমেটেড লেসনস",
+                        testTagName = "model_test_animated_lessons_card",
+                        onClick = onNavigateToAnimatedLessons,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0xFFEC4899), Color(0xFFBE185D))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Slideshow,
+                                contentDescription = "অ্যানিমেটেড লেসনস",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    // 2. প্র্যাকটিস কুইজ
+                    ModelTestTopFeatureCard(
+                        title = "প্র্যাকটিস কুইজ",
+                        testTagName = "model_test_practice_quiz_card",
+                        onClick = onNavigateToPracticeQuiz,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0xFFFEF3C7), Color(0xFFE0F2FE))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Quiz,
+                                contentDescription = "প্র্যাকটিস কুইজ",
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    // 3. ই-বুক
+                    ModelTestTopFeatureCard(
+                        title = "ই-বুক",
+                        testTagName = "model_test_ebook_card",
+                        onClick = onNavigateToSmartNotes,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(Color(0xFFDBEAFE), Color(0xFF93C5FD))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MenuBook,
+                                contentDescription = "ই-বুক",
+                                tint = Color(0xFF1D4ED8),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
             // Segment Tabs Header
             ModelTestTabsHeader(
                 selectedTab = uiState.selectedTab,
@@ -564,3 +713,43 @@ private fun EmptyStateView(icon: androidx.compose.ui.graphics.vector.ImageVector
         )
     }
 }
+
+@Composable
+private fun ModelTestTopFeatureCard(
+    title: String,
+    testTagName: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconContent: @Composable () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+        modifier = modifier
+            .height(92.dp)
+            .testTag(testTagName)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            iconContent()
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = title,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+

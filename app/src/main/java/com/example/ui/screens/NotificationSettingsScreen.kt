@@ -43,10 +43,9 @@ import com.example.MainActivity
 import com.example.R
 import com.example.auth.SessionManager
 import com.example.home.HomeViewModel
-import com.example.notification.CampaignNotificationManager
 import com.example.notification.ClassAlarmReceiver
 import com.example.notification.ClassAlarmScheduler
-import com.example.ui.dialogs.FcmLiveTerminalDialog
+import com.example.notification.OneSignalPushManager
 import com.example.utils.toBengaliDigits
 
 data class ClassAlarmItem(
@@ -241,12 +240,12 @@ fun NotificationSettingsScreen(
         }
     }
 
-    var showTerminalDialog by remember { mutableStateOf(false) }
-
-    val hasNotificationPermission = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else true
+    var hasNotificationPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            } else true
+        )
     }
 
     Scaffold(
@@ -260,7 +259,7 @@ fun NotificationSettingsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "লাইভ ক্লাস ও পরীক্ষার স্মার্ট রিমাইন্ডার",
+                            text = "লাইভ ক্লাস, পরীক্ষা ও কোর্স আপডেটের স্মার্ট অ্যালার্ট",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -275,11 +274,22 @@ fun NotificationSettingsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showTerminalDialog = true }) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            OneSignalPushManager.triggerSyncAsync(context)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                triggerGeneralTestNotification(context)
+                            }
+                        },
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = "FCM লাইভ টার্মিনাল",
-                            tint = MaterialTheme.colorScheme.primary
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = "টেস্ট নোটিফিকেশন",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 },
@@ -300,75 +310,51 @@ fun NotificationSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             // ==========================================
-            // TEMPORARY FCM TERMINAL & CLOUD MONITOR
+            // PERMISSION BANNER (IF NOT GRANTED ON ANDROID 13+)
             // ==========================================
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable { showTerminalDialog = true },
-                color = Color(0xFF0F172A),
-                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+            if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFFFEF2F2),
+                    border = BorderStroke(1.dp, Color(0xFFFECACA))
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF1E293B)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF22C55E))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "FCM লাইভ টার্মিনাল (মনিটর)",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
+                        Icon(
+                            imageVector = Icons.Default.NotificationsPaused,
+                            contentDescription = null,
+                            tint = Color(0xFFDC2626),
+                            modifier = Modifier.size(26.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "টপিক সাবস্ক্রিপশন ও ক্লাউড কানেকশন ভেরিফাই করুন",
-                                fontSize = 12.sp,
-                                color = Color(0xFF94A3B8)
+                                text = "নোটিফিকেশন পারমিশন বন্ধ আছে",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF991B1B)
+                            )
+                            Text(
+                                text = "ক্লাস রিমাইন্ডার ও কোর্স আপডেট পেতে পারমিশন চালু করুন",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFFB91C1C)
                             )
                         }
-                    }
-
-                    Button(
-                        onClick = { showTerminalDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(text = "টার্মিনাল", fontSize = 12.sp, color = Color.White)
+                        Button(
+                            onClick = {
+                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("চালু করুন", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -548,147 +534,94 @@ fun NotificationSettingsScreen(
             }
 
             // ==========================================
-            // BATCH CAMPAIGNS & ORIENTATION LIVE CARD
+            // SMART PUSH ALERT CATEGORIES CARD
             // ==========================================
-            val userBatch = sessionManager.getUserBatchId() ?: "HSC '27"
-            val studentName = sessionManager.getUserFullName() ?: "শিক্ষার্থী"
-
+            val userBatch = sessionManager.getUserBatchId() ?: "HSC"
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xFFFAF5FF),
-                border = BorderStroke(1.5.dp, Color(0xFFC084FC).copy(alpha = 0.6f)),
-                shadowElevation = 2.dp
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                shadowElevation = 1.dp
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(40.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF86198F)),
+                                .background(MaterialTheme.colorScheme.primaryContainer),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "📢", fontSize = 20.sp)
+                            Icon(
+                                imageVector = Icons.Default.CloudDone,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "ক্যাম্পেইন, ওরিয়েন্টেশন ও স্পেশাল ঘোষণা",
+                                text = "স্মার্ট পুশ ও রিয়েলটাইম আপডেট",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF581C87)
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "আপনার ব্যাচ ($userBatch) ও অ্যাকাউন্টের জন্য সক্রিয়",
+                                text = "ব্যাচ ($userBatch), কোর্স এক্সেস ও পেমেন্ট আপডেট সক্রিয়",
                                 fontSize = 12.sp,
-                                color = Color(0xFF7E22CE),
-                                fontWeight = FontWeight.Medium
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = Color(0xFFDCFCE7)
+                        ) {
+                            Text(
+                                text = "সক্রিয়",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF15803D),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
 
-                    Text(
-                        text = "নিচের বাটনগুলো দিয়ে আপনার পছন্দের নোটিফিকেশনগুলো এখনই টেস্ট করে দেখুন:",
-                        fontSize = 12.sp,
-                        color = Color(0xFF6B21A8)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Test Button 1: Orientation LIVE
-                    OutlinedButton(
-                        onClick = {
-                            CampaignNotificationManager.triggerOrientationLiveNotification(
-                                context = context,
-                                batchName = "HSC '27",
-                                quarter = "৫ম কোয়ার্টার",
-                                date = "৪ অক্টোবর",
-                                time = "রাত ৯টা"
-                            )
-                        },
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFF9333EA)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.White,
-                            contentColor = Color(0xFF7E22CE)
-                        )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         ) {
-                            Text(text = "🔴", fontSize = 14.sp)
-                            Text(
-                                text = "HSC '27 ৫ম কোয়ার্টার Orientation LIVE টেস্ট",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("✅ ডিভাইস ও কোর্স", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("এক্সেস ও পেমেন্ট অনুমোদনের তাৎক্ষণিক অ্যালার্ট", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 14.sp)
+                            }
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Test Button 2: Daily Routine Personalized
-                    OutlinedButton(
-                        onClick = {
-                            CampaignNotificationManager.triggerDailyRoutineNotification(
-                                context = context,
-                                studentName = studentName
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFF2563EB)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.White,
-                            contentColor = Color(0xFF1D4ED8)
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         ) {
-                            Text(text = "📅", fontSize = 14.sp)
-                            Text(
-                                text = "আজকের ক্লাস রুটিন (পার্সোনালাইজড) টেস্ট",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Test Button 3: Book Selection Secrets Guideline
-                    OutlinedButton(
-                        onClick = {
-                            CampaignNotificationManager.triggerBookSelectionGuidelineNotification(context)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFF059669)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.White,
-                            contentColor = Color(0xFF047857)
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(text = "🤫", fontSize = 14.sp)
-                            Text(
-                                text = "বই নির্বাচনের সিক্রেট গাইডলাইন টেস্ট",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("⏰ ক্লাস ও পরীক্ষা", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("রুটিন অনুযায়ী স্বয়ংক্রিয় রিমাইন্ডার ও নোটিশ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 14.sp)
+                            }
                         }
                     }
                 }
@@ -880,25 +813,22 @@ fun NotificationSettingsScreen(
                             )
                         }
 
-                        Button(
-                            onClick = { showTerminalDialog = true },
+                        FilledTonalButton(
+                            onClick = { triggerGeneralTestNotification(context) },
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Terminal,
+                                imageVector = Icons.Default.NotificationsActive,
                                 contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "FCM টার্মিনাল",
+                                text = "টেস্ট নোটিফিকেশন",
                                 fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -1312,12 +1242,6 @@ fun NotificationSettingsScreen(
             )
         }
 
-        if (showTerminalDialog) {
-            FcmLiveTerminalDialog(
-                sessionManager = sessionManager,
-                onDismissRequest = { showTerminalDialog = false }
-            )
-        }
     }
 }
 

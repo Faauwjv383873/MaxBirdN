@@ -144,7 +144,12 @@ class SmartNotesViewModel(
                 val progId = _uiState.value.programId.ifBlank {
                     sessionManager.getActiveProgramId() ?: ""
                 }
-                val chaptersList = repository.getSubjectChapters(progId, phaseId, subjectCode)
+                val chaptersList = repository.getSubjectChapters(
+                    programId = progId,
+                    phaseId = phaseId,
+                    subjectCode = subjectCode,
+                    subjectTitle = _uiState.value.subjectTitle
+                )
                 _uiState.update {
                     it.copy(
                         isChaptersLoading = false,
@@ -185,7 +190,12 @@ class SmartNotesViewModel(
 
             if (matchedChapter == null && _uiState.value.chapters.isEmpty() && effectiveSubCode.isNotBlank()) {
                 try {
-                    val chaptersList = repository.getSubjectChapters(effectiveProgId, effectivePhaseId, effectiveSubCode)
+                    val chaptersList = repository.getSubjectChapters(
+                        programId = effectiveProgId,
+                        phaseId = effectivePhaseId,
+                        subjectCode = effectiveSubCode,
+                        subjectTitle = _uiState.value.subjectTitle
+                    )
                     if (chaptersList.isNotEmpty()) {
                         _uiState.update { it.copy(chapters = chaptersList) }
                         matchedChapter = chaptersList.firstOrNull {

@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import com.example.BuildConfig
 import com.example.auth.SessionManager
-import com.example.ui.dialogs.FcmLiveTerminalDialog
 import com.example.ui.dialogs.UpdateDialog
 import com.example.update.AppUpdateInfo
 import com.example.update.AppUpdateRepository
@@ -68,7 +67,6 @@ fun SettingsScreen(
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showEqualizerBottomSheet by remember { mutableStateOf(false) }
-    var showTerminalDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
 
     var formattedCacheSize by remember { mutableStateOf("হিসাব করা হচ্ছে...") }
@@ -179,22 +177,6 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-                },
-                actions = {
-                    FilledTonalIconButton(
-                        onClick = { showTerminalDialog = true },
-                        modifier = Modifier.padding(end = 8.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Terminal,
-                            contentDescription = "FCM টার্মিনাল",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -337,17 +319,6 @@ fun SettingsScreen(
                     subtitle = "তারিখ অনুযায়ী ক্লাস অ্যালার্ম ও $currentLeadTime মি. আগের রিমাইন্ডার",
                     badge = "${currentLeadTime}m",
                     onClick = onNavigateToNotification
-                )
-
-                SectionDivider()
-
-                SettingsRowItem(
-                    icon = Icons.Default.Terminal,
-                    iconTint = Color(0xFF0284C7),
-                    title = "FCM লাইভ টার্মিনাল (মনিটর)",
-                    subtitle = "ক্লাউড নোটিফিকেশন টপিক সাবস্ক্রিপশন ও লাইভ ইভেন্ট লগ",
-                    badge = "রিয়েলটাইম",
-                    onClick = { showTerminalDialog = true }
                 )
 
                 SectionDivider()
@@ -566,14 +537,6 @@ fun SettingsScreen(
                 }
             },
             shape = RoundedCornerShape(24.dp)
-        )
-    }
-
-    // FCM টার্মিনাল ডায়ালগ
-    if (showTerminalDialog) {
-        FcmLiveTerminalDialog(
-            sessionManager = sessionManager,
-            onDismissRequest = { showTerminalDialog = false }
         )
     }
 

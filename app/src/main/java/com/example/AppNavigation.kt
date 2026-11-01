@@ -909,6 +909,31 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.HOME) { inclusive = true }
                     }
+                },
+                onNavigateToAnimatedLessons = {
+                    courseViewModel.selectSubject(subjectCode, title, color ?: "#0072EC")
+                    val encodedTitle = android.net.Uri.encode(title)
+                    val encodedColor = android.net.Uri.encode(color ?: "")
+                    val encodedProgId = android.net.Uri.encode(programId)
+                    val encodedPhaseId = android.net.Uri.encode(phaseId)
+                    navController.navigate(
+                        "animated_lesson_chapters/$subjectCode?title=$encodedTitle&color=$encodedColor&programId=$encodedProgId&phaseId=$encodedPhaseId"
+                    )
+                },
+                onNavigateToPracticeQuiz = {
+                    val encodedTitle = android.net.Uri.encode(title)
+                    val encodedColor = android.net.Uri.encode(color ?: "")
+                    navController.navigate(
+                        "practice_quiz_chapters/$subjectCode?title=$encodedTitle&color=$encodedColor&chapterId=&chapterName="
+                    )
+                },
+                onNavigateToSmartNotes = {
+                    val encodedTitle = android.net.Uri.encode(title)
+                    val encodedColor = android.net.Uri.encode(color ?: "")
+                    val encodedPhaseId = android.net.Uri.encode(phaseId)
+                    navController.navigate(
+                        "smart_notes/$subjectCode?title=$encodedTitle&color=$encodedColor&phaseId=$encodedPhaseId"
+                    )
                 }
             )
         }
