@@ -114,7 +114,7 @@ fun DownloadsScreen(
     val downloadManager = remember { AppFileDownloadManager.getInstance(context) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     val allDownloads by downloadManager.getAllDownloads().collectAsState(initial = emptyList())
     val activeSpeeds by downloadManager.activeSpeedsFlow.collectAsState()
@@ -938,7 +938,7 @@ private fun ActiveDownloadProgressCard(
     downloadManager: AppFileDownloadManager,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
     val isPaused = item.status == DownloadedItemEntity.STATUS_PAUSED
 
     val downloadedStr = remember(item.downloadedBytes) {
@@ -1100,7 +1100,7 @@ fun DownloadedItemCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
     val isVideo = item.fileType.equals(DownloadedItemEntity.FILE_TYPE_VIDEO, ignoreCase = true)
     val isFailed = item.status == DownloadedItemEntity.STATUS_FAILED
     val isPaused = item.status == DownloadedItemEntity.STATUS_PAUSED

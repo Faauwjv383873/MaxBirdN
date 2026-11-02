@@ -2,22 +2,15 @@ package com.example.ui.components
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -25,859 +18,835 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
-import com.example.player.EqualizerAppInfo
+import coil.compose.AsyncImage
 import com.example.player.EqualizerManager
+import com.example.player.ExternalEqualizerAppInfo
+import com.example.ui.theme.isAppInDarkTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EqualizerBottomSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val isConnected by EqualizerManager.isConnected.collectAsState()
-    val isEnabled by EqualizerManager.isEnabled.collectAsState()
-    val currentSessionId by EqualizerManager.currentSessionId.collectAsState()
-    val currentPreset by EqualizerManager.currentPreset.collectAsState()
-    val bandGains by EqualizerManager.bandGains.collectAsState()
-    val bassBoost by EqualizerManager.bassBoost.collectAsState()
-    val virtualizer by EqualizerManager.virtualizer.collectAsState()
-    val loudnessGainDb by EqualizerManager.loudnessGainDb.collectAsState()
-    val installedApps by EqualizerManager.installedEqualizerApps.collectAsState()
-    val statusMessage by EqualizerManager.hardwareStatusMessage.collectAsState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isDark = isAppInDarkTheme()
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Mobile Apps, 1: Built-in EQ
+    var enabled by remember { mutableStateOf(EqualizerManager.isEnabled(context)) }
+    var selectedPreset by remember { mutableIntStateOf(EqualizerManager.getSelectedPresetIndex(context)) }
+    var bassStrength by remember { mutableFloatStateOf(EqualizerManager.getBassStrength(context) / 10f) }
+    var loudnessGain by remember { mutableFloatStateOf(EqualizerManager.getLoudnessGain(context) / 15f) }
+
+    var selectedExtPkg by remember { mutableStateOf(EqualizerManager.getSelectedExternalAppPackage(context)) }
+    var selectedExtName by remember { mutableStateOf(EqualizerManager.getSelectedExternalAppName(context)) }
+
+    var band0 by remember { mutableFloatStateOf(EqualizerManager.getCustomBandPercent(context, 0).toFloat()) }
+    var band1 by remember { mutableFloatStateOf(EqualizerManager.getCustomBandPercent(context, 1).toFloat()) }
+    var band2 by remember { mutableFloatStateOf(EqualizerManager.getCustomBandPercent(context, 2).toFloat()) }
+    var band3 by remember { mutableFloatStateOf(EqualizerManager.getCustomBandPercent(context, 3).toFloat()) }
+    var band4 by remember { mutableFloatStateOf(EqualizerManager.getCustomBandPercent(context, 4).toFloat()) }
+
+    val installedEqualizerApps = remember {
+        EqualizerManager.scanInstalledEqualizerApps(context)
+    }
+
+    // Open directly on the user's last active mode ("mobile" vs "builtin")
+    var activeTab by remember {
+        val savedMode = EqualizerManager.getActiveMode(context)
+        mutableIntStateOf(if (savedMode == EqualizerManager.MODE_BUILTIN && selectedExtPkg == null) 1 else 0)
+    }
+
+    fun syncBandsFromManager() {
+        band0 = EqualizerManager.getCustomBandPercent(context, 0).toFloat()
+        band1 = EqualizerManager.getCustomBandPercent(context, 1).toFloat()
+        band2 = EqualizerManager.getCustomBandPercent(context, 2).toFloat()
+        band3 = EqualizerManager.getCustomBandPercent(context, 3).toFloat()
+        band4 = EqualizerManager.getCustomBandPercent(context, 4).toFloat()
+    }
+
+    val sheetBg = if (isDark) Color(0xFF0B1322) else Color.White
+    val cardBg = if (isDark) Color(0xFF131F33) else Color(0xFFF8FAFC)
+    val cardBorder = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        dragHandle = {
-            Surface(
-                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            ) {
-                Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
-            }
-        }
+        sheetState = sheetState,
+        containerColor = sheetBg,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.92f)
-                .padding(horizontal = 18.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header: Title + Session Badge + Connect Switch
-            Row(
+            // 1. Studio Header Banner
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF0F172A), Color(0xFF1E3A8A), Color(0xFF0284C7))
+                        )
+                    )
+                    .padding(18.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isConnected) Color(0xFF10B981).copy(alpha = 0.15f)
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "ইকুলাইজার",
-                            tint = if (isConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "অডিও ইকুলাইজার স্টুডিও",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            val activeLabel = when {
+                                !selectedExtName.isNullOrBlank() -> "সংযুক্ত: $selectedExtName"
+                                enabled -> "বিল্ট-ইন ইকুলাইজার সক্রিয়"
+                                else -> "পছন্দের ইকুলাইজার সিলেক্ট করুন"
+                            }
+                            Text(
+                                text = activeLabel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF7DD3FC),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
-                    Column {
-                        Text(
-                            text = "অডিও ইকুলাইজার (Equalizer)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xFF10B981).copy(alpha = 0.22f),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.45f))
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(7.dp)
                                     .clip(CircleShape)
-                                    .background(if (isConnected) Color(0xFF10B981) else Color.Gray)
+                                    .background(Color(0xFF34D399))
                             )
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = if (isConnected) {
-                                    if (currentSessionId > 0) "কানেক্টেড (সেশন #$currentSessionId)" else "কানেক্টেড (স্ট্যান্ডবাই)"
-                                } else {
-                                    "ডিসকানেক্টেড"
-                                },
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = if (isConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "Auto-Save",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF6EE7B7)
                             )
                         }
                     }
                 }
-
-                // Master Connect Switch
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = if (isConnected) "কানেক্টেড" else "সংযোগ বন্ধ",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Switch(
-                        checked = isConnected,
-                        onCheckedChange = { checked ->
-                            EqualizerManager.setConnected(context, checked)
-                            val toastMsg = if (checked) "ইকুলাইজার সফলভাবে কানেক্ট করা হয়েছে!" else "ইকুলাইজার ডিসকানেক্ট করা হয়েছে"
-                            Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF10B981)
-                        )
-                    )
-                }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Navigation Tabs: Mobile Equalizer Apps vs Built-in EQ
-            TabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                contentColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-            ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text(
-                                text = "মোবাইলের ইকুলাইজার (${installedApps.size})",
-                                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Text(
-                                text = "বিল্ট-ইন কন্ট্রোল",
-                                fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Tab Content
-            when (selectedTab) {
-                0 -> MobileEqualizerAppsTab(
-                    context = context,
-                    installedApps = installedApps,
-                    isConnected = isConnected,
-                    currentSessionId = currentSessionId,
-                    statusMessage = statusMessage,
-                    onSwitchToBuiltIn = { selectedTab = 1 }
-                )
-                1 -> BuiltInEqualizerTab(
-                    context = context,
-                    isEnabled = isEnabled,
-                    isConnected = isConnected,
-                    currentPreset = currentPreset,
-                    bandGains = bandGains,
-                    bassBoost = bassBoost,
-                    virtualizer = virtualizer,
-                    loudnessGainDb = loudnessGainDb
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MobileEqualizerAppsTab(
-    context: android.content.Context,
-    installedApps: List<EqualizerAppInfo>,
-    isConnected: Boolean,
-    currentSessionId: Int,
-    statusMessage: String,
-    onSwitchToBuiltIn: () -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item {
-            // Explanation Banner
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "লাইভ অডিও সিঙ্ক কানেকশন",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "মোবাইলে থাকা যেকোনো ইকুলাইজার অ্যাপ দিয়ে আমাদের অডিও সরাসরি নিয়ন্ত্রণ করা যাবে। সেখানে যেকোনো ব্যান্ডের পরিবর্তন করলে এখানেও সাথে সাথে কাজ করবে।",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                            lineHeight = 17.sp
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            // Quick Action: Open System Sound Panel / Chooser
-            Button(
-                onClick = {
-                    val success = EqualizerManager.openSystemEqualizerChooser(context)
-                    if (!success) {
-                        Toast.makeText(context, "সিস্টেম প্যানেল খুলতে পারছে না, বিল্ট-ইন ইকুলাইজার ব্যবহার করুন", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Icon(imageVector = Icons.Default.Launch, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "মোবাইলের সিস্টেম ইকুলাইজার প্যানেল খুলুন",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-            }
-        }
-
-        item {
+            // 2. Mode Switcher Tabs (Mobile Equalizer vs Built-in Control)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(cardBg)
+                    .border(1.dp, cardBorder, RoundedCornerShape(16.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
-                    text = "ফোনে পাওয়া ইকুলাইজার অ্যাপসমূহ (${installedApps.size})",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurface
+                val tabs = listOf(
+                    "মোবাইল ইকুলাইজার" to Icons.Default.PhoneAndroid,
+                    "বিল্ট-ইন কন্ট্রোল" to Icons.Default.Tune
                 )
-                TextButton(
-                    onClick = {
-                        val updated = EqualizerManager.scanInstalledEqualizerApps(context)
-                        Toast.makeText(context, "${updated.size} টি ইকুলাইজার পাওয়া গেছে", Toast.LENGTH_SHORT).show()
+                tabs.forEachIndexed { idx, (label, icon) ->
+                    val isSelected = activeTab == idx
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) Color(0xFF0284C7) else Color.Transparent,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                activeTab = idx
+                                EqualizerManager.setActiveMode(
+                                    context,
+                                    if (idx == 0) EqualizerManager.MODE_MOBILE else EqualizerManager.MODE_BUILTIN
+                                )
+                            }
+                            .testTag("eq_tab_$idx")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 11.dp, horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (isSelected) Color.White else secondaryText,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = label,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isSelected) Color.White else secondaryText
+                            )
+                        }
                     }
-                ) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("রিফ্রেশ", fontSize = 12.sp)
                 }
             }
-        }
 
-        if (installedApps.isEmpty()) {
-            item {
-                Surface(
+            if (activeTab == 0) {
+                // =========================================================================
+                // TAB 0: MOBILE EQUALIZER (PERMANENT SELECTION & ONE-TAP PANEL LAUNCH)
+                // =========================================================================
+
+                // Active Persistent Connection Banner
+                if (!selectedExtName.isNullOrBlank()) {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFF10B981).copy(alpha = if (isDark) 0.14f else 0.08f)
+                        ),
+                        border = BorderStroke(1.5.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF10B981),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "$selectedExtName সিলেক্ট করা আছে",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = primaryText
+                                )
+                                Text(
+                                    text = "প্রতিবার ক্লাস প্লে করলে এটি স্বয়ংক্রিয়ভাবে কাজ করবে",
+                                    fontSize = 11.5.sp,
+                                    color = secondaryText
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = "আপনার মোবাইলে থাকা ইকুলাইজার নির্বাচন করুন:",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = primaryText
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    installedEqualizerApps.forEach { appInfo ->
+                        val isSelected = selectedExtPkg == appInfo.packageName
+                        MobileEqualizerSelectCard(
+                            appInfo = appInfo,
+                            isSelected = isSelected,
+                            isDark = isDark,
+                            onSelect = {
+                                EqualizerManager.selectMobileEqualizerApp(
+                                    context = context,
+                                    appInfo = appInfo,
+                                    openPanelImmediately = false
+                                )
+                                selectedExtPkg = appInfo.packageName
+                                selectedExtName = appInfo.appName
+                                Toast.makeText(
+                                    context,
+                                    "'${appInfo.appName}' স্থায়ীভাবে সিলেক্ট করা হয়েছে!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onOpenControlPanel = {
+                                EqualizerManager.selectMobileEqualizerApp(
+                                    context = context,
+                                    appInfo = appInfo,
+                                    openPanelImmediately = true
+                                )
+                                selectedExtPkg = appInfo.packageName
+                                selectedExtName = appInfo.appName
+                            }
+                        )
+                    }
+                }
+
+                // System Sound Control Panel Quick Action Button
+                OutlinedButton(
+                    onClick = {
+                        EqualizerManager.openSystemEqualizerPanel(context)
+                    },
                     shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("open_system_equalizer_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SettingsVoice,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7),
+                        modifier = Modifier.size(19.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "ডিভাইসের সাউন্ড কন্ট্রোল প্যানেল খুলুন",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0284C7)
+                    )
+                }
+            } else {
+                // =========================================================================
+                // TAB 1: BUILT-IN STUDIO EQUALIZER (5-BAND GRAPHIC EQ + BASS + LOUDNESS)
+                // =========================================================================
+
+                // Built-in EQ Master Switch Card
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (enabled) Color(0xFF0284C7).copy(alpha = 0.12f) else cardBg
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (enabled) Color(0xFF0284C7).copy(alpha = 0.45f) else cardBorder
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF0284C7).copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Equalizer,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "বিল্ট-ইন স্টুডিও ইকুলাইজার",
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = primaryText
+                                )
+                                Text(
+                                    text = if (enabled) "কাস্টম সাউন্ড বুস্টার সক্রিয় আছে" else "চালু করতে সুইচটি অন করুন",
+                                    fontSize = 11.5.sp,
+                                    color = secondaryText
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = enabled,
+                            onCheckedChange = { isChecked ->
+                                enabled = isChecked
+                                EqualizerManager.setEnabled(context, isChecked)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
+                            ),
+                            modifier = Modifier.testTag("equalizer_master_switch")
+                        )
+                    }
+                }
+
+                // Sound Presets Grid
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "সাউন্ড প্রিসেট প্রোফাইল",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = primaryText
+                    )
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        maxItemsInEachRow = 2
+                    ) {
+                        EqualizerManager.presets.forEach { preset ->
+                            val isSelected = selectedPreset == preset.index
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = if (isSelected) Color(0xFF0284C7) else cardBg,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF0284C7) else cardBorder
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        if (!enabled) {
+                                            enabled = true
+                                            EqualizerManager.setEnabled(context, true)
+                                        }
+                                        selectedPreset = preset.index
+                                        EqualizerManager.setSelectedPresetIndex(context, preset.index)
+                                        syncBandsFromManager()
+                                    }
+                                    .testTag("eq_preset_${preset.index}")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = preset.nameBn,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (isSelected) Color.White else primaryText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = preset.subtitleBn,
+                                        fontSize = 10.5.sp,
+                                        color = if (isSelected) Color.White.copy(alpha = 0.85f) else secondaryText,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Bass Boost & Vocal Loudness Boost Card
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.dp, cardBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "কোনো বাহ্যিক ইকুলাইজার অ্যাপ ডিটেক্ট হয়নি",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "চিন্তার কিছু নেই! আপনার ফোনে আলাদা ইকুলাইজার অ্যাপ না থাকলেও আমাদের অ্যাপের নিজস্ব 'বিল্ট-ইন কন্ট্রোল' থেকে বেস, ট্রেবল ও ৫-ব্যান্ড ফ্রিকোয়েন্সি নিয়ন্ত্রণ করতে পারবেন।",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 17.sp
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = onSwitchToBuiltIn,
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.GraphicEq, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("বিল্ট-ইন ইকুলাইজারে যান", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
-                        }
-                    }
-                }
-            }
-        } else {
-            items(installedApps) { app ->
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            EqualizerManager.openEqualizerApp(context, app)
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (app.icon != null) {
-                                val bitmap = remember(app.packageName) {
-                                    try {
-                                        app.icon.toBitmap(width = 44, height = 44).asImageBitmap()
-                                    } catch (_: Exception) {
-                                        null
-                                    }
-                                }
-                                if (bitmap != null) {
-                                    androidx.compose.foundation.Image(
-                                        bitmap = bitmap,
-                                        contentDescription = app.appName,
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-
-                            Column {
-                                Text(
-                                    text = app.appName,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = if (app.isSystemDefault) "সিস্টেম ডিফল্ট ইকুলাইজার" else app.packageName,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = { EqualizerManager.openEqualizerApp(context, app) },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        ) {
-                            Text("কানেক্ট ও ওপেন", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            // Technical session info card
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "অডিও ব্রডকাস্ট টেকনিক্যাল স্ট্যাটাস",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "• অডিও সেশন আইডি: ${if (currentSessionId > 0) "#$currentSessionId" else "অপেক্ষমান"}\n• ব্রডকাস্ট অ্যাকশন: OPEN_AUDIO_EFFECT_CONTROL_SESSION\n• স্ট্যাটাস: $statusMessage",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BuiltInEqualizerTab(
-    context: android.content.Context,
-    isEnabled: Boolean,
-    isConnected: Boolean,
-    currentPreset: String,
-    bandGains: List<Int>,
-    bassBoost: Int,
-    virtualizer: Int,
-    loudnessGainDb: Float
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "audio_anim")
-    val wavePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 6.28f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "phase"
-    )
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(bottom = 28.dp)
-    ) {
-        // Equalizer Power Switch
-        item {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PowerSettingsNew,
-                            contentDescription = null,
-                            tint = if (isEnabled) MaterialTheme.colorScheme.primary else Color.Gray,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = if (isEnabled) "ইকুলাইজার সক্রিয় (Power ON)" else "ইকুলাইজার বাইপাস (Power OFF)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.5.sp
-                        )
-                    }
-
-                    Switch(
-                        checked = isEnabled,
-                        onCheckedChange = { EqualizerManager.setEnabled(context, it) }
-                    )
-                }
-            }
-        }
-
-        // Live Frequency Visualizer Curve
-        item {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Black.copy(alpha = 0.88f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(95.dp)
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val width = size.width
-                        val height = size.height
-                        val midY = height / 2f
-
-                        // Draw baseline
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.15f),
-                            start = Offset(0f, midY),
-                            end = Offset(width, midY),
-                            strokeWidth = 1f
-                        )
-
-                        // Draw interactive curve based on bandGains
-                        val path = Path()
-                        val bandStep = width / (bandGains.size + 1)
-                        path.moveTo(0f, midY)
-
-                        val points = mutableListOf<Offset>()
-                        points.add(Offset(0f, midY))
-                        for (i in bandGains.indices) {
-                            val x = bandStep * (i + 1)
-                            // Map -15..15 dB to Y deviation (-height/2.4 .. +height/2.4)
-                            val gain = bandGains[i]
-                            val dynamicMod = if (isEnabled) kotlin.math.sin(wavePhase + i * 1.2f) * 3f else 0f
-                            val y = midY - (gain / 15f) * (height * 0.35f) + dynamicMod.toFloat()
-                            points.add(Offset(x, y))
-                        }
-                        points.add(Offset(width, midY))
-
-                        // Smooth bezier through points
-                        for (i in 0 until points.size - 1) {
-                            val p0 = points[i]
-                            val p1 = points[i + 1]
-                            val cx = (p0.x + p1.x) / 2f
-                            path.quadraticTo(p0.x, p0.y, cx, (p0.y + p1.y) / 2f)
-                        }
-                        path.lineTo(width, midY)
-
-                        drawPath(
-                            path = path,
-                            color = Color(0xFF10B981),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.5f)
-                        )
-                    }
-
-                    // Overlay labels
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("লো (Bass)", fontSize = 10.sp, color = Color.White.copy(alpha = 0.5f))
-                        Text("মিড (Voice)", fontSize = 10.sp, color = Color.White.copy(alpha = 0.5f))
-                        Text("হাই (Treble)", fontSize = 10.sp, color = Color.White.copy(alpha = 0.5f))
-                    }
-                }
-            }
-        }
-
-        // Sound Presets Carousel
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "সাউন্ড প্রিসেটস (Presets)",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.5.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(horizontal = 2.dp)
-                ) {
-                    items(EqualizerManager.PRESETS) { preset ->
-                        val isSelected = currentPreset == preset.id
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { EqualizerManager.applyPreset(context, preset.id) },
-                            label = {
-                                Text(
-                                    text = preset.nameBangla,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        // 5-Band Sliders
-        item {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "৫-ব্যান্ড ফ্রিকোয়েন্সি লেভেল",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.5.sp
-                        )
-                        TextButton(
-                            onClick = { EqualizerManager.resetToDefault(context) },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text("রিসেট", fontSize = 12.sp)
-                        }
-                    }
-
-                    val bandLabels = listOf(
-                        "60 Hz (সাব-বেস)",
-                        "230 Hz (বেস)",
-                        "910 Hz (ভয়েস স্পষ্ট)",
-                        "3.6 kHz (শার্পনেস)",
-                        "14 kHz (ট্রেবল)"
-                    )
-
-                    for (i in bandGains.indices) {
-                        val gain = bandGains[i]
-                        val label = bandLabels.getOrElse(i) { "Band $i" }
+                        // Loudness / Voice Clarity Booster
                         Column {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text(
-                                    text = "${if (gain > 0) "+$gain" else "$gain"} dB",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (gain > 0) Color(0xFF10B981) else if (gain < 0) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.RecordVoiceOver,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "ভয়েস ও লাউডনেস বুস্টার",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = primaryText
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.14f)
+                                ) {
+                                    Text(
+                                        text = "${loudnessGain.toInt()}%",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF0284C7),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                             Slider(
-                                value = gain.toFloat(),
-                                onValueChange = { newVal ->
-                                    EqualizerManager.setBandGain(context, i, newVal.toInt())
+                                value = loudnessGain,
+                                onValueChange = {
+                                    if (!enabled) {
+                                        enabled = true
+                                        EqualizerManager.setEnabled(context, true)
+                                    }
+                                    loudnessGain = it
+                                    EqualizerManager.setLoudnessGain(context, (it * 15).toInt())
                                 },
-                                valueRange = -15f..15f,
-                                steps = 29,
-                                enabled = isEnabled,
+                                valueRange = 0f..100f,
                                 colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary
+                                    thumbColor = Color(0xFF0284C7),
+                                    activeTrackColor = Color(0xFF0284C7)
                                 )
                             )
+                        }
+
+                        HorizontalDivider(color = cardBorder)
+
+                        // Deep Bass Booster
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Speaker,
+                                        contentDescription = null,
+                                        tint = Color(0xFF7C3AED),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "ডিপ বেস বুস্টার (Bass Boost)",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = primaryText
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF7C3AED).copy(alpha = 0.14f)
+                                ) {
+                                    Text(
+                                        text = "${bassStrength.toInt()}%",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF7C3AED),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Slider(
+                                value = bassStrength,
+                                onValueChange = {
+                                    if (!enabled) {
+                                        enabled = true
+                                        EqualizerManager.setEnabled(context, true)
+                                    }
+                                    bassStrength = it
+                                    EqualizerManager.setBassStrength(context, (it * 10).toInt())
+                                },
+                                valueRange = 0f..100f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF7C3AED),
+                                    activeTrackColor = Color(0xFF7C3AED)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // 5-Band Frequency Studio Sliders
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "৫-ব্যান্ড ফ্রিকোয়েন্সি টিউনার",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = primaryText
+                            )
+                            TextButton(
+                                onClick = {
+                                    selectedPreset = 1
+                                    EqualizerManager.setSelectedPresetIndex(context, 1)
+                                    syncBandsFromManager()
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("রিসেট (0 dB)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        val bands = listOf(
+                            Triple(0, "60 Hz (Sub-Bass)", band0) to { v: Float ->
+                                band0 = v
+                                selectedPreset = 5
+                                EqualizerManager.setCustomBandPercent(context, 0, v.toInt())
+                            },
+                            Triple(1, "230 Hz (Bass)", band1) to { v: Float ->
+                                band1 = v
+                                selectedPreset = 5
+                                EqualizerManager.setCustomBandPercent(context, 1, v.toInt())
+                            },
+                            Triple(2, "910 Hz (Vocal Mid)", band2) to { v: Float ->
+                                band2 = v
+                                selectedPreset = 5
+                                EqualizerManager.setCustomBandPercent(context, 2, v.toInt())
+                            },
+                            Triple(3, "3.6 kHz (Presence)", band3) to { v: Float ->
+                                band3 = v
+                                selectedPreset = 5
+                                EqualizerManager.setCustomBandPercent(context, 3, v.toInt())
+                            },
+                            Triple(4, "14 kHz (Air Treble)", band4) to { v: Float ->
+                                band4 = v
+                                selectedPreset = 5
+                                EqualizerManager.setCustomBandPercent(context, 4, v.toInt())
+                            }
+                        )
+
+                        bands.forEach { (info, onUpdate) ->
+                            val (_, label, value) = info
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = secondaryText
+                                    )
+                                    val sign = if (value > 0) "+" else ""
+                                    Text(
+                                        text = "$sign${(value / 10f).toInt()} dB",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (value != 0f) Color(0xFF0284C7) else secondaryText
+                                    )
+                                }
+                                Slider(
+                                    value = value,
+                                    onValueChange = {
+                                        if (!enabled) {
+                                            enabled = true
+                                            EqualizerManager.setEnabled(context, true)
+                                        }
+                                        onUpdate(it)
+                                    },
+                                    valueRange = -100f..100f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF0284C7),
+                                        activeTrackColor = Color(0xFF0284C7)
+                                    ),
+                                    modifier = Modifier.height(28.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
 
-        // Bass Boost, Virtualizer & Loudness Enhancers
-        item {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+@Composable
+private fun MobileEqualizerSelectCard(
+    appInfo: ExternalEqualizerAppInfo,
+    isSelected: Boolean,
+    isDark: Boolean,
+    onSelect: () -> Unit,
+    onOpenControlPanel: () -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF131F33) else Color(0xFFF8FAFC)
+    val borderCol = if (isSelected) Color(0xFF10B981) else if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = if (isSelected) {
+            Color(0xFF10B981).copy(alpha = if (isDark) 0.14f else 0.08f)
+        } else {
+            cardBg
+        },
+        border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderCol),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onSelect)
+            .testTag("ext_eq_app_${appInfo.packageName}")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // App Icon
+            if (appInfo.icon != null) {
+                AsyncImage(
+                    model = appInfo.icon,
+                    contentDescription = appInfo.appName,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF0284C7).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "সাউন্ড এফেক্টস ও বুস্টার",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.5.sp
+                    Icon(
+                        imageVector = Icons.Default.Equalizer,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7),
+                        modifier = Modifier.size(24.dp)
                     )
-
-                    // 1. Bass Boost
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.Speaker, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF6366F1))
-                                Text("বেস বুস্টার (Bass Boost)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Text("$bassBoost%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6366F1))
-                        }
-                        Slider(
-                            value = bassBoost.toFloat(),
-                            onValueChange = { EqualizerManager.setBassBoost(context, it.toInt()) },
-                            valueRange = 0f..100f,
-                            enabled = isEnabled,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF6366F1),
-                                activeTrackColor = Color(0xFF6366F1)
-                            )
-                        )
-                    }
-
-                    // 2. 3D Virtualizer
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.SurroundSound, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF0284C7))
-                                Text("ভার্চুয়ালাইজার (3D Spatial Audio)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Text("$virtualizer%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0284C7))
-                        }
-                        Slider(
-                            value = virtualizer.toFloat(),
-                            onValueChange = { EqualizerManager.setVirtualizer(context, it.toInt()) },
-                            valueRange = 0f..100f,
-                            enabled = isEnabled,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF0284C7),
-                                activeTrackColor = Color(0xFF0284C7)
-                            )
-                        )
-                    }
-
-                    // 3. Loudness Enhancer
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFEA580C))
-                                Text("লাউডনেস বুস্ট (Volume Gain)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Text(
-                                text = String.format(java.util.Locale.US, "+%.1f dB", loudnessGainDb),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFEA580C)
-                            )
-                        }
-                        Slider(
-                            value = loudnessGainDb,
-                            onValueChange = { EqualizerManager.setLoudnessGain(context, it) },
-                            valueRange = 0f..12f,
-                            enabled = isEnabled,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFFEA580C),
-                                activeTrackColor = Color(0xFFEA580C)
-                            )
-                        )
-                    }
                 }
             }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = appInfo.appName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = primaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (isSelected) {
+                        "স্থায়ীভাবে সিলেক্টেড • অটো-কানেক্ট চালু"
+                    } else {
+                        "সিলেক্ট করতে ট্যাপ করুন"
+                    },
+                    fontSize = 11.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) Color(0xFF10B981) else secondaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            if (isSelected) {
+                FilledTonalIconButton(
+                    onClick = onOpenControlPanel,
+                    modifier = Modifier.size(36.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = Color(0xFF0284C7).copy(alpha = 0.16f)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = "Open Equalizer Panel",
+                        tint = Color(0xFF0284C7),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+
+            RadioButton(
+                selected = isSelected,
+                onClick = onSelect,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = Color(0xFF10B981),
+                    unselectedColor = secondaryText
+                )
+            )
         }
     }
 }

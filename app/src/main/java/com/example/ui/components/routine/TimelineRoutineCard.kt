@@ -37,7 +37,7 @@ fun TimelineRoutineCard(
     modifier: Modifier = Modifier,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
     val st = lesson.start_time ?: lesson.live_class?.start_time
     val et = lesson.end_time ?: lesson.live_class?.end_time
 

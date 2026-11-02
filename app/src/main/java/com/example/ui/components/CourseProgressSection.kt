@@ -46,7 +46,7 @@ fun CourseProgressSection(
     modifier: Modifier = Modifier
 ) {
     val displayPhases = phases
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     Column(
         modifier = modifier
@@ -259,7 +259,7 @@ private fun QuarterCard(
     isUpcoming: Boolean,
     onClick: () -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     // LOGIC: badge text/colors হুবহু সেম
     val (badgeText, badgeBg, badgeTextColor) = when {

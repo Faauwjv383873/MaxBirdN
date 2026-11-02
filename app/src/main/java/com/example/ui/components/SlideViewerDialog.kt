@@ -292,6 +292,20 @@ fun PdfViewerContent(
     var readingTheme by remember { mutableStateOf(ReadingTheme.DAY) }
     var isFullscreen by remember { mutableStateOf(false) }
     var showShareBottomSheet by remember { mutableStateOf(false) }
+    var canViewProfiles by remember {
+        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
+
+    LaunchedEffect(slideUrl) {
+        val freshPerm = com.example.security.DeviceActivationRepository.checkProfileViewPermission(
+            context = context,
+            forceRefresh = true
+        )
+        canViewProfiles = freshPerm
+        if (!freshPerm) {
+            showShareBottomSheet = false
+        }
+    }
 
     // Resolve target file strictly for in-app viewing
     val targetPdfFile = remember(
@@ -456,6 +470,7 @@ fun PdfViewerContent(
                         readingTheme = readingTheme,
                         isLandscape = isLandscapeMode,
                         downloadedItem = effectiveDownloadedItem,
+                        canShare = canViewProfiles,
                         onDismiss = onBack,
                         onToggleOrientation = {
                             val newLandscape = !isLandscapeMode
@@ -467,7 +482,9 @@ fun PdfViewerContent(
                             }
                         },
                         onShareClick = {
-                            showShareBottomSheet = true
+                            if (canViewProfiles) {
+                                showShareBottomSheet = true
+                            }
                         },
                         onToggleViewMode = {
                             viewMode = if (viewMode == PdfViewMode.VERTICAL_SCROLL) {
@@ -600,12 +617,13 @@ fun PdfViewerContent(
             }
         }
 
-        // Share Bottom Sheet / Dialog with 2 clean options: File Share & Link Copy
-        if (showShareBottomSheet) {
+        // Share Bottom Sheet / Dialog with 2 clean options: File Share & Link Copy (strictly gated by can_view_profiles)
+        if (showShareBottomSheet && canViewProfiles) {
             PdfShareBottomSheet(
                 title = title,
                 pdfFile = targetPdfFile,
                 pdfUrl = remoteCandidateUrl ?: effectiveDownloadedItem?.remoteUrl,
+                canShare = canViewProfiles,
                 onDismiss = { showShareBottomSheet = false }
             )
         }
@@ -667,6 +685,7 @@ private fun PdfViewerTopBar(
     readingTheme: ReadingTheme,
     isLandscape: Boolean,
     downloadedItem: DownloadedItemEntity?,
+    canShare: Boolean = false,
     isBookmarked: Boolean = false,
     onBookmarkClick: () -> Unit = {},
     onDismiss: () -> Unit,
@@ -759,17 +778,19 @@ private fun PdfViewerTopBar(
                 )
             }
 
-            // 2. Share Button (File send & Copy link)
-            IconButton(
-                onClick = onShareClick,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Share,
-                    contentDescription = "শেয়ার করুন",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
+            // 2. Share Button (File send & Copy link) - ONLY visible for devices with can_view_profiles permission
+            if (canShare) {
+                IconButton(
+                    onClick = onShareClick,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "শেয়ার করুন",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             // 3. Mode Switcher: Continuous Scroll vs Single Slide Presentation
@@ -1346,8 +1367,13 @@ private fun PdfShareBottomSheet(
     title: String,
     pdfFile: File?,
     pdfUrl: String?,
+    canShare: Boolean,
     onDismiss: () -> Unit
 ) {
+    if (!canShare) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -1391,6 +1417,9 @@ private fun PdfShareBottomSheet(
                     .clip(RoundedCornerShape(16.dp))
                     .clickable {
                         onDismiss()
+                        if (!canShare || !com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+                            return@clickable
+                        }
                         if (pdfFile != null && pdfFile.exists() && pdfFile.length() > 0) {
                             try {
                                 val uri = FileProvider.getUriForFile(
@@ -1463,6 +1492,9 @@ private fun PdfShareBottomSheet(
                     .clip(RoundedCornerShape(16.dp))
                     .clickable {
                         onDismiss()
+                        if (!canShare || !com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+                            return@clickable
+                        }
                         val linkToCopy = pdfUrl
                         if (!linkToCopy.isNullOrBlank()) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager

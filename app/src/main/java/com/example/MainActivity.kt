@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 startupScope.launch(Dispatchers.IO) {
                     val info = AppUpdateRepository.fetchLatestUpdate()
-                    if (info != null && info.versionCode > BuildConfig.VERSION_CODE) {
+                    if (info != null && AppUpdateRepository.isUpdateRequired(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                         withContext(Dispatchers.Main) {
                             startupUpdateInfo = info
                         }

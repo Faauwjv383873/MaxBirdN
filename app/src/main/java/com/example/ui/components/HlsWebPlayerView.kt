@@ -70,7 +70,7 @@ fun HlsWebPlayerView(
             <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
         </head>
         <body>
-            <video id="video" controls autoplay playsinline webkit-playsinline></video>
+            <video id="video" controls controlsList="nodownload" disablePictureInPicture autoplay playsinline webkit-playsinline oncontextmenu="return false;"></video>
             <script>
                 var video = document.getElementById('video');
                 var videoSrc = "$streamUrl";
@@ -89,6 +89,11 @@ fun HlsWebPlayerView(
         """.trimIndent()
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val canOpenExternal = remember(context) {
+        com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)
+    }
+
     Box(modifier = modifier.background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
@@ -101,9 +106,11 @@ fun HlsWebPlayerView(
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         mediaPlaybackRequiresUserGesture = false
-                        allowFileAccess = true
+                        allowFileAccess = false
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     }
+                    setOnLongClickListener { true }
+                    isLongClickable = false
                     webChromeClient = WebChromeClient()
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
@@ -192,13 +199,15 @@ fun HlsWebPlayerView(
                         Icon(Icons.Default.Refresh, contentDescription = "রিফ্রেশ", tint = Color.White, modifier = Modifier.size(16.dp))
                     }
                 }
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.75f),
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    IconButton(onClick = onOpenExternal) {
-                        Icon(Icons.Default.OpenInBrowser, contentDescription = "ব্রাউজার", tint = Color.White, modifier = Modifier.size(16.dp))
+                if (canOpenExternal) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.75f),
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        IconButton(onClick = onOpenExternal) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = "ব্রাউজার", tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
                 Surface(

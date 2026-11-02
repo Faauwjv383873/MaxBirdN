@@ -27,7 +27,7 @@ fun ResetSuccessScreen(
     phone: String,
     onLoginClick: (String) -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     val backgroundGradient = remember(isDark) {
         if (isDark) {

@@ -63,6 +63,7 @@ fun SmartNotesScreen(
     subjectTitle: String,
     subjectColorHex: String?,
     phaseId: String?,
+    programId: String? = null,
     viewModel: SmartNotesViewModel,
     onBack: () -> Unit,
     onNavigateToChapterResources: (chapterId: String, chapterName: String, subjectCode: String, phaseId: String) -> Unit,
@@ -83,12 +84,13 @@ fun SmartNotesScreen(
         }
     }
 
-    LaunchedEffect(subjectCode, phaseId) {
+    LaunchedEffect(subjectCode, phaseId, programId) {
         viewModel.initialize(
             subjectCode = subjectCode,
             subjectTitle = subjectTitle,
             subjectColor = subjectColorHex,
-            phaseId = phaseId
+            phaseId = phaseId,
+            programId = programId
         )
     }
 

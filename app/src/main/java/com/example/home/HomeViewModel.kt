@@ -497,18 +497,27 @@ class HomeViewModel(
                 commerceSnapshot.isCourseActivelyUnlocked(prog.id, prog.title_bn)
             }
 
-            // একটিভ কোর্স নির্ধারণ (ইউজারের সেভ করা কোর্স অথবা প্রথমটি)
+            // একটিভ কোর্স নির্ধারণ (হোম স্ক্রিনের কোর্স সুইচারে ইউজারের সিলেক্ট করা কোর্স সবসময় স্থির থাকবে)
             val savedProgramId = sessionManager.getActiveProgramId()
-            val active = allPrograms.firstOrNull { it.id == savedProgramId } ?: allPrograms.firstOrNull()
+            val savedTitleBn = sessionManager.getActiveProgramTitleBn()
+            val currentMemoryId = _uiState.value.activeProgram?.id
+
+            val active = allPrograms.firstOrNull { !savedProgramId.isNullOrBlank() && it.id == savedProgramId }
+                ?: allPrograms.firstOrNull { !currentMemoryId.isNullOrBlank() && it.id == currentMemoryId }
+                ?: allPrograms.firstOrNull { !savedTitleBn.isNullOrBlank() && it.title_bn == savedTitleBn }
+                ?: allPrograms.firstOrNull()
 
             if (active != null) {
-                sessionManager.saveActiveProgram(
-                    programId = active.id,
-                    titleBn = active.title_bn,
-                    batchId = active.enrollment_details?.batch_id,
-                    classCode = active.classes?.firstOrNull()
-                )
-            } else {
+                // শুধুমাত্র তখনই সেভ করা হবে যদি আগে কোনো হোম কোর্স সেভ না থাকে অথবা বর্তমান সিলেক্টেড কোর্সের সাথেই মিলে যায়
+                if (savedProgramId.isNullOrBlank() || active.id == savedProgramId) {
+                    sessionManager.saveActiveProgram(
+                        programId = active.id,
+                        titleBn = active.title_bn,
+                        batchId = active.enrollment_details?.batch_id,
+                        classCode = active.classes?.firstOrNull()
+                    )
+                }
+            } else if (allPrograms.isEmpty() && unfilteredAllPrograms.isNotEmpty()) {
                 sessionManager.clearActiveProgram()
             }
 

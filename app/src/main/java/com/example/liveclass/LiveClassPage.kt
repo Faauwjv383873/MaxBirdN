@@ -188,8 +188,12 @@ fun LiveClassPage(
     var videoPan by remember { mutableStateOf(Offset.Zero) }
 
     var selectedRole by remember { mutableStateOf("teacher") } // "teacher", "student", "all"
+    var canViewProfiles by remember {
+        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
 
     var lectureSlideUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    var activeLiveSlideUrl by remember { mutableStateOf<String?>(null) }
     var isLiveOnGoing by remember { mutableStateOf(true) }
 
     val masterUrl by wsManager.masterUrl.collectAsState()
@@ -204,6 +208,14 @@ fun LiveClassPage(
 
     val effectiveLessonTitle = serverRoomTitle.ifBlank { lessonTitle }
 
+    if (!activeLiveSlideUrl.isNullOrBlank()) {
+        com.example.ui.components.SlideViewerDialog(
+            slideUrl = activeLiveSlideUrl!!,
+            title = "$effectiveLessonTitle - লেকচার স্লাইড",
+            onDismiss = { activeLiveSlideUrl = null }
+        )
+    }
+
     // Computed resolution pill label (shows real playing resolution when Auto is selected!)
     val resolutionBadgeText = remember(selectedResolution, currentPlayingResolution) {
         if (selectedResolution.equals("auto", ignoreCase = true)) {
@@ -215,6 +227,13 @@ fun LiveClassPage(
 
     var chatMessageInput by remember { mutableStateOf("") }
     val chatMessages = remember { mutableStateListOf<LiveChatMessage>() }
+    val visibleChatMessages = remember(chatMessages.size, chatMessages.toList(), canViewProfiles) {
+        if (canViewProfiles) {
+            chatMessages.toList()
+        } else {
+            chatMessages.filter { it.isMine || it.isTeacher }
+        }
+    }
     val chatListState = rememberLazyListState()
 
     val quickReplyChips = remember {
@@ -234,6 +253,30 @@ fun LiveClassPage(
     var selectedPollIdForResult by remember { mutableStateOf<String?>(null) }
     var showPreviousPollsDialog by remember { mutableStateOf(false) }
     var showViewMessagesDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(canViewProfiles) {
+        wsManager.setCanViewAllMessages(canViewProfiles)
+        if (!canViewProfiles) {
+            selectedRole = "teacher"
+            showViewMessagesDialog = false
+            chatMessages.removeAll { !it.isMine && !it.isTeacher }
+        }
+    }
+
+    LaunchedEffect(classId, lessonId) {
+        wsManager.setCanViewAllMessages(canViewProfiles)
+        val freshPerm = com.example.security.DeviceActivationRepository.checkProfileViewPermission(
+            context = context,
+            forceRefresh = true
+        )
+        canViewProfiles = freshPerm
+        wsManager.setCanViewAllMessages(freshPerm)
+        if (!freshPerm) {
+            selectedRole = "teacher"
+            showViewMessagesDialog = false
+            chatMessages.removeAll { !it.isMine && !it.isTeacher }
+        }
+    }
 
     val currentQuestionDialogPoll = remember(selectedPollIdForQuestion, activePoll, previousPolls) {
         val targetId = selectedPollIdForQuestion ?: return@remember null
@@ -301,10 +344,23 @@ fun LiveClassPage(
 
             val academicDeferred = async { service.getAcademicLiveClassInfo(classId, lessonId, userToken) }
             val roomDeferred = async { service.getHmsRoomId(classId, lessonId, userToken) }
+            val permDeferred = async {
+                com.example.security.DeviceActivationRepository.checkProfileViewPermission(
+                    context = context,
+                    forceRefresh = true
+                )
+            }
 
             val academicInfo = academicDeferred.await().getOrNull()
             val roomResult = roomDeferred.await()
             val roomId = roomResult.getOrNull()
+            val latestPerm = permDeferred.await()
+            canViewProfiles = latestPerm
+            wsManager.setCanViewAllMessages(latestPerm)
+            if (!latestPerm) {
+                selectedRole = "teacher"
+                showViewMessagesDialog = false
+            }
 
             val discoveredUrls = mutableListOf<String>()
             academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }?.let { discoveredUrls.add(it) }
@@ -330,7 +386,7 @@ fun LiveClassPage(
                     wsManager.connect(
                         token = hmsToken,
                         studentName = studentName,
-                        teacherToken = roomTokens.teacherToken
+                        teacherToken = if (latestPerm) roomTokens.teacherToken else null
                     )
                     if (academicInfo?.isOnGoing == false && !academicInfo.playbackUrl.isNullOrBlank()) {
                         wsManager.setMasterUrl(academicInfo.playbackUrl)
@@ -387,18 +443,22 @@ fun LiveClassPage(
     }
 
     val incomingHistory by wsManager.receivedMessagesHistory.collectAsState()
-    LaunchedEffect(incomingHistory) {
+    LaunchedEffect(incomingHistory, canViewProfiles) {
+        if (!canViewProfiles) {
+            chatMessages.removeAll { !it.isMine && !it.isTeacher }
+        }
         var addedNew = false
         for (msg in incomingHistory) {
+            if (!canViewProfiles && !msg.isTeacher && !msg.isMine) continue
             val existingIdx = chatMessages.indexOfFirst { it.id == msg.id }
             if (existingIdx < 0) {
                 chatMessages.add(msg)
                 addedNew = true
             }
         }
-        if (addedNew && chatMessages.isNotEmpty()) {
+        if (addedNew && visibleChatMessages.isNotEmpty()) {
             coroutineScope.launch {
-                chatListState.animateScrollToItem(chatMessages.size - 1)
+                chatListState.animateScrollToItem((visibleChatMessages.size - 1).coerceAtLeast(0))
             }
         }
     }
@@ -411,6 +471,7 @@ fun LiveClassPage(
             return
         }
         val myName = studentName.ifBlank { "আপনি" }
+        val effectiveTargetRole = if (canViewProfiles) selectedRole else "teacher"
         val formattedTime = try {
             java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
         } catch (_: Exception) {
@@ -426,7 +487,7 @@ fun LiveClassPage(
                 timestamp = formattedTime,
                 isTeacher = false,
                 role = "student",
-                targetRole = selectedRole,
+                targetRole = effectiveTargetRole,
                 senderPeerId = wsManager.getCurrentPeerId(),
                 status = ChatDeliveryStatus.SENDING,
                 isMine = true
@@ -435,8 +496,9 @@ fun LiveClassPage(
         chatMessageInput = ""
         keyboardController?.hide()
         coroutineScope.launch {
-            if (chatMessages.isNotEmpty()) {
-                chatListState.animateScrollToItem(chatMessages.size - 1)
+            val targetIdx = (if (canViewProfiles) chatMessages.size else chatMessages.count { it.isMine || it.isTeacher }) - 1
+            if (targetIdx >= 0) {
+                chatListState.animateScrollToItem(targetIdx)
             }
         }
 
@@ -444,7 +506,7 @@ fun LiveClassPage(
             text = cleanText,
             studentName = myName,
             role = "student",
-            targetRole = selectedRole
+            targetRole = effectiveTargetRole
         ) { isSuccess ->
             coroutineScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                 val idx = chatMessages.indexOfFirst { it.id == msgId }
@@ -468,12 +530,13 @@ fun LiveClassPage(
             Toast.makeText(context, "লাইভ সার্ভারের সাথে সংযোগ নেই! পুনরায় সংযোগের চেষ্টা করা হচ্ছে...", Toast.LENGTH_SHORT).show()
             return
         }
-        chatMessages[idx] = msg.copy(status = ChatDeliveryStatus.SENDING)
+        val effectiveTargetRole = if (canViewProfiles) msg.targetRole.ifBlank { msg.role } else "teacher"
+        chatMessages[idx] = msg.copy(status = ChatDeliveryStatus.SENDING, targetRole = effectiveTargetRole)
         wsManager.sendChatMessage(
             text = msg.message,
             studentName = msg.senderName,
             role = msg.role,
-            targetRole = msg.targetRole.ifBlank { msg.role }
+            targetRole = effectiveTargetRole
         ) { isSuccess ->
             coroutineScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                 val currentIdx = chatMessages.indexOfFirst { it.id == msgId }
@@ -1235,12 +1298,8 @@ fun LiveClassPage(
                                                 IconButton(
                                                     onClick = {
                                                         lastUserInteractionTime = System.currentTimeMillis()
-                                                        lectureSlideUrls.firstOrNull()?.let { url ->
-                                                            try {
-                                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                                            } catch (e: Exception) {
-                                                                Log.w(TAG, "Cannot open slide URL: ${e.message}")
-                                                            }
+                                                        lectureSlideUrls.firstOrNull()?.takeIf { it.isNotBlank() }?.let { url ->
+                                                            activeLiveSlideUrl = url
                                                         }
                                                     },
                                                     modifier = Modifier
@@ -1362,32 +1421,44 @@ fun LiveClassPage(
                                                 .padding(bottom = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(Icons.Default.Chat, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                            Icon(
+                                                imageVector = if (canViewProfiles) Icons.Default.Chat else Icons.Default.School,
+                                                contentDescription = null,
+                                                tint = Color(0xFF38BDF8),
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                             Spacer(Modifier.width(6.dp))
-                                            Text("লাইভ চ্যাট", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            Text(
+                                                text = if (canViewProfiles) "লাইভ চ্যাট" else "শিক্ষকের সাথে মেসেজ",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
                                             Spacer(Modifier.weight(1f))
-                                            // View Messages button in landscape drawer
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = Color(0xFF0284C7).copy(alpha = 0.25f),
-                                                border = BorderStroke(0.8.dp, Color(0xFF38BDF8)),
-                                                modifier = Modifier.clickable { showViewMessagesDialog = true }
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            // View Messages button in landscape drawer (ONLY for Admin-permitted devices)
+                                            if (canViewProfiles) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color(0xFF0284C7).copy(alpha = 0.25f),
+                                                    border = BorderStroke(0.8.dp, Color(0xFF38BDF8)),
+                                                    modifier = Modifier.clickable { showViewMessagesDialog = true }
                                                 ) {
-                                                    Icon(Icons.Default.Forum, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(10.dp))
-                                                    Text(
-                                                        text = "ভিউ (${chatMessages.size})",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF38BDF8)
-                                                    )
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Forum, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(10.dp))
+                                                        Text(
+                                                            text = "ভিউ (${visibleChatMessages.size})",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color(0xFF38BDF8)
+                                                        )
+                                                    }
                                                 }
+                                                Spacer(Modifier.width(4.dp))
                                             }
-                                            Spacer(Modifier.width(4.dp))
                                             // Student name chip in landscape drawer
                                             Surface(
                                                 shape = RoundedCornerShape(10.dp),
@@ -1429,7 +1500,7 @@ fun LiveClassPage(
                                                 .fillMaxWidth(),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            items(chatMessages, key = { it.id }) { item ->
+                                            items(visibleChatMessages, key = { it.id }) { item ->
                                                 ChatMessageCard(
                                                     item = item,
                                                     myName = studentName,
@@ -1449,7 +1520,13 @@ fun LiveClassPage(
                                             OutlinedTextField(
                                                 value = chatMessageInput,
                                                 onValueChange = { chatMessageInput = it },
-                                                placeholder = { Text("বার্তা লিখুন...", fontSize = 11.sp, color = Color.White.copy(0.5f)) },
+                                                placeholder = {
+                                                    Text(
+                                                        if (canViewProfiles) "বার্তা লিখুন..." else "শিক্ষককে প্রশ্ন লিখুন...",
+                                                        fontSize = 11.sp,
+                                                        color = Color.White.copy(0.5f)
+                                                    )
+                                                },
                                                 singleLine = true,
                                                 shape = RoundedCornerShape(16.dp),
                                                 colors = OutlinedTextFieldDefaults.colors(
@@ -1691,35 +1768,37 @@ fun LiveClassPage(
                                                 }
                                             }
 
-                                            // 3. View Messages Pill ("ভিউ ম্যাসেজ" — see who is messaging what)
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = Color(0xFF0284C7).copy(alpha = 0.22f),
-                                                border = BorderStroke(1.dp, Color(0xFF38BDF8)),
-                                                modifier = Modifier.clickable { showViewMessagesDialog = true }
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            // 3. View Messages Pill ("ভিউ ম্যাসেজ" — ONLY for Admin-permitted devices with can_view_profiles)
+                                            if (canViewProfiles) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color(0xFF0284C7).copy(alpha = 0.22f),
+                                                    border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                                    modifier = Modifier.clickable { showViewMessagesDialog = true }
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.MarkChatRead,
-                                                        contentDescription = "View Messages",
-                                                        tint = Color(0xFF38BDF8),
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                    Text(
-                                                        text = if (chatMessages.isNotEmpty()) {
-                                                            "ভিউ ম্যাসেজ (${chatMessages.size})"
-                                                        } else {
-                                                            "ভিউ ম্যাসেজ"
-                                                        },
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFFE0F2FE),
-                                                        maxLines = 1
-                                                    )
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.MarkChatRead,
+                                                            contentDescription = "View Messages",
+                                                            tint = Color(0xFF38BDF8),
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (visibleChatMessages.isNotEmpty()) {
+                                                                "ভিউ ম্যাসেজ (${visibleChatMessages.size})"
+                                                            } else {
+                                                                "ভিউ ম্যাসেজ"
+                                                            },
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color(0xFFE0F2FE),
+                                                            maxLines = 1
+                                                        )
+                                                    }
                                                 }
                                             }
 
@@ -1796,101 +1875,147 @@ fun LiveClassPage(
                                         .fillMaxWidth()
                                         .padding(horizontal = 14.dp, vertical = 8.dp)
                                 ) {
-                                    // Chat Role Target Selector Bar + "ভিউ ম্যাসেজ" Button
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Forum,
-                                            contentDescription = null,
-                                            tint = Color(0xFF38BDF8),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Text(
-                                            text = "রোল:",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF94A3B8)
-                                        )
+                                    if (canViewProfiles) {
+                                        // Permitted Device Mode: Full Role Target Selector Bar + "ভিউ ম্যাসেজ" Button
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Forum,
+                                                contentDescription = null,
+                                                tint = Color(0xFF38BDF8),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = "রোল:",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFF94A3B8)
+                                            )
 
-                                        val rolesList = listOf(
-                                            Triple("teacher", "Teacher", Icons.Default.School),
-                                            Triple("student", "Student", Icons.Default.Person),
-                                            Triple("all", "* All", Icons.Default.Public)
-                                        )
-                                        rolesList.forEach { (roleKey, roleLabel, roleIcon) ->
-                                            val isSelected = selectedRole == roleKey
+                                            val rolesList = listOf(
+                                                Triple("teacher", "Teacher", Icons.Default.School),
+                                                Triple("student", "Student", Icons.Default.Person),
+                                                Triple("all", "* All", Icons.Default.Public)
+                                            )
+                                            rolesList.forEach { (roleKey, roleLabel, roleIcon) ->
+                                                val isSelected = selectedRole == roleKey
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = if (isSelected) Color(0xFF0284C7) else Color(0xFF162032),
+                                                    border = BorderStroke(
+                                                        1.dp,
+                                                        if (isSelected) Color(0xFF38BDF8) else Color(0xFF26354D)
+                                                    ),
+                                                    modifier = Modifier.clickable { selectedRole = roleKey }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = roleIcon,
+                                                            contentDescription = null,
+                                                            tint = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                                            modifier = Modifier.size(11.dp)
+                                                        )
+                                                        Text(
+                                                            text = roleLabel,
+                                                            fontSize = 10.5.sp,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                            color = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.weight(1f))
+
+                                            // Prominent "ভিউ ম্যাসেজ" (View Messages) Button
                                             Surface(
                                                 shape = RoundedCornerShape(10.dp),
-                                                color = if (isSelected) Color(0xFF0284C7) else Color(0xFF162032),
-                                                border = BorderStroke(
-                                                    1.dp,
-                                                    if (isSelected) Color(0xFF38BDF8) else Color(0xFF26354D)
-                                                ),
-                                                modifier = Modifier.clickable { selectedRole = roleKey }
+                                                color = Color(0xFF0C2440),
+                                                border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                                modifier = Modifier.clickable { showViewMessagesDialog = true }
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = roleIcon,
-                                                        contentDescription = null,
-                                                        tint = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                                        modifier = Modifier.size(11.dp)
+                                                        imageVector = Icons.Default.Visibility,
+                                                        contentDescription = "ভিউ ম্যাসেজ",
+                                                        tint = Color(0xFF38BDF8),
+                                                        modifier = Modifier.size(12.dp)
                                                     )
                                                     Text(
-                                                        text = roleLabel,
+                                                        text = if (visibleChatMessages.isNotEmpty()) {
+                                                            "ভিউ ম্যাসেজ (${visibleChatMessages.size})"
+                                                        } else {
+                                                            "ভিউ ম্যাসেজ"
+                                                        },
                                                         fontSize = 10.5.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                        color = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                                        color = Color(0xFF38BDF8),
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
                                         }
-
-                                        Spacer(modifier = Modifier.weight(1f))
-
-                                        // Prominent "ভিউ ম্যাসেজ" (View Messages) Button
-                                        Surface(
-                                            shape = RoundedCornerShape(10.dp),
-                                            color = Color(0xFF0C2440),
-                                            border = BorderStroke(1.dp, Color(0xFF38BDF8)),
-                                            modifier = Modifier.clickable { showViewMessagesDialog = true }
+                                    } else {
+                                        // Regular Student Mode: Strictly Teacher-Only Direct Messaging Header
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFF0284C7),
+                                                border = BorderStroke(1.dp, Color(0xFF38BDF8))
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Visibility,
-                                                    contentDescription = "ভিউ ম্যাসেজ",
-                                                    tint = Color(0xFF38BDF8),
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Text(
-                                                    text = if (chatMessages.isNotEmpty()) {
-                                                        "ভিউ ম্যাসেজ (${chatMessages.size})"
-                                                    } else {
-                                                        "ভিউ ম্যাসেজ"
-                                                    },
-                                                    fontSize = 10.5.sp,
-                                                    color = Color(0xFF38BDF8),
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    maxLines = 1
-                                                )
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.School,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Text(
+                                                        text = "শিক্ষক (Teacher Only)",
+                                                        fontSize = 10.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                    )
+                                                }
                                             }
+
+                                            Text(
+                                                text = "আপনার মেসেজ শুধুমাত্র শিক্ষকের কাছে যাবে",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Color(0xFF94A3B8),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
                                         }
                                     }
 
                                     // Pinned Teacher Message Announcement Banner (if any)
-                                    val pinnedTeacherMsg = chatMessages.lastOrNull { it.isTeacher && (it.isPinned || it.id.startsWith("pin_")) }
+                                    val pinnedTeacherMsg = visibleChatMessages.lastOrNull { it.isTeacher && (it.isPinned || it.id.startsWith("pin_")) }
                                     if (pinnedTeacherMsg != null) {
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
@@ -1939,7 +2064,7 @@ fun LiveClassPage(
                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                         reverseLayout = false
                                     ) {
-                                        if (chatMessages.isEmpty()) {
+                                        if (visibleChatMessages.isEmpty()) {
                                             item {
                                                 Box(
                                                     modifier = Modifier
@@ -1959,7 +2084,7 @@ fun LiveClassPage(
                                                         ) {
                                                             Box(contentAlignment = Alignment.Center) {
                                                                 Icon(
-                                                                    imageVector = Icons.Default.ChatBubbleOutline,
+                                                                    imageVector = if (canViewProfiles) Icons.Default.ChatBubbleOutline else Icons.Default.School,
                                                                     contentDescription = null,
                                                                     tint = Color(0xFF38BDF8).copy(alpha = 0.7f),
                                                                     modifier = Modifier.size(20.dp)
@@ -1967,13 +2092,17 @@ fun LiveClassPage(
                                                             }
                                                         }
                                                         Text(
-                                                            text = "লাইভ চ্যাটে স্বাগতম!",
+                                                            text = if (canViewProfiles) "লাইভ চ্যাটে স্বাগতম!" else "শিক্ষকের সাথে সরাসরি মেসেজ",
                                                             fontSize = 13.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = Color(0xFFCBD5E1)
                                                         )
                                                         Text(
-                                                            text = "ক্লাস চলাকালীন আপনার যেকোনো প্রশ্ন নিচে লিখুন",
+                                                            text = if (canViewProfiles) {
+                                                                "ক্লাস চলাকালীন আপনার যেকোনো প্রশ্ন নিচে লিখুন"
+                                                            } else {
+                                                                "আপনার মেসেজ শুধুমাত্র শিক্ষকের কাছে যাবে এবং শিক্ষকের মেসেজ এখানে দেখা যাবে"
+                                                            },
                                                             fontSize = 11.5.sp,
                                                             color = Color(0xFF64748B),
                                                             textAlign = TextAlign.Center
@@ -1982,7 +2111,7 @@ fun LiveClassPage(
                                                 }
                                             }
                                         } else {
-                                            items(chatMessages, key = { it.id }) { item ->
+                                            items(visibleChatMessages, key = { it.id }) { item ->
                                                 ChatMessageCard(
                                                     item = item,
                                                     myName = studentName,
@@ -2062,7 +2191,7 @@ fun LiveClassPage(
                                                 onValueChange = { chatMessageInput = it },
                                                 placeholder = {
                                                     Text(
-                                                        "প্রশ্ন বা বার্তা লিখুন...",
+                                                        if (canViewProfiles) "প্রশ্ন বা বার্তা লিখুন..." else "শিক্ষকের কাছে প্রশ্ন বা বার্তা লিখুন...",
                                                         fontSize = 12.5.sp,
                                                         color = Color(0xFF64748B)
                                                     )
@@ -2488,7 +2617,21 @@ fun LiveClassPage(
             confirmButton = {
                 Button(
                     onClick = {
-                        val clean = nameInput.trim().ifBlank { defaultProfileName }
+                        val rawInput = nameInput.trim()
+                        val lower = rawInput.lowercase()
+                        val isReservedTeacherName = !canViewProfiles && (
+                            lower == "teacher" ||
+                                lower == "শিক্ষক" ||
+                                lower == "admin" ||
+                                lower == "moderator" ||
+                                lower.contains("shikho") ||
+                                (roomTeacherName.isNotBlank() && rawInput.equals(roomTeacherName.trim(), ignoreCase = true))
+                            )
+                        if (isReservedTeacherName) {
+                            Toast.makeText(context, "এই নামটি ব্যবহার করা অনুমোদিত নয়। আপনার আসল নাম দিন।", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        val clean = rawInput.ifBlank { defaultProfileName }
                         studentName = clean
                         sessionManager.setLiveCustomStudentName(clean)
                         wsManager.updateStudentName(clean)
@@ -2566,10 +2709,10 @@ fun LiveClassPage(
         )
     }
 
-    // 4. "ভিউ ম্যাসেজ" (View All Messages & Who Messaged What) Dialog
-    if (showViewMessagesDialog) {
+    // 4. "ভিউ ম্যাসেজ" (View All Messages & Who Messaged What) Dialog — ONLY for Admin-permitted devices
+    if (canViewProfiles && showViewMessagesDialog) {
         LiveViewMessagesDialog(
-            messages = chatMessages,
+            messages = visibleChatMessages,
             myName = studentName,
             selectedRole = selectedRole,
             isChatEnabled = isChatEnabled,

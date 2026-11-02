@@ -63,7 +63,7 @@ fun MainContainerScreen(
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     val haptic = LocalHapticFeedback.current
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
     val context = LocalContext.current
     var lastBackPressedTime by remember { mutableLongStateOf(0L) }
 
@@ -76,7 +76,9 @@ fun MainContainerScreen(
 
     // Double Back Press to Exit (3 seconds window) & Tab back navigation
     BackHandler {
-        if (selectedIndex != 0) {
+        if (selectedIndex == 1 && courseViewModel.uiState.value.selectedCourseProgram != null) {
+            courseViewModel.closeCourseDetails()
+        } else if (selectedIndex != 0) {
             selectedIndex = 0
         } else {
             val currentTime = System.currentTimeMillis()
@@ -159,8 +161,8 @@ fun MainContainerScreen(
                         onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
                         onNavigateToCourseTab = { selectedIndex = 1 },
                         onCourseSelected = { program ->
+                            // শুধুমাত্র হোম স্ক্রিনের সিলেক্টেড কোর্স পরিবর্তন হবে
                             homeViewModel.switchActiveCourse(program)
-                            courseViewModel.openCourse(program)
                             Toast.makeText(
                                 context,
                                 "${program.title_bn ?: "কোর্স"} নির্বাচিত হয়েছে ✨",
@@ -170,13 +172,7 @@ fun MainContainerScreen(
                         onOpenCourse = { phaseId ->
                             val activeProg = homeViewModel.uiState.value.activeProgram
                             if (activeProg != null) {
-                                courseViewModel.switchProgram(
-                                    newProgramId = activeProg.id,
-                                    newProgramTitle = activeProg.title_bn ?: "",
-                                    batchId = activeProg.enrollment_details?.batch_id,
-                                    classCode = activeProg.classes?.firstOrNull(),
-                                    targetPhaseId = phaseId
-                                )
+                                courseViewModel.openCourse(activeProg, targetPhaseId = phaseId)
                             } else {
                                 courseViewModel.loadSubjects(targetPhaseId = phaseId)
                             }
@@ -191,12 +187,11 @@ fun MainContainerScreen(
                     )
                 }
                 1 -> {
+                    // কোর্স অপশন (পাঠক্রম) থেকে যেকোনো কেনা কোর্সে প্রবেশ করলে হোম স্ক্রিনের কোর্স কখনো পরিবর্তন হবে না
                     CourseSubjectsScreen(
                         viewModel = courseViewModel,
                         onSubjectClick = onNavigateToSubjectChapters,
-                        onCourseSelected = { program ->
-                            homeViewModel.switchActiveCourse(program)
-                        }
+                        onCourseSelected = null
                     )
                 }
                 2 -> {
@@ -252,8 +247,13 @@ fun MainContainerScreen(
                         selectedIndex = index
                         if (index == 1) {
                             courseViewModel.fetchEnrolledPrograms()
-                            courseViewModel.loadSubjects()
+                            if (courseViewModel.uiState.value.selectedCourseProgram != null) {
+                                courseViewModel.loadSubjects()
+                            }
                         }
+                    } else if (index == 1 && courseViewModel.uiState.value.selectedCourseProgram != null) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        courseViewModel.closeCourseDetails()
                     }
                 },
                 activeDownloadsCount = activeDownloadsCount

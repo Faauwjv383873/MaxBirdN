@@ -51,7 +51,7 @@ fun SplashScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     // Animation states
     var startAnimation by remember { mutableStateOf(false) }

@@ -149,6 +149,10 @@ fun downloadFile(context: Context, url: String, title: String) {
 }
 
 fun openInExternalApp(context: Context, url: String) {
+    if (!com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+        Toast.makeText(context, "নিরাপত্তার কারণে অ্যাপের বাইরে ফাইল ওপেন করা অনুমোদিত নয়", Toast.LENGTH_SHORT).show()
+        return
+    }
     try {
         val uri = Uri.parse(url)
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -169,6 +173,10 @@ fun openInExternalApp(context: Context, url: String) {
 }
 
 fun copyToClipboard(context: Context, url: String) {
+    if (!com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+        Toast.makeText(context, "নিরাপত্তার কারণে লিংক কপি করা অনুমোদিত নয়", Toast.LENGTH_SHORT).show()
+        return
+    }
     try {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Lecture Slide URL", url)

@@ -60,6 +60,18 @@ class SessionManager(context: Context) {
             }
         } catch (_: Exception) {
         }
+        syncCompanionFlowsFromPrefs()
+    }
+
+    private fun syncCompanionFlowsFromPrefs() {
+        try {
+            _sharedThemeModeFlow.value = getThemeMode()
+            _sharedHeaderWallpaperFlow.value = getHeaderWallpaperConfig()
+            _sharedClassNotificationLeadTimeFlow.value = getClassNotificationLeadTimeMinutes()
+            _sharedUserAvatarFlow.value = getUserAvatar()
+            _sharedImportedThemesFlow.value = getImportedCustomThemes()
+        } catch (_: Exception) {
+        }
     }
 
     fun getDeviceId(): String {
@@ -132,10 +144,20 @@ class SessionManager(context: Context) {
             val normB = normalizePhone(phoneB)
             return normA.isNotBlank() && normA == normB
         }
-    }
 
-    @Volatile
-    private var isUnauthorizedNotified = false
+        internal val _sharedThemeModeFlow = MutableStateFlow("system")
+        internal val _sharedHeaderWallpaperFlow = MutableStateFlow(com.example.ui.theme.HeaderWallpaperConfig())
+        internal val _sharedClassNotificationLeadTimeFlow = MutableStateFlow(30)
+        internal val _sharedUserAvatarFlow = MutableStateFlow<String?>(null)
+        internal val _sharedUserProfileUpdateFlow = MutableStateFlow(System.currentTimeMillis())
+        internal val _sharedImportedThemesFlow = MutableStateFlow<List<com.example.ui.theme.ImportedWallpaperTheme>>(emptyList())
+        internal val _sharedUnauthorizedEvent = MutableSharedFlow<Unit>(
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST
+        )
+        @Volatile
+        internal var isUnauthorizedNotified = false
+    }
 
     fun saveTokens(accessToken: String, refreshToken: String?, userId: String) {
         isUnauthorizedNotified = false
@@ -315,7 +337,7 @@ class SessionManager(context: Context) {
             editor.putString("academic_passing_year", passingYear)
         }
         editor.apply()
-        _userProfileUpdateFlow.value = System.currentTimeMillis()
+        _sharedUserProfileUpdateFlow.value = System.currentTimeMillis()
     }
 
     fun getAcademicPassingYear(): String? =
@@ -326,11 +348,8 @@ class SessionManager(context: Context) {
     fun getUserGroup(): String? = sharedPreferences.getString("academic_group", null)
     fun getUserVendor(): String? = sharedPreferences.getString("academic_vendor", null)
 
-    private val _userAvatarFlow = MutableStateFlow(getUserAvatar())
-    val userAvatarFlow: StateFlow<String?> = _userAvatarFlow
-
-    private val _userProfileUpdateFlow = MutableStateFlow(System.currentTimeMillis())
-    val userProfileUpdateFlow: StateFlow<Long> = _userProfileUpdateFlow
+    val userAvatarFlow: StateFlow<String?> = _sharedUserAvatarFlow
+    val userProfileUpdateFlow: StateFlow<Long> = _sharedUserProfileUpdateFlow
 
     fun saveUserProfile(
         firstName: String?,
@@ -355,8 +374,8 @@ class SessionManager(context: Context) {
         }
         editor.apply()
         fallbackEditor.apply()
-        _userAvatarFlow.value = avatar
-        _userProfileUpdateFlow.value = System.currentTimeMillis()
+        _sharedUserAvatarFlow.value = avatar
+        _sharedUserProfileUpdateFlow.value = System.currentTimeMillis()
     }
 
     fun saveUserPhone(phone: String?) {
@@ -493,21 +512,27 @@ class SessionManager(context: Context) {
     }
 
     // Theme Mode Management ("system", "light", "dark")
-    private val _themeModeFlow = MutableStateFlow(getThemeMode())
-    val themeModeFlow: StateFlow<String> = _themeModeFlow
+    val themeModeFlow: StateFlow<String> = _sharedThemeModeFlow
 
     fun getThemeMode(): String {
-        return sharedPreferences.getString("app_theme_mode", "system") ?: "system"
+        return sharedPreferences.getString("app_theme_mode", null)
+            ?: fallbackPrefs.getString("app_theme_mode", "system")
+            ?: "system"
     }
 
     fun setThemeMode(mode: String) {
-        sharedPreferences.edit().putString("app_theme_mode", mode).apply()
-        _themeModeFlow.value = mode
+        val cleanMode = when (mode.lowercase()) {
+            "light", "dark", "system" -> mode.lowercase()
+            else -> "system"
+        }
+        sharedPreferences.edit().putString("app_theme_mode", cleanMode).apply()
+        fallbackPrefs.edit().putString("app_theme_mode", cleanMode).apply()
+        _sharedThemeModeFlow.value = cleanMode
     }
 
     // Header Wallpaper & Live Theme Management
-    private val _headerWallpaperFlow = MutableStateFlow(getHeaderWallpaperConfig())
-    val headerWallpaperFlow: StateFlow<com.example.ui.theme.HeaderWallpaperConfig> = _headerWallpaperFlow
+    val headerWallpaperFlow: StateFlow<com.example.ui.theme.HeaderWallpaperConfig> = _sharedHeaderWallpaperFlow
+    val importedCustomThemesFlow: StateFlow<List<com.example.ui.theme.ImportedWallpaperTheme>> = _sharedImportedThemesFlow
 
     fun getHeaderWallpaperConfig(): com.example.ui.theme.HeaderWallpaperConfig {
         val type = sharedPreferences.getString(
@@ -518,12 +543,14 @@ class SessionManager(context: Context) {
         val title = sharedPreferences.getString("header_wallpaper_custom_title", null)
         val anim = sharedPreferences.getBoolean("header_wallpaper_anim_enabled", true)
         val dim = sharedPreferences.getFloat("header_wallpaper_dim", 0.25f)
+        val customCode = sharedPreferences.getString("header_wallpaper_custom_code", null)
         return com.example.ui.theme.HeaderWallpaperConfig(
             type = type,
             customUri = uri,
             customTitle = title,
             isAnimationEnabled = anim,
-            dimOpacity = dim
+            dimOpacity = dim,
+            customThemeCode = customCode
         )
     }
 
@@ -534,13 +561,36 @@ class SessionManager(context: Context) {
             .putString("header_wallpaper_custom_title", config.customTitle)
             .putBoolean("header_wallpaper_anim_enabled", config.isAnimationEnabled)
             .putFloat("header_wallpaper_dim", config.dimOpacity)
+            .putString("header_wallpaper_custom_code", config.customThemeCode)
             .apply()
-        _headerWallpaperFlow.value = config
+        _sharedHeaderWallpaperFlow.value = config
+    }
+
+    fun getImportedCustomThemes(): List<com.example.ui.theme.ImportedWallpaperTheme> {
+        val raw = sharedPreferences.getString("imported_custom_header_themes", "[]") ?: "[]"
+        return com.example.ui.theme.HeaderWallpaperCodeManager.parseThemeListJson(raw)
+    }
+
+    fun saveImportedCustomThemes(themes: List<com.example.ui.theme.ImportedWallpaperTheme>) {
+        val json = com.example.ui.theme.HeaderWallpaperCodeManager.serializeThemeListJson(themes)
+        sharedPreferences.edit().putString("imported_custom_header_themes", json).apply()
+        _sharedImportedThemesFlow.value = themes
+    }
+
+    fun addImportedCustomTheme(theme: com.example.ui.theme.ImportedWallpaperTheme) {
+        val current = getImportedCustomThemes().toMutableList()
+        current.removeAll { it.id == theme.id || it.titleBn.equals(theme.titleBn, ignoreCase = true) }
+        current.add(0, theme)
+        saveImportedCustomThemes(current)
+    }
+
+    fun deleteImportedCustomTheme(themeId: String) {
+        val current = getImportedCustomThemes().filterNot { it.id == themeId }
+        saveImportedCustomThemes(current)
     }
 
     // Class Notification Lead Time (Default 30 minutes)
-    private val _classNotificationLeadTimeFlow = MutableStateFlow(getClassNotificationLeadTimeMinutes())
-    val classNotificationLeadTimeFlow: StateFlow<Int> = _classNotificationLeadTimeFlow
+    val classNotificationLeadTimeFlow: StateFlow<Int> = _sharedClassNotificationLeadTimeFlow
 
     fun getClassNotificationLeadTimeMinutes(): Int {
         return sharedPreferences.getInt("class_notification_lead_time_minutes", 30)
@@ -549,7 +599,7 @@ class SessionManager(context: Context) {
     fun setClassNotificationLeadTimeMinutes(minutes: Int) {
         val validMinutes = if (minutes in listOf(5, 10, 15, 20, 25, 30, 45, 60)) minutes else 30
         sharedPreferences.edit().putInt("class_notification_lead_time_minutes", validMinutes).apply()
-        _classNotificationLeadTimeFlow.value = validMinutes
+        _sharedClassNotificationLeadTimeFlow.value = validMinutes
     }
 
     // Comprehensive Notification & Alarm Preferences
@@ -679,18 +729,14 @@ class SessionManager(context: Context) {
     }
 
     // Unauthorized / Session Expiry Event
-    private val _unauthorizedEvent = MutableSharedFlow<Unit>(
-        extraBufferCapacity = 1,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
-    val unauthorizedEvent: SharedFlow<Unit> = _unauthorizedEvent.asSharedFlow()
+    val unauthorizedEvent: SharedFlow<Unit> = _sharedUnauthorizedEvent.asSharedFlow()
 
     fun notifyUnauthorized() {
         if (isUnauthorizedNotified) return
         val activeToken = getAccessToken()
         if (activeToken.isNullOrBlank()) return
         isUnauthorizedNotified = true
-        _unauthorizedEvent.tryEmit(Unit)
+        _sharedUnauthorizedEvent.tryEmit(Unit)
     }
 
     fun resetUnauthorizedNotified() {
@@ -718,7 +764,9 @@ class SessionManager(context: Context) {
             "user_school_name", "user_class_display", "user_phone",
             "live_custom_student_name", "just_signed_up",
             "completed_lessons", "completed_model_tests",
-            "subscribed_fcm_program_id", "subscribed_fcm_phase_id"
+            "subscribed_fcm_program_id", "subscribed_fcm_phase_id",
+            "subscribed_fcm_topics", "is_account_completed",
+            "custom_alarms_list", "disabled_alarm_ids"
         )
         val editor = sharedPreferences.edit()
         val fallbackEditor = fallbackPrefs.edit()
@@ -726,13 +774,31 @@ class SessionManager(context: Context) {
             editor.remove(k)
             fallbackEditor.remove(k)
         }
+        // Remove any dynamic per-program / per-class account keys
+        try {
+            sharedPreferences.all.keys.forEach { key ->
+                if (key.startsWith("priority_subjects_") || key.startsWith("live_student_name_")) {
+                    editor.remove(key)
+                }
+            }
+            fallbackPrefs.all.keys.forEach { key ->
+                if (key.startsWith("priority_subjects_") || key.startsWith("live_student_name_")) {
+                    fallbackEditor.remove(key)
+                }
+            }
+        } catch (_: Exception) {}
         editor.apply()
         fallbackEditor.apply()
+
         try {
             com.example.course.CourseCommerceRepository.clearCache(appContext)
         } catch (_: Throwable) {}
-        _userAvatarFlow.value = null
-        _userProfileUpdateFlow.value = System.currentTimeMillis()
+        try {
+            com.example.notification.ClassAlarmScheduler.cancelAllAlarms(appContext)
+        } catch (_: Throwable) {}
+
+        _sharedUserAvatarFlow.value = null
+        _sharedUserProfileUpdateFlow.value = System.currentTimeMillis()
     }
 }
 

@@ -239,7 +239,7 @@ class CourseViewModel(
         }
     }
 
-    fun openCourse(program: EnrolledProgram) {
+    fun openCourse(program: EnrolledProgram, targetPhaseId: String? = null) {
         val snapshot = _uiState.value.commerceSnapshot
         // কঠোর নিয়ম: আমাদের অ্যাপে অ্যাডমিন থেকে কোর্স কেনা / অনুমোদন ছাড়া কোনো কোর্সেই প্রবেশ করা যাবে না
         if (!snapshot.isCourseActivelyUnlocked(program.id, program.title_bn)) {
@@ -280,7 +280,8 @@ class CourseViewModel(
             newProgramId = program.id,
             newProgramTitle = title,
             batchId = program.enrollment_details?.batch_id,
-            classCode = program.classes?.firstOrNull()
+            classCode = program.classes?.firstOrNull(),
+            targetPhaseId = targetPhaseId
         )
     }
 
@@ -915,7 +916,7 @@ class CourseViewModel(
     }
 
     /**
-     * Switches the active program, clears stale cached data, and reloads subjects fresh.
+     * Switches the browsed program inside CourseViewModel without overwriting the Home screen's saved active program.
      */
     fun switchProgram(
         newProgramId: String,
@@ -927,12 +928,8 @@ class CourseViewModel(
         chaptersCache.clear()
         lessonsCache.clear()
         val title = if (!newProgramTitle.isNullOrBlank()) newProgramTitle else "এইচএসসি কোর্স"
-        sessionManager.saveActiveProgram(
-            programId = newProgramId,
-            titleBn = title,
-            batchId = batchId,
-            classCode = classCode
-        )
+        // NOTE: Do NOT call sessionManager.saveActiveProgram(...) here!
+        // sessionManager.saveActiveProgram is strictly reserved for the Home screen's Course Switcher.
         _uiState.update {
             it.copy(
                 programId = newProgramId,
@@ -1036,7 +1033,7 @@ class CourseViewModel(
                                 isModelTestCourse = isModelTest
                             )
                         }
-                        if (programId.isNotBlank() && currentPhaseId.isNotBlank()) {
+                        if (programId.isNotBlank() && currentPhaseId.isNotBlank() && programId == sessionManager.getActiveProgramId()) {
                             try {
                                 com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
                                     com.example.ShikhoApp.instance,
@@ -1228,7 +1225,9 @@ class CourseViewModel(
                 if (currentEffectivePhaseId.isNotBlank()) {
                     viewModelScope.launch(Dispatchers.IO) {
                         try {
-                            val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+                            val batchId = _uiState.value.selectedCourseProgram?.enrollment_details?.batch_id
+                                ?: sessionManager.getActiveProgramBatchId()
+                                ?: sessionManager.getUserBatchId()
                             repository.fetchAllLessonsForProgram(progId, currentEffectivePhaseId, batchId)
                         } catch (_: Exception) {}
                     }
@@ -1247,7 +1246,7 @@ class CourseViewModel(
 
     fun onSelectPhaseTab(phase: PhaseItem) {
         val progId = _uiState.value.programId.ifBlank { sessionManager.getActiveProgramId() ?: "" }
-        if (progId.isNotBlank()) {
+        if (progId.isNotBlank() && progId == sessionManager.getActiveProgramId()) {
             try {
                 com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
                     com.example.ShikhoApp.instance,
@@ -1409,7 +1408,9 @@ class CourseViewModel(
                         ?: ""
                 }
 
-                val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+                val batchId = _uiState.value.selectedCourseProgram?.enrollment_details?.batch_id
+                    ?: sessionManager.getActiveProgramBatchId()
+                    ?: sessionManager.getUserBatchId()
                 val allProgramLessons = repository.fetchAllLessonsForProgram(progId, phaseId.ifBlank { null }, batchId)
                 
                 var matched = LessonCacheManager.filterLessons(

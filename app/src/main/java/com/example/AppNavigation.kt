@@ -1723,11 +1723,16 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             val color = safeUrlDecode(backStackEntry.arguments?.getString("color"))
             val phaseId = backStackEntry.arguments?.getString("phaseId") ?: ""
 
+            val browsedProgramId = courseViewModel.uiState.value.programId.ifBlank {
+                sessionManager.getActiveProgramId() ?: ""
+            }
+
             SmartNotesScreen(
                 subjectCode = subjectCode,
                 subjectTitle = title,
                 subjectColorHex = color,
                 phaseId = phaseId,
+                programId = browsedProgramId,
                 viewModel = smartNotesViewModel,
                 onBack = {
                     navController.safePopBackStack()
@@ -1765,12 +1770,16 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             val chapterName = safeUrlDecode(backStackEntry.arguments?.getString("name"))
             val subjectCode = backStackEntry.arguments?.getString("subjectCode") ?: ""
             val phaseId = backStackEntry.arguments?.getString("phaseId") ?: ""
+            val browsedProgramId = courseViewModel.uiState.value.programId.ifBlank {
+                sessionManager.getActiveProgramId() ?: ""
+            }
 
             ChapterResourcesScreen(
                 chapterId = chapterId,
                 chapterName = chapterName,
                 subjectCode = subjectCode,
                 phaseId = phaseId,
+                programId = browsedProgramId,
                 viewModel = smartNotesViewModel,
                 onBack = {
                     navController.safePopBackStack()

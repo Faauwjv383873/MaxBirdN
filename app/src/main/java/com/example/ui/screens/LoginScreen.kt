@@ -100,7 +100,7 @@ fun LoginScreen(
     var showQrLoginSheet by remember { mutableStateOf(false) }
     val hasRateLimitPendingOtp by viewModel.hasRateLimitPendingOtp.collectAsState()
     val keyboardController = LocalSoftwareKeyboardController.current
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     val textFieldInteractionSource = remember { MutableInteractionSource() }
     val isTextFieldFocused by textFieldInteractionSource.collectIsFocusedAsState()

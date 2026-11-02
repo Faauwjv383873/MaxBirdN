@@ -15,6 +15,16 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+data class ScheduledClassAlarmInfo(
+    val lessonId: String,
+    val title: String,
+    val subjectName: String,
+    val startTimeMs: Long,
+    val alarmTriggerMs: Long,
+    val isExam: Boolean,
+    val isEnabled: Boolean
+)
+
 object ClassAlarmScheduler {
     private const val TAG = "ClassAlarmScheduler"
     private const val PREFS_NAME = "shikho_alarm_scheduled_prefs"
@@ -34,6 +44,67 @@ object ClassAlarmScheduler {
             }
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    fun extractScheduledAlarms(
+        context: Context,
+        lessons: List<StudentLessonItem>
+    ): List<ScheduledClassAlarmInfo> {
+        val sessionManager = com.example.auth.SessionManager(context)
+        val leadTimeMillis = sessionManager.getClassNotificationLeadTimeMinutes() * 60 * 1000L
+        val disabledAlarmIds = sessionManager.getDisabledAlarmIds()
+        val isAllEnabled = sessionManager.isAllNotificationsEnabled()
+        val isLiveEnabled = sessionManager.isLiveClassNotificationEnabled()
+        val isExamEnabled = sessionManager.isExamNotificationEnabled()
+
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val now = System.currentTimeMillis()
+        val result = mutableListOf<ScheduledClassAlarmInfo>()
+
+        for ((index, lesson) in lessons.withIndex()) {
+            val startTimeStr = lesson.start_time ?: lesson.live_class?.start_time ?: continue
+            val lessonTitle = lesson.title ?: lesson.live_class?.chapter_name ?: "লাইভ ক্লাস"
+            val subjectName = lesson.subject_name ?: lesson.live_class?.subject_name ?: "কোর্স"
+            val lessonId = lesson.id.ifBlank { lesson.live_class?.id ?: "lesson_$index" }
+            val isExam = lesson.isExam || lesson.content_type?.contains("Exam", ignoreCase = true) == true
+
+            val startMs = try {
+                isoFormat.parse(startTimeStr)?.time ?: continue
+            } catch (_: Exception) {
+                continue
+            }
+            if (startMs <= now) continue
+
+            val categoryEnabled = if (isExam) isExamEnabled else isLiveEnabled
+            val enabled = isAllEnabled && categoryEnabled && !disabledAlarmIds.contains(lessonId)
+            result.add(
+                ScheduledClassAlarmInfo(
+                    lessonId = lessonId,
+                    title = lessonTitle,
+                    subjectName = subjectName,
+                    startTimeMs = startMs,
+                    alarmTriggerMs = (startMs - leadTimeMillis).coerceAtLeast(now),
+                    isExam = isExam,
+                    isEnabled = enabled
+                )
+            )
+        }
+        return result.sortedBy { it.startTimeMs }
+    }
+
+    fun scheduleUpcomingClassAlarms(context: Context, lessons: List<StudentLessonItem>) {
+        val programId = com.example.auth.SessionManager(context).getActiveProgramId() ?: "default"
+        schedule7DayClassAlarms(context, programId, lessons)
+    }
+
+    fun scheduleCustomAlarm(context: Context, alarm: com.example.auth.CustomAlarmData) {
+        if (alarm.isEnabled && alarm.triggerTimeMs > System.currentTimeMillis()) {
+            scheduleCustomAlarm(context, alarm.id, alarm.title, alarm.message, alarm.triggerTimeMs)
+        } else {
+            cancelCustomAlarm(context, alarm.id)
         }
     }
 

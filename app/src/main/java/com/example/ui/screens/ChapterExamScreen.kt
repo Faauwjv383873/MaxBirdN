@@ -59,6 +59,15 @@ fun ChapterExamScreen(
     }
 
     var showExitConfirmDialog by remember { mutableStateOf(false) }
+    var activeSolutionPdfUrl by remember { mutableStateOf<String?>(null) }
+
+    if (!activeSolutionPdfUrl.isNullOrBlank()) {
+        com.example.ui.components.SlideViewerDialog(
+            slideUrl = activeSolutionPdfUrl!!,
+            title = "${uiState.examInfo?.title ?: examTitle} - সমাধান শিট",
+            onDismiss = { activeSolutionPdfUrl = null }
+        )
+    }
 
     androidx.activity.compose.BackHandler {
         when (uiState.stage) {
@@ -158,8 +167,9 @@ fun ChapterExamScreen(
                     defaultTitle = examTitle,
                     onShowSolutions = { viewModel.loadSolutions() },
                     onOpenPdf = { url ->
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                        context.startActivity(intent)
+                        if (url.isNotBlank()) {
+                            activeSolutionPdfUrl = url
+                        }
                     },
                     onBack = onBack
                 )

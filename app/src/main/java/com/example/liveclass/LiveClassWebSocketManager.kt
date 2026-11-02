@@ -55,6 +55,10 @@ class LiveClassWebSocketManager {
     private var handRaisedAtTimestamp: Long = 0L
     @Volatile
     private var hasSubscribedToBroadcastGroups: Boolean = false
+    @Volatile
+    private var hasSubscribedToTeacherGroup: Boolean = false
+    @Volatile
+    private var canViewAllMessages: Boolean = false
 
     private data class RpcRequestMeta(
         val method: String,
@@ -129,6 +133,79 @@ class LiveClassWebSocketManager {
     fun getCurrentPeerId(): String = currentPeerId
     fun getCurrentUserId(): String = currentUserId
     fun getCurrentStudentName(): String = currentStudentName
+    fun getCanViewAllMessages(): Boolean = canViewAllMessages
+
+    /**
+     * Updates whether this device has Admin-granted `can_view_profiles` permission
+     * to view all students' messages and broadcast messages to everyone.
+     * When false (default), the student can ONLY message the Teacher and ONLY see Teacher + own messages.
+     */
+    fun setCanViewAllMessages(allowed: Boolean) {
+        val previous = canViewAllMessages
+        canViewAllMessages = allowed
+        if (allowed) {
+            val ws = webSocket
+            if (ws != null && _isConnected.value && !hasSubscribedToTeacherGroup) {
+                hasSubscribedToTeacherGroup = true
+                try {
+                    val groupReqId = UUID.randomUUID().toString()
+                    pendingRpcRequests[groupReqId] = RpcRequestMeta("group-join", extra = "teacher")
+                    val groupMsg = JSONObject().apply {
+                        put("id", groupReqId)
+                        put("method", "group-join")
+                        put("params", JSONObject().apply {
+                            put("name", "teacher")
+                        })
+                        put("jsonrpc", "2.0")
+                    }
+                    ws.send(groupMsg.toString())
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to join teacher broadcast group: ${e.message}")
+                }
+            }
+            if (teacherWebSocket == null && lastTeacherAuthToken.isNotBlank() && shouldAutoReconnect) {
+                openTeacherListenerSocketInternal(lastTeacherAuthToken)
+            }
+        } else {
+            if (previous || hasSubscribedToTeacherGroup || teacherWebSocket != null) {
+                teacherReconnectJob?.cancel()
+                try {
+                    teacherWebSocket?.close(1000, "Teacher listener restricted")
+                } catch (_: Exception) {
+                }
+                teacherWebSocket = null
+
+                val ws = webSocket
+                if (ws != null && _isConnected.value && hasSubscribedToTeacherGroup) {
+                    hasSubscribedToTeacherGroup = false
+                    try {
+                        val leaveReqId = UUID.randomUUID().toString()
+                        pendingRpcRequests[leaveReqId] = RpcRequestMeta("group-leave", extra = "teacher")
+                        val leaveMsg = JSONObject().apply {
+                            put("id", leaveReqId)
+                            put("method", "group-leave")
+                            put("params", JSONObject().apply {
+                                put("name", "teacher")
+                                put("version", "1.0")
+                            })
+                            put("jsonrpc", "2.0")
+                        }
+                        ws.send(leaveMsg.toString())
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+            // Purge any non-teacher and non-self messages from history immediately
+            val filtered = _receivedMessagesHistory.value.filter { it.isTeacher || it.isMine }
+            if (filtered.size != _receivedMessagesHistory.value.size) {
+                _receivedMessagesHistory.value = filtered
+            }
+            val latest = _incomingChatMessages.value
+            if (latest != null && !latest.isTeacher && !latest.isMine) {
+                _incomingChatMessages.value = filtered.lastOrNull()
+            }
+        }
+    }
 
     fun setMasterUrl(url: String, viewers: Int = 1) {
         if (url.isBlank()) return
@@ -235,7 +312,14 @@ class LiveClassWebSocketManager {
         if (hasSubscribedToBroadcastGroups) return
         hasSubscribedToBroadcastGroups = true
         try {
-            for (groupName in listOf("student", "teacher")) {
+            val groupsToJoin = if (canViewAllMessages) {
+                hasSubscribedToTeacherGroup = true
+                listOf("student", "teacher")
+            } else {
+                hasSubscribedToTeacherGroup = false
+                listOf("student")
+            }
+            for (groupName in groupsToJoin) {
                 val groupReqId = UUID.randomUUID().toString()
                 pendingRpcRequests[groupReqId] = RpcRequestMeta("group-join", extra = groupName)
                 val groupMsg = JSONObject().apply {
@@ -275,6 +359,7 @@ class LiveClassWebSocketManager {
         shouldAutoReconnect = true
         reconnectAttempts = 0
         hasSubscribedToBroadcastGroups = false
+        hasSubscribedToTeacherGroup = false
         lastAuthToken = token
         val distinctTeacherToken = teacherToken?.trim()?.takeIf { it.isNotBlank() && it != token.trim() }
         lastTeacherAuthToken = distinctTeacherToken.orEmpty()
@@ -300,7 +385,7 @@ class LiveClassWebSocketManager {
         }
 
         openSocketInternal(token)
-        if (!distinctTeacherToken.isNullOrBlank()) {
+        if (canViewAllMessages && !distinctTeacherToken.isNullOrBlank()) {
             openTeacherListenerSocketInternal(distinctTeacherToken)
         }
     }
@@ -308,6 +393,7 @@ class LiveClassWebSocketManager {
     private fun openSocketInternal(token: String) {
         scope.launch {
             hasSubscribedToBroadcastGroups = false
+            hasSubscribedToTeacherGroup = false
             val rawUa = buildUserAgentV2()
             val encodedUa = URLEncoder.encode(rawUa, "UTF-8")
             val baseWsEndpoint = fetchWsEndpointFromInit(token, encodedUa)
@@ -1763,12 +1849,14 @@ class LiveClassWebSocketManager {
             peerNamesMap[resolvedPeerId] = sender
         }
 
-        val isKnownStudentPeer = isStudentClientFromInfo ||
-            senderRoleFromInfo.equals("student", ignoreCase = true) ||
-            (resolvedPeerId.isNotBlank() && studentClientPeerIds.contains(resolvedPeerId))
-
         val rawPeerRole = peerObj?.optString("role")?.takeIf { it.isNotBlank() }
             ?: peerRolesMap[resolvedPeerId]
+
+        val isKnownStudentPeer = isStudentClientFromInfo ||
+            senderRoleFromInfo.equals("student", ignoreCase = true) ||
+            rawPeerRole?.contains("student", ignoreCase = true) == true ||
+            (resolvedPeerId.isNotBlank() && studentClientPeerIds.contains(resolvedPeerId))
+
         val peerActualRole = if (isKnownStudentPeer) "student" else rawPeerRole
 
         val rolesArr = params.optJSONArray("roles")
@@ -1788,11 +1876,22 @@ class LiveClassWebSocketManager {
             null
         }
 
-        // Only treat sender as the real teacher if they are NOT a student client AND their actual room role is teacher (or matches room teacherName)
+        // Only treat sender as the real teacher if they are NOT a student peer AND their actual room role is teacher/host/moderator
         val isSenderActualTeacher = !isKnownStudentPeer && (
             peerActualRole?.contains("teacher", ignoreCase = true) == true ||
-                (_teacherName.value.isNotBlank() && sender?.equals(_teacherName.value, ignoreCase = true) == true)
+                peerActualRole?.contains("host", ignoreCase = true) == true ||
+                peerActualRole?.contains("moderator", ignoreCase = true) == true ||
+                peerActualRole?.contains("instructor", ignoreCase = true) == true ||
+                (peerActualRole.isNullOrBlank() && role?.equals("teacher", ignoreCase = true) == true) ||
+                (peerActualRole.isNullOrBlank() && _teacherName.value.isNotBlank() && sender?.equals(_teacherName.value, ignoreCase = true) == true)
             )
+
+        // Strict Privacy & Anti-Abuse Gate:
+        // If this device does NOT have `can_view_profiles` permission, it must NEVER receive or display
+        // any other student's chat messages—only messages from the actual Teacher are allowed!
+        if (!canViewAllMessages && !isSenderActualTeacher) {
+            return
+        }
 
         // When another student selects "teacher" to send a message, rolesFromParams or role in info is "teacher"
         val resolvedTargetRole = when {
@@ -1847,9 +1946,11 @@ class LiveClassWebSocketManager {
 
     /**
      * Sends broadcast message using the 100ms JSON-RPC protocol.
-     * Includes both "teacher" and "student" in 100ms target roles so that even when
-     * a student selects "teacher" (the default), both the teacher AND other students receive it,
-     * while preserving the exact targetRole ("teacher", "student", "all") in metadata.
+     * - For regular students (`canViewAllMessages == false`):
+     *   Messages are strictly restricted to `roles = ["teacher"]` (`targetRole = "teacher"`).
+     *   No other student will ever receive their message.
+     * - For Admin-permitted devices (`canViewAllMessages == true`, i.e., `can_view_profiles` enabled):
+     *   Allows messaging everyone (`teacher`, `student`, `all`) across the live room.
      */
     fun sendChatMessage(
         text: String,
@@ -1878,31 +1979,43 @@ class LiveClassWebSocketManager {
                 if (it.equals("teacher", ignoreCase = true)) "student" else it
             }
 
-            // Always include both "teacher" and "student" in 100ms broadcast roles so messages sent
-            // with "teacher" selected ALSO arrive at all student peers in real time!
+            // Enforce Teacher-Only target role when device does NOT have can_view_profiles permission
+            val effectiveTargetRole = if (canViewAllMessages) {
+                targetRole.lowercase().trim().ifBlank { "teacher" }
+            } else {
+                "teacher"
+            }
+
             val targetRolesSet = linkedSetOf<String>()
-            when (targetRole.lowercase().trim()) {
-                "teacher" -> {
-                    targetRolesSet.add("teacher")
-                    targetRolesSet.add(activeStudentRole)
-                    targetRolesSet.add("student")
-                }
-                "student", "students" -> {
-                    targetRolesSet.add(activeStudentRole)
-                    targetRolesSet.add("student")
-                    targetRolesSet.add("teacher")
-                }
-                "all", "*" -> {
-                    targetRolesSet.add("teacher")
-                    targetRolesSet.add(activeStudentRole)
-                    targetRolesSet.add("student")
-                }
-                else -> {
-                    targetRolesSet.add("teacher")
-                    targetRolesSet.add(activeStudentRole)
-                    targetRolesSet.add("student")
+            if (!canViewAllMessages) {
+                // Regular Student: Strictly send ONLY to "teacher" — NEVER to "student" or room-wide!
+                targetRolesSet.add("teacher")
+            } else {
+                // Permitted Device (can_view_profiles = true): Can broadcast to teacher & all students
+                when (effectiveTargetRole) {
+                    "teacher" -> {
+                        targetRolesSet.add("teacher")
+                        targetRolesSet.add(activeStudentRole)
+                        targetRolesSet.add("student")
+                    }
+                    "student", "students" -> {
+                        targetRolesSet.add(activeStudentRole)
+                        targetRolesSet.add("student")
+                        targetRolesSet.add("teacher")
+                    }
+                    "all", "*" -> {
+                        targetRolesSet.add("teacher")
+                        targetRolesSet.add(activeStudentRole)
+                        targetRolesSet.add("student")
+                    }
+                    else -> {
+                        targetRolesSet.add("teacher")
+                        targetRolesSet.add(activeStudentRole)
+                        targetRolesSet.add("student")
+                    }
                 }
             }
+
             val targetRolesArray = JSONArray().apply {
                 targetRolesSet.filter { it.isNotBlank() }.forEach { put(it) }
             }
@@ -1919,24 +2032,14 @@ class LiveClassWebSocketManager {
                 put("sender_name", effectiveSenderName)
                 put("role", "student")
                 put("senderRole", "student")
-                put("targetRole", targetRole)
+                put("targetRole", effectiveTargetRole)
                 put("isStudentClient", true)
                 put("senderPeerId", currentPeerId)
                 put("senderUserId", currentUserId)
                 put("time", nowMs)
             }
 
-            // 1st fallback: room-wide broadcast (without "roles" constraint)
-            val fallbackMsg = JSONObject().apply {
-                put("id", UUID.randomUUID().toString())
-                put("method", "broadcast")
-                put("params", JSONObject().apply {
-                    put("info", infoJson)
-                })
-                put("jsonrpc", "2.0")
-            }.toString()
-
-            // 2nd fallback: teacher-only role array if room template strictly restricts student broadcasts to ["teacher"]
+            // Teacher-only fallback payload (strictly ["teacher"] role)
             val teacherOnlyFallbackMsg = JSONObject().apply {
                 put("id", UUID.randomUUID().toString())
                 put("method", "broadcast")
@@ -1947,12 +2050,33 @@ class LiveClassWebSocketManager {
                 put("jsonrpc", "2.0")
             }.toString()
 
-            pendingRpcRequests[reqId] = RpcRequestMeta(
-                method = "broadcast",
-                extra = targetRole,
-                fallbackBroadcastPayload = fallbackMsg,
-                secondFallbackBroadcastPayload = teacherOnlyFallbackMsg
-            )
+            if (canViewAllMessages) {
+                // Permitted device fallback: room-wide broadcast + teacher-only second fallback
+                val roomWideFallbackMsg = JSONObject().apply {
+                    put("id", UUID.randomUUID().toString())
+                    put("method", "broadcast")
+                    put("params", JSONObject().apply {
+                        put("info", infoJson)
+                    })
+                    put("jsonrpc", "2.0")
+                }.toString()
+
+                pendingRpcRequests[reqId] = RpcRequestMeta(
+                    method = "broadcast",
+                    extra = effectiveTargetRole,
+                    fallbackBroadcastPayload = roomWideFallbackMsg,
+                    secondFallbackBroadcastPayload = teacherOnlyFallbackMsg
+                )
+            } else {
+                // Regular student: NEVER fallback to room-wide broadcast without roles!
+                pendingRpcRequests[reqId] = RpcRequestMeta(
+                    method = "broadcast",
+                    extra = "teacher",
+                    fallbackBroadcastPayload = null,
+                    secondFallbackBroadcastPayload = null
+                )
+            }
+
             if (onComplete != null) {
                 pendingChatCallbacks[reqId] = onComplete
             }
@@ -1967,7 +2091,7 @@ class LiveClassWebSocketManager {
                 put("jsonrpc", "2.0")
             }
 
-            Log.d(TAG, "Sending 100ms broadcast chat as '$effectiveSenderName' to '$targetRole' (roles=$targetRolesArray)")
+            Log.d(TAG, "Sending 100ms broadcast chat as '$effectiveSenderName' to '$effectiveTargetRole' (roles=$targetRolesArray, canViewAll=$canViewAllMessages)")
             val sent = ws.send(broadcastMsg.toString())
             if (!sent) {
                 pendingRpcRequests.remove(reqId)

@@ -42,6 +42,7 @@ fun ChapterResourcesScreen(
     chapterName: String,
     subjectCode: String,
     phaseId: String?,
+    programId: String? = null,
     viewModel: SmartNotesViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -61,12 +62,13 @@ fun ChapterResourcesScreen(
         }
     }
 
-    LaunchedEffect(chapterId, subjectCode, phaseId) {
+    LaunchedEffect(chapterId, subjectCode, phaseId, programId) {
         viewModel.loadChapterResources(
             chapterId = chapterId,
             phaseId = phaseId,
             chapterName = chapterName,
-            subjectCode = subjectCode
+            subjectCode = subjectCode,
+            programId = programId
         )
     }
 

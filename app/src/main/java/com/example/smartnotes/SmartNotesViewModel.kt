@@ -80,9 +80,13 @@ class SmartNotesViewModel(
         subjectCode: String,
         subjectTitle: String,
         subjectColor: String?,
-        phaseId: String?
+        phaseId: String?,
+        programId: String? = null
     ) {
-        val activeProgId = sessionManager.getActiveProgramId() ?: ""
+        val activeProgId = programId?.takeIf { it.isNotBlank() }
+            ?: _uiState.value.programId.takeIf { it.isNotBlank() }
+            ?: sessionManager.getActiveProgramId()
+            ?: ""
         val effectivePhaseId = phaseId ?: ""
         
         _uiState.update {
@@ -170,14 +174,16 @@ class SmartNotesViewModel(
         phaseId: String?,
         chapterName: String? = null,
         subjectCode: String? = null,
-        altChapterId: String? = null
+        altChapterId: String? = null,
+        programId: String? = null
     ) {
         loadChapterResourcesJob?.cancel()
         loadChapterResourcesJob = viewModelScope.launch {
             val effectiveSubCode = subjectCode?.ifBlank { null }
                 ?: _uiState.value.subjectCode.ifBlank { null }
                 ?: ""
-            val effectiveProgId = _uiState.value.programId.ifBlank { null }
+            val effectiveProgId = programId?.ifBlank { null }
+                ?: _uiState.value.programId.ifBlank { null }
                 ?: sessionManager.getActiveProgramId() ?: ""
             val effectivePhaseId = phaseId?.ifBlank { null }
                 ?: _uiState.value.phaseId.ifBlank { null }

@@ -9,7 +9,9 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +65,11 @@ val ModernShapes = androidx.compose.material3.Shapes(
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
 )
 
+val LocalAppDarkTheme = compositionLocalOf { false }
+
+@Composable
+fun isAppInDarkTheme(): Boolean = LocalAppDarkTheme.current
+
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -79,13 +86,6 @@ fun MyApplicationTheme(
             else -> LightColorScheme
         }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        shapes = ModernShapes,
-        content = content
-    )
-
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -100,5 +100,14 @@ fun MyApplicationTheme(
                 insetsController.isAppearanceLightNavigationBars = !darkTheme
             }
         }
+    }
+
+    CompositionLocalProvider(LocalAppDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            shapes = ModernShapes,
+            content = content
+        )
     }
 }

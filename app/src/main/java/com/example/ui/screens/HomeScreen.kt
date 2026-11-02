@@ -71,7 +71,7 @@ fun HomeScreen(
     val wallpaperConfig by viewModel.wallpaperConfigFlow.collectAsState()
     val scrollState = rememberScrollState()
     val context = LocalContext.current
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
 
     // ===== LOGIC: Notice Popup Dialog (Admin Managed) =====
     if (uiState.showNoticePopup && uiState.notices.any { it.showAsPopup }) {

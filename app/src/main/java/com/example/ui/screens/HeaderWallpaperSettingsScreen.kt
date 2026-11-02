@@ -1,7 +1,12 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,9 +15,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,555 +29,908 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.auth.SessionManager
 import com.example.ui.components.HomeHeader
+import com.example.ui.theme.HeaderWallpaperCodeManager
 import com.example.ui.theme.HeaderWallpaperConfig
 import com.example.ui.theme.HeaderWallpaperPresets
+import com.example.ui.theme.ImportedWallpaperTheme
+import com.example.ui.theme.LiveHeaderBackground
 import com.example.ui.theme.WallpaperPresetItem
+import com.example.ui.theme.isAppInDarkTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HeaderWallpaperSettingsScreen(
-    sessionManager: SessionManager,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    sessionManager: SessionManager = SessionManager(LocalContext.current),
+    onBack: () -> Unit
 ) {
+    BackHandler { onBack() }
+
     val context = LocalContext.current
     val currentConfig by sessionManager.headerWallpaperFlow.collectAsState()
+    val importedThemes by sessionManager.importedCustomThemesFlow.collectAsState()
+    val isDark = isAppInDarkTheme()
 
-    var selectedType by remember(currentConfig) { mutableStateOf(currentConfig.type) }
-    var customUri by remember(currentConfig) { mutableStateOf(currentConfig.customUri) }
-    var isAnimEnabled by remember(currentConfig) { mutableStateOf(currentConfig.isAnimationEnabled) }
-    var showGuideDialog by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf("সব থিম") }
+    var showImportCodeDialog by remember { mutableStateOf(false) }
 
-    // Live preview config
-    val previewConfig = remember(selectedType, customUri, isAnimEnabled) {
-        HeaderWallpaperConfig(
-            type = selectedType,
-            customUri = customUri,
-            isAnimationEnabled = isAnimEnabled
-        )
+    val userName = remember {
+        sessionManager.getUserFullName()?.takeIf { it.isNotBlank() } ?: "শিক্ষার্থী"
+    }
+    val classDisplay = remember {
+        sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "HSC '26"
+    }
+    val activeCourseTitle = remember {
+        sessionManager.getActiveProgramTitleBn() ?: "অ্যাকাডেমিক প্রোগ্রাম"
     }
 
-    // Photo picker
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            customUri = uri.toString()
-            selectedType = HeaderWallpaperConfig.CUSTOM_IMAGE
-            Toast.makeText(context, "কাস্টম ওয়ালপেপার নির্বাচিত হয়েছে!", Toast.LENGTH_SHORT).show()
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (_: Exception) {
+            }
+            val updated = currentConfig.copy(
+                type = HeaderWallpaperConfig.CUSTOM_IMAGE,
+                customUri = uri.toString(),
+                customTitle = "কাস্টম গ্যালারি ওয়ালপেপার"
+            )
+            sessionManager.setHeaderWallpaperConfig(updated)
+            Toast.makeText(context, "নিজস্ব ওয়ালপেপার সেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
         }
     }
 
-    val userName = remember { sessionManager.getUserFullName() ?: "শিক্ষার্থী" }
-    val userAvatar = remember { sessionManager.getUserAvatar() ?: "" }
-    val userClass = remember { sessionManager.getUserClassDisplay() ?: "একাদশ শ্রেণি • মানবিক" }
+    val pageBg = if (isDark) Color(0xFF070D19) else Color(0xFFF8FAFC)
+    val cardBg = if (isDark) Color(0xFF111C2D) else Color.White
+    val cardBorder = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+
+    val filteredPresets = remember(selectedCategory) {
+        if (selectedCategory == "সব থিম") {
+            HeaderWallpaperPresets.presets
+        } else {
+            HeaderWallpaperPresets.presets.filter { it.categoryBn == selectedCategory }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "হেডার ও লাইভ ওয়ালপেপার",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column {
+                        Text(
+                            text = "হেডার ও লাইভ ওয়ালপেপার স্টুডিও",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = primaryText
+                        )
+                        Text(
+                            text = "১৬টি সিমলেস অ্যানিমেটেড থিম • কাস্টম কোড ইমপোর্ট",
+                            fontSize = 11.5.sp,
+                            color = secondaryText
+                        )
+                    }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("wallpaper_back_button")
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
+                            tint = primaryText
+                        )
+                    }
+                },
+                actions = {
+                    FilledTonalIconButton(
+                        onClick = { showImportCodeDialog = true },
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .testTag("open_theme_code_dialog_top_btn"),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = Color(0xFF8B5CF6).copy(alpha = 0.16f)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Code,
+                            contentDescription = "Import Theme Code",
+                            tint = Color(0xFF8B5CF6)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = cardBg
                 )
             )
         },
-        bottomBar = {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(elevation = 10.dp),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            val newConfig = HeaderWallpaperConfig(
-                                type = selectedType,
-                                customUri = customUri,
-                                isAnimationEnabled = isAnimEnabled
-                            )
-                            sessionManager.setHeaderWallpaperConfig(newConfig)
-                            Toast.makeText(context, "হেডার ওয়ালপেপার সফলভাবে প্রয়োগ করা হয়েছে! ✨", Toast.LENGTH_SHORT).show()
-                            onBack()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "ওয়ালপেপার সংরক্ষণ ও প্রয়োগ করুন",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = modifier.fillMaxSize()
+        containerColor = pageBg
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ===== 1. Live Interactive Preview =====
-            Text(
-                text = "লাইভ প্রিভিউ (হোম স্ক্রিন যেমন দেখাবে)",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp)),
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                shadowElevation = 4.dp
+            // 1. Live Interactive Header Preview Card
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                border = BorderStroke(1.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                HomeHeader(
-                    userName = userName,
-                    subtitle = userClass,
-                    avatarUrl = userAvatar,
-                    isPremium = true,
-                    activeCourseTitle = "HSC '27 মানবিক - ২য় বর্ষ প্রস্তুতি",
-                    onAvatarClick = {},
-                    onOpenCourseSwitcher = {},
-                    wallpaperConfig = previewConfig
-                )
-            }
-
-            // ===== 2. Preset Themes Section =====
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "বিল্ট-ইন লাইভ ওয়ালপেপার থিম",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                ) {
-                    Text(
-                        text = "৫টি থিম",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
-
-            // Preset Cards Grid/List
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                HeaderWallpaperPresets.presets.forEach { preset ->
-                    val isSelected = selectedType == preset.id
-                    PresetThemeCard(
-                        preset = preset,
-                        isSelected = isSelected,
-                        onClick = {
-                            selectedType = preset.id
-                        }
-                    )
-                }
-            }
-
-            // ===== 3. Custom Imported Wallpaper Section =====
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(
-                    if (selectedType == HeaderWallpaperConfig.CUSTOM_IMAGE) 2.dp else 1.dp,
-                    if (selectedType == HeaderWallpaperConfig.CUSTOM_IMAGE) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                ),
-                shadowElevation = 2.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 4.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "লাইভ হেডার প্রিভিউ",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = primaryText
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xFF10B981).copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AllInclusive,
+                                    contentDescription = null,
+                                    tint = Color(0xFF10B981),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (currentConfig.isAnimationEnabled) "অবিরাম ৬০ FPS লুপ" else "স্থির মোড",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF10B981)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .border(
+                                1.5.dp,
+                                Color(0xFF38BDF8).copy(alpha = 0.35f),
+                                RoundedCornerShape(20.dp)
+                            )
+                    ) {
+                        HomeHeader(
+                            userName = userName,
+                            subtitle = "$classDisplay • বিজ্ঞান",
+                            avatarUrl = sessionManager.getUserAvatar() ?: "",
+                            isPremium = true,
+                            onAvatarClick = {},
+                            activeCourseTitle = activeCourseTitle,
+                            onOpenCourseSwitcher = {},
+                            unreadNotificationCount = 2,
+                            onNotificationClick = {},
+                            wallpaperConfig = currentConfig
+                        )
+                    }
+                }
+            }
+
+            // 2. Action Row: Import/Build Theme Code + Pick Custom Gallery Image
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Theme Code Import & Studio Card
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Transparent,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF6D28D9), Color(0xFF4F46E5), Color(0xFF0284C7))
+                            )
+                        )
+                        .clickable { showImportCodeDialog = true }
+                        .testTag("import_theme_code_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Code,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color.White.copy(alpha = 0.22f)
+                            ) {
+                                Text(
+                                    text = "নতুন",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "থিম কোড ইমপোর্ট",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "কোড পেস্ট বা নতুন থিম তৈরি করুন",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.88f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Custom Gallery Image Picker Card
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = cardBg,
+                    border = BorderStroke(
+                        width = if (currentConfig.type == HeaderWallpaperConfig.CUSTOM_IMAGE) 2.dp else 1.dp,
+                        color = if (currentConfig.type == HeaderWallpaperConfig.CUSTOM_IMAGE) Color(0xFFEC4899) else cardBorder
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                        .testTag("pick_custom_wallpaper_btn")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFFEC4899).copy(alpha = 0.14f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AddPhotoAlternate,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
+                                    tint = Color(0xFFEC4899),
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                            Column {
-                                Text(
-                                    text = "কাস্টম ওয়ালপেপার (নিজের পছন্দের ছবি)",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "গ্যালারি থেকে নিজস্ব ওয়ালপেপার ইমপোর্ট করো",
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            if (currentConfig.type == HeaderWallpaperConfig.CUSTOM_IMAGE) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Active",
+                                    tint = Color(0xFFEC4899),
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
-
-                        if (selectedType == HeaderWallpaperConfig.CUSTOM_IMAGE) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Selected",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                        Text(
+                            text = "গ্যালারি ওয়ালপেপার",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = primaryText
+                        )
+                        Text(
+                            text = "নিজের পছন্দের ছবি সেট করুন",
+                            fontSize = 11.sp,
+                            color = secondaryText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    if (!customUri.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(110.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                                .clickable { selectedType = HeaderWallpaperConfig.CUSTOM_IMAGE }
+            // Custom Image Active Preview & Brightness/Contrast Control
+            AnimatedVisibility(visible = !currentConfig.customUri.isNullOrBlank()) {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             AsyncImage(
-                                model = customUri,
-                                contentDescription = "Custom Wallpaper",
+                                model = ImageRequest.Builder(context)
+                                    .data(currentConfig.customUri)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Selected Custom Image",
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.Black.copy(alpha = 0.65f),
                                 modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(8.dp)
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "সংরক্ষিত গ্যালারি ওয়ালপেপার",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryText
+                                )
+                                Text(
+                                    text = if (currentConfig.type == HeaderWallpaperConfig.CUSTOM_IMAGE) "বর্তমানে ব্যবহৃত হচ্ছে" else "পুনরায় ব্যবহার করতে ট্যাপ করুন",
+                                    fontSize = 11.5.sp,
+                                    color = if (currentConfig.type == HeaderWallpaperConfig.CUSTOM_IMAGE) Color(0xFF10B981) else secondaryText
+                                )
+                            }
+                            if (currentConfig.type != HeaderWallpaperConfig.CUSTOM_IMAGE) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        sessionManager.setHeaderWallpaperConfig(
+                                            currentConfig.copy(type = HeaderWallpaperConfig.CUSTOM_IMAGE)
+                                        )
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text("সেট করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        if (currentConfig.type == HeaderWallpaperConfig.CUSTOM_IMAGE) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "নির্বাচিত কাস্টম ইমেজ",
-                                    fontSize = 11.sp,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    text = "ছবির ডার্ক কন্ট্রাস্ট (লেখা স্পষ্ট করার জন্য)",
+                                    fontSize = 11.5.sp,
+                                    color = secondaryText
+                                )
+                                Text(
+                                    text = "${(currentConfig.dimOpacity * 100).toInt()}%",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFEC4899)
                                 )
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            Slider(
+                                value = currentConfig.dimOpacity.coerceIn(0.1f, 0.8f),
+                                onValueChange = { newDim ->
+                                    sessionManager.setHeaderWallpaperConfig(
+                                        currentConfig.copy(dimOpacity = newDim)
                                     )
                                 },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("অন্য ছবি বেছে নাও")
-                            }
-
-                            FilledTonalButton(
-                                onClick = { selectedType = HeaderWallpaperConfig.CUSTOM_IMAGE },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(if (selectedType == HeaderWallpaperConfig.CUSTOM_IMAGE) "সক্রিয় আছে" else "এটি সেট করুন")
-                            }
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                valueRange = 0.1f..0.8f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFFEC4899),
+                                    activeTrackColor = Color(0xFFEC4899)
                                 )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. Imported / Saved Custom Code Themes Section
+            if (importedThemes.isNotEmpty() || currentConfig.type == HeaderWallpaperConfig.CUSTOM_CODE) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.FileUpload,
+                                imageVector = Icons.Default.IntegrationInstructions,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                tint = Color(0xFF8B5CF6),
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "গ্যালারি থেকে ওয়ালপেপার সিলেক্ট করুন",
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontWeight = FontWeight.Bold
+                                text = "আপনার ইমপোর্ট করা থিম কোড (${importedThemes.size})",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = primaryText
                             )
                         }
+                        TextButton(onClick = { showImportCodeDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("নতুন কোড", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    importedThemes.forEach { customTheme ->
+                        val isSelected = currentConfig.type == HeaderWallpaperConfig.CUSTOM_CODE &&
+                            currentConfig.customThemeCode == customTheme.toShareableCode()
+
+                        ImportedThemeCard(
+                            theme = customTheme,
+                            isSelected = isSelected,
+                            isDark = isDark,
+                            onSelect = {
+                                sessionManager.setHeaderWallpaperConfig(
+                                    currentConfig.copy(
+                                        type = HeaderWallpaperConfig.CUSTOM_CODE,
+                                        customTitle = customTheme.titleBn,
+                                        customThemeCode = customTheme.toShareableCode()
+                                    )
+                                )
+                            },
+                            onCopyCode = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    ClipData.newPlainText("MaxBird Theme Code", customTheme.toShareableCode())
+                                )
+                                Toast.makeText(context, "থিম কোড কপি করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            },
+                            onDelete = {
+                                sessionManager.deleteImportedCustomTheme(customTheme.id)
+                                if (isSelected) {
+                                    sessionManager.setHeaderWallpaperConfig(
+                                        currentConfig.copy(
+                                            type = HeaderWallpaperConfig.PRESET_COSMIC,
+                                            customThemeCode = null
+                                        )
+                                    )
+                                }
+                            }
+                        )
                     }
                 }
             }
 
-            // ===== 4. Wallpaper Creation Guidelines Card =====
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable { showGuideDialog = true },
+            // 4. Seamless Infinite Animation Toggle
+            Card(
                 shape = RoundedCornerShape(18.dp),
-                color = Color(0xFFEFF6FF),
-                border = BorderStroke(1.dp, Color(0xFF3B82F6).copy(alpha = 0.35f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF3B82F6).copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MenuBook,
-                            contentDescription = null,
-                            tint = Color(0xFF2563EB),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "ওয়ালপেপার তৈরির নিয়ম ও নির্দেশিকা",
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E3A8A)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "কীভাবে সেরা মাপ ও ফরম্যাটে নিজের ওয়ালপেপার ডিজাইন করবেন জানতে ট্যাপ করুন",
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF1D4ED8),
-                            lineHeight = 16.sp
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = Color(0xFF2563EB)
-                    )
-                }
-            }
-
-            // ===== 5. Animation Toggle Card =====
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = BorderStroke(1.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0EA5E9).copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AllInclusive,
+                                contentDescription = null,
+                                tint = Color(0xFF0EA5E9),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "লাইভ অ্যানিমেশন ও গ্লো ইফেক্ট",
+                                text = "নন-স্টপ সিমলেস অ্যানিমেশন",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = primaryText
                             )
                             Text(
-                                text = "তারা, মেঘ ও তরঙ্গের চলমান অ্যানিমেশন সক্রিয় রাখুন",
+                                text = "কোনো থেমে যাওয়া বা রিস্টার্ট ঝাঁকুনি ছাড়াই অবিরাম চলবে",
                                 fontSize = 11.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = secondaryText
                             )
                         }
                     }
                     Switch(
-                        checked = isAnimEnabled,
-                        onCheckedChange = { isAnimEnabled = it }
+                        checked = currentConfig.isAnimationEnabled,
+                        onCheckedChange = { enabled ->
+                            sessionManager.setHeaderWallpaperConfig(
+                                currentConfig.copy(isAnimationEnabled = enabled)
+                            )
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF0284C7)
+                        )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
+            // 5. Built-in 16 Creative Live Themes Header & Category Filter Chips
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = Color(0xFF0284C7),
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Text(
+                            text = "প্রিমিয়াম লাইভ অ্যানিমেটেড থিম (${HeaderWallpaperPresets.presets.size}টি)",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = primaryText
+                        )
+                    }
+                }
+
+                // Category Filter Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HeaderWallpaperPresets.categories.forEach { category ->
+                        val selected = selectedCategory == category
+                        FilterChip(
+                            selected = selected,
+                            onClick = { selectedCategory = category },
+                            label = {
+                                Text(
+                                    text = category,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF0284C7),
+                                selectedLabelColor = Color.White,
+                                containerColor = cardBg,
+                                labelColor = secondaryText
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                borderColor = if (selected) Color(0xFF0284C7) else cardBorder
+                            ),
+                            shape = RoundedCornerShape(50)
+                        )
+                    }
+                }
+
+                // Presets List with Live Mini-Canvas Previews
+                filteredPresets.forEach { preset ->
+                    val isSelected = currentConfig.type == preset.id
+                    LivePresetThemeCard(
+                        preset = preset,
+                        isSelected = isSelected,
+                        isDark = isDark,
+                        onSelect = {
+                            sessionManager.setHeaderWallpaperConfig(
+                                currentConfig.copy(
+                                    type = preset.id,
+                                    customThemeCode = null
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 
-    // Guidelines Dialog
-    if (showGuideDialog) {
-        WallpaperGuidelinesDialog(onDismiss = { showGuideDialog = false })
+    if (showImportCodeDialog) {
+        ThemeCodeStudioDialog(
+            isDark = isDark,
+            onDismiss = { showImportCodeDialog = false },
+            onApplyImportedTheme = { imported ->
+                sessionManager.addImportedCustomTheme(imported)
+                sessionManager.setHeaderWallpaperConfig(
+                    currentConfig.copy(
+                        type = HeaderWallpaperConfig.CUSTOM_CODE,
+                        customTitle = imported.titleBn,
+                        customThemeCode = imported.toShareableCode()
+                    )
+                )
+                showImportCodeDialog = false
+                Toast.makeText(context, "'${imported.titleBn}' থিমটি সফলভাবে চালু হয়েছে!", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 }
 
 @Composable
-private fun PresetThemeCard(
+private fun LivePresetThemeCard(
     preset: WallpaperPresetItem,
     isSelected: Boolean,
-    onClick: () -> Unit
+    isDark: Boolean,
+    onSelect: () -> Unit
 ) {
-    Surface(
+    val cardBg = if (isDark) Color(0xFF111C2D) else Color.White
+    val borderCol = if (isSelected) preset.accentColor else if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                preset.accentColor.copy(alpha = if (isDark) 0.14f else 0.08f)
+            } else {
+                cardBg
+            }
+        ),
+        border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderCol),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 3.dp else 0.5.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(
-            width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        ),
-        shadowElevation = if (isSelected) 5.dp else 1.dp
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onSelect)
+            .testTag("preset_wallpaper_${preset.id}")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            // Live Animated Mini-Preview Box
+            Box(
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(64.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(
+                        1.dp,
+                        preset.accentColor.copy(alpha = 0.5f),
+                        RoundedCornerShape(14.dp)
+                    )
             ) {
-                // Color Swatch Pill
-                Box(
+                LiveHeaderBackground(
+                    config = HeaderWallpaperConfig(
+                        type = preset.id,
+                        isAnimationEnabled = true
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Black.copy(alpha = 0.48f),
                     modifier = Modifier
-                        .size(width = 52.dp, height = 44.dp)
-                        .shadow(
-                            elevation = if (isSelected) 6.dp else 2.dp,
-                            shape = RoundedCornerShape(12.dp),
-                            spotColor = preset.previewColors.firstOrNull() ?: Color.Black
-                        )
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Brush.linearGradient(preset.previewColors))
-                        .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
+                        .align(Alignment.BottomStart)
+                        .padding(5.dp)
                 ) {
-                    if (preset.isLiveAnimated) {
-                        Text("✨", fontSize = 14.sp)
-                    }
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = preset.nameBn,
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (preset.isLiveAnimated) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                            ) {
-                                Text(
-                                    text = "লাইভ",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = preset.description,
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        text = "LIVE",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                     )
                 }
             }
 
-            if (isSelected) {
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = preset.nameBn,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = primaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = preset.categoryBn + " • " + preset.nameEn,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = preset.accentColor
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = preset.description,
+                    fontSize = 11.5.sp,
+                    color = secondaryText,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 15.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            RadioButton(
+                selected = isSelected,
+                onClick = onSelect,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = preset.accentColor,
+                    unselectedColor = secondaryText
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportedThemeCard(
+    theme: ImportedWallpaperTheme,
+    isSelected: Boolean,
+    isDark: Boolean,
+    onSelect: () -> Unit,
+    onCopyCode: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF111C2D) else Color.White
+    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val accentCol = HeaderWallpaperCodeManager.parseColorSafe(theme.accentHex, Color(0xFF8B5CF6))
+
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) accentCol.copy(alpha = 0.14f) else cardBg
+        ),
+        border = BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) accentCol else if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onSelect)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(78.dp)
+                    .height(54.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, accentCol.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            ) {
+                LiveHeaderBackground(
+                    config = HeaderWallpaperConfig(
+                        type = HeaderWallpaperConfig.CUSTOM_CODE,
+                        customThemeCode = theme.toShareableCode(),
+                        isAnimationEnabled = true
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = theme.titleBn,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = primaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "ইফেক্ট: ${theme.effectStyle} • ${theme.primaryHex} → ${theme.accentHex}",
+                    fontSize = 11.sp,
+                    color = secondaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(onClick = onCopyCode, modifier = Modifier.size(34.dp)) {
                 Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Copy Code",
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Delete",
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -581,78 +938,425 @@ private fun PresetThemeCard(
 }
 
 @Composable
-private fun WallpaperGuidelinesDialog(onDismiss: () -> Unit) {
+private fun ThemeCodeStudioDialog(
+    isDark: Boolean,
+    onDismiss: () -> Unit,
+    onApplyImportedTheme: (ImportedWallpaperTheme) -> Unit
+) {
+    val context = LocalContext.current
+    var activeTab by remember { mutableIntStateOf(0) } // 0 = Import Code, 1 = Build Custom Code
+    var codeInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Custom Theme Builder states
+    var customName by remember { mutableStateOf("আমার স্পেশাল থিম") }
+    var selectedStyle by remember { mutableStateOf("AURORA") }
+    var selectedPaletteIndex by remember { mutableIntStateOf(0) }
+
+    val colorPalettes = remember {
+        listOf(
+            Triple("#050816", "#1E1B4B", "#38BDF8") to "কসমিক সায়ান",
+            Triple("#090418", "#3B0764", "#EC4899") to "নিয়ন ম্যাজেন্টা",
+            Triple("#022C22", "#064E3B", "#10B981") to "এমারেল্ড অরোরা",
+            Triple("#180409", "#4C0519", "#F43F5E") to "ক্রিমসন ফ্লেম",
+            Triple("#0F0B05", "#422006", "#F59E0B") to "রয়েল গোল্ড",
+            Triple("#070A1E", "#1E1B4B", "#A855F7") to "অ্যামেথিস্ট নাইট"
+        )
+    }
+
+    val generatedBuilderTheme = remember(customName, selectedStyle, selectedPaletteIndex) {
+        val (c1, c2, c3) = colorPalettes[selectedPaletteIndex].first
+        ImportedWallpaperTheme(
+            titleBn = customName.ifBlank { "কাস্টম লাইভ থিম" },
+            effectStyle = selectedStyle,
+            primaryHex = c1,
+            secondaryHex = c2,
+            accentHex = c3,
+            particleHex = "#FFFFFF",
+            speedMultiplier = 1
+        )
+    }
+
+    val dialogBg = if (isDark) Color(0xFF0F172A) else Color.White
+    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = dialogBg,
+        shape = RoundedCornerShape(26.dp),
         title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("ওয়ালপেপার ডিজাইনের নির্দেশিকা", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF8B5CF6).copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Code,
+                            contentDescription = null,
+                            tint = Color(0xFF8B5CF6)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "থিম কোড ইমপোর্ট ও মেকার",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = primaryText
+                        )
+                        Text(
+                            text = "নতুন থিমের কোড পেস্ট করুন বা নিজের থিম বানান",
+                            fontSize = 11.5.sp,
+                            color = secondaryText
+                        )
+                    }
+                }
+
+                // Mode Switcher Tabs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("কোড ইমপোর্ট করুন", "নতুন কোড তৈরি করুন").forEachIndexed { idx, label ->
+                        val selected = activeTab == idx
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (selected) Color(0xFF8B5CF6) else Color.Transparent)
+                                .clickable {
+                                    activeTab = idx
+                                    errorMessage = null
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) Color.White else secondaryText
+                            )
+                        }
+                    }
+                }
             }
         },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                GuideItem(
-                    number = "১",
-                    title = "সাইজ ও রেশিও (Aspect Ratio):",
-                    detail = "আদর্শ অনুপাত ২১:৯ বা ১৬:৬ (ব্যানার ফরম্যাট)। সবচেয়ে ভালো মাপ হলো ১০৮০ x ৩৮০ পিক্সেল অথবা ১২০০ x ৪২০ পিক্সেল।"
-                )
-                GuideItem(
-                    number = "২",
-                    title = "সাপোর্টেড ফাইল ফরম্যাট:",
-                    detail = "PNG, JPG, WebP অথবা অ্যানিমেটেড GIF ফাইল পুরোপুরি সাপোর্ট করবে।"
-                )
-                GuideItem(
-                    number = "৩",
-                    title = "সেফ জোন ও টেক্সট স্পষ্টতা:",
-                    detail = "অ্যাপের উপরের অংশে ঘড়ি ও স্ট্যাটাস বার থাকে এবং ডানে প্রোফাইল ছবি থাকে। তাই ছবির প্রধান ইল্যাস্ট্রেশন বা আর্ট মাঝখানে বা নিচে রাখা ভালো।"
-                )
-                GuideItem(
-                    number = "৪",
-                    title = "কনট্রাস্ট ও কালার টিপস:",
-                    detail = "একটু গাঢ় (Dark) বা মিডিয়াম স্যাচুরেটেড ব্যাকগ্রাউন্ড দিলে হ্যালো টেক্সট ও কোর্সের নাম সবচেয়ে আকর্ষণীয় ও স্পষ্ট দেখা যাবে।"
-                )
+                if (activeTab == 0) {
+                    OutlinedTextField(
+                        value = codeInput,
+                        onValueChange = {
+                            codeInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("থিম কোড পেস্ট করুন (MAXTHEME:... বা #Hex)") },
+                        placeholder = {
+                            Text(
+                                "MAXTHEME:v1|নিয়ন গ্যালাক্সি|GALAXY|#050816|#1E1B4B|#A855F7|#38BDF8|1",
+                                fontSize = 11.sp
+                            )
+                        },
+                        minLines = 3,
+                        maxLines = 4,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("theme_code_input_field"),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clipText = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+                                if (!clipText.isNullOrBlank()) {
+                                    codeInput = clipText.trim()
+                                    errorMessage = null
+                                } else {
+                                    Toast.makeText(context, "ক্লিপবোর্ডে কোনো কোড পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("পেস্ট করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (codeInput.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    codeInput = ""
+                                    errorMessage = null
+                                },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("মুছুন", fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    if (errorMessage != null) {
+                        Text(
+                            text = errorMessage!!,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+
+                    // Live preview if valid code is typed
+                    val previewParsed = remember(codeInput) {
+                        HeaderWallpaperCodeManager.parseThemeCode(codeInput).getOrNull()
+                    }
+                    if (previewParsed != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(74.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.5.dp, Color(0xFF10B981), RoundedCornerShape(14.dp))
+                        ) {
+                            LiveHeaderBackground(
+                                config = HeaderWallpaperConfig(
+                                    type = HeaderWallpaperConfig.CUSTOM_CODE,
+                                    customThemeCode = previewParsed.toShareableCode(),
+                                    isAnimationEnabled = true
+                                ),
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Text(
+                                text = "প্রিভিউ: ${previewParsed.titleBn} (${previewParsed.effectStyle})",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(10.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = secondaryText.copy(alpha = 0.2f))
+
+                    Text(
+                        text = "রেডিমেড বোনাস থিম কোড (১ ট্যাপে টেস্ট করুন):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryText
+                    )
+
+                    HeaderWallpaperCodeManager.sampleCommunityCodes.forEach { sample ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isDark) Color(0xFF1E293B) else Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, secondaryText.copy(alpha = 0.2f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    codeInput = sample.toShareableCode()
+                                    errorMessage = null
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = sample.titleBn,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = primaryText
+                                    )
+                                    Text(
+                                        text = sample.toShareableCode(),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = secondaryText,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.AddCircleOutline,
+                                    contentDescription = null,
+                                    tint = Color(0xFF8B5CF6),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Tab 1: Custom Theme Builder
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(82.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(1.5.dp, Color(0xFF8B5CF6), RoundedCornerShape(16.dp))
+                    ) {
+                        LiveHeaderBackground(
+                            config = HeaderWallpaperConfig(
+                                type = HeaderWallpaperConfig.CUSTOM_CODE,
+                                customThemeCode = generatedBuilderTheme.toShareableCode(),
+                                isAnimationEnabled = true
+                            ),
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Text(
+                            text = "${generatedBuilderTheme.titleBn} • LIVE",
+                            color = Color.White,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(10.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = customName,
+                        onValueChange = { customName = it },
+                        label = { Text("থিমের নাম") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Text(
+                        text = "অ্যানিমেশন ইঞ্জিন নির্বাচন করুন:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryText
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        HeaderWallpaperCodeManager.effectStyles.forEach { (styleCode, styleLabel) ->
+                            val selected = selectedStyle == styleCode
+                            FilterChip(
+                                selected = selected,
+                                onClick = { selectedStyle = styleCode },
+                                label = { Text(styleLabel, fontSize = 11.5.sp) }
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "কালার প্যালেট:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryText
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        colorPalettes.forEachIndexed { idx, (_, label) ->
+                            val selected = selectedPaletteIndex == idx
+                            FilterChip(
+                                selected = selected,
+                                onClick = { selectedPaletteIndex = idx },
+                                label = { Text(label, fontSize = 11.5.sp) }
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isDark) Color(0xFF1E293B) else Color(0xFFF1F5F9),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = generatedBuilderTheme.toShareableCode(),
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = secondaryText,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(
+                                        ClipData.newPlainText("MaxBird Theme Code", generatedBuilderTheme.toShareableCode())
+                                    )
+                                    Toast.makeText(context, "কোড কপি করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color(0xFF8B5CF6))
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss, shape = RoundedCornerShape(12.dp)) {
-                Text("বুঝতে পেরেছি")
+            Button(
+                onClick = {
+                    if (activeTab == 0) {
+                        val result = HeaderWallpaperCodeManager.parseThemeCode(codeInput)
+                        result.onSuccess { parsed ->
+                            onApplyImportedTheme(parsed)
+                        }.onFailure { err ->
+                            errorMessage = err.message ?: "সঠিক থিম কোড দিন"
+                        }
+                    } else {
+                        onApplyImportedTheme(
+                            generatedBuilderTheme.copy(rawCode = generatedBuilderTheme.toShareableCode())
+                        )
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.testTag("apply_theme_code_btn")
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("ইমপোর্ট ও চালু করুন", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বাতিল", color = secondaryText, fontWeight = FontWeight.Bold)
             }
         }
     )
-}
-
-@Composable
-private fun GuideItem(number: String, title: String, detail: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(22.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = number,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 16.sp)
-        }
-    }
 }

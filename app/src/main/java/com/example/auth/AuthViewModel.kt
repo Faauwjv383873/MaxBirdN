@@ -530,8 +530,14 @@ class AuthViewModel(
             com.example.course.CourseCommerceRepository.clearCache(sessionManager.appContext)
         } catch (_: Throwable) {}
         sessionManager.clearSession()
+        try {
+            com.example.utils.AppCacheManager.clearAllAppCache(sessionManager.appContext)
+        } catch (_: Throwable) {}
         _authState.value = AuthState.Idle
         viewModelScope.launch {
+            try {
+                com.example.utils.AppCacheManager.wipeAllAccountAndCacheOnLogout(sessionManager.appContext)
+            } catch (_: Throwable) {}
             try {
                 com.example.notification.ShikhoNotificationManager.unsubscribeAll(com.example.ShikhoApp.instance)
             } catch (_: Throwable) {}

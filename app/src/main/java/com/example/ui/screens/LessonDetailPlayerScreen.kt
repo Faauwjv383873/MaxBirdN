@@ -1154,12 +1154,14 @@ fun LessonDetailPlayerScreen(
                                 streamUrl = webStreamUrl,
                                 onBackToStream = { livePlayerMode = "STREAM" },
                                 onOpenExternal = {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webStreamUrl)).apply {
-                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                        }
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {}
+                                    if (com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webStreamUrl)).apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )

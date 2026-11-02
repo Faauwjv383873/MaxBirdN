@@ -168,6 +168,8 @@ object DeviceActivationRepository {
                 .remove(KEY_ACTIVATED_CODE)
                 .remove(KEY_ACTIVATED_AT)
                 .remove(KEY_LAST_HEARTBEAT_AT)
+                .remove(KEY_CAN_VIEW_PROFILES)
+                .remove(KEY_LAST_PROFILE_PERMISSION_CHECK)
                 .commit()
         } catch (e: Throwable) {
             Log.e(TAG, "Error clearing activation: ${e.message}", e)
@@ -848,10 +850,11 @@ object DeviceActivationRepository {
             val activatedCode = prefs.getString(KEY_ACTIVATED_CODE, "") ?: ""
 
             var canView = false
+            var isBlockedDevice = false
 
-            // 1. Check devices table by device_hash or display_device_id
+            // 1. Check devices table by device_hash, device_id, or display_device_id
             try {
-                val devUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)&select=can_view_profiles"
+                val devUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,device_id.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)&select=can_view_profiles,status,is_banned,is_blocked"
                 val devReq = Request.Builder()
                     .url(devUrl)
                     .addHeader("apikey", anonKey)
@@ -862,8 +865,16 @@ object DeviceActivationRepository {
                 if (devResp.isSuccessful) {
                     val devBody = devResp.body?.string() ?: "[]"
                     val devArr = org.json.JSONArray(devBody)
-                    if (devArr.length() > 0) {
-                        val obj = devArr.getJSONObject(0)
+                    for (i in 0 until devArr.length()) {
+                        val obj = devArr.getJSONObject(i)
+                        val isBanned = obj.optBoolean("is_banned", false)
+                        val isBlocked = obj.optBoolean("is_blocked", false)
+                        val status = obj.optString("status", "active")
+                        if (isDeviceBlockedState(status, isBanned, isBlocked)) {
+                            isBlockedDevice = true
+                            canView = false
+                            break
+                        }
                         if (obj.optBoolean("can_view_profiles", false)) {
                             canView = true
                         }
@@ -871,10 +882,15 @@ object DeviceActivationRepository {
                 }
             } catch (_: Throwable) {}
 
-            // 2. If not yet true, check access_codes table by applied code
-            if (!canView && activatedCode.isNotBlank()) {
+            // 2. If not yet true and not blocked, check access_codes table by applied code (only for real access codes)
+            val isRealAccessCode = activatedCode.isNotBlank() &&
+                !activatedCode.equals("VERIFIED-DEVICE", ignoreCase = true) &&
+                !activatedCode.equals("STUDENT-VERIFY", ignoreCase = true) &&
+                !activatedCode.startsWith("REQ:", ignoreCase = true)
+
+            if (!canView && !isBlockedDevice && isRealAccessCode) {
                 try {
-                    val codeUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/access_codes?code=ilike.${activatedCode.trim()}&select=can_view_profiles"
+                    val codeUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/access_codes?code=ilike.${activatedCode.trim()}&select=can_view_profiles,is_active,status"
                     val codeReq = Request.Builder()
                         .url(codeUrl)
                         .addHeader("apikey", anonKey)
@@ -887,7 +903,9 @@ object DeviceActivationRepository {
                         val codeArr = org.json.JSONArray(codeBody)
                         if (codeArr.length() > 0) {
                             val obj = codeArr.getJSONObject(0)
-                            if (obj.optBoolean("can_view_profiles", false)) {
+                            val isActive = obj.optBoolean("is_active", true) &&
+                                !obj.optString("status", "active").equals("inactive", ignoreCase = true)
+                            if (isActive && obj.optBoolean("can_view_profiles", false)) {
                                 canView = true
                             }
                         }
@@ -895,10 +913,10 @@ object DeviceActivationRepository {
                 } catch (_: Throwable) {}
             }
 
-            // 3. If not yet true, check activated_devices table by device_hash
-            if (!canView) {
+            // 3. If not yet true and not blocked, check activated_devices table by device_hash
+            if (!canView && !isBlockedDevice) {
                 try {
-                    val actUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/activated_devices?device_hash=eq.$deviceHardwareHash&select=can_view_profiles"
+                    val actUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/activated_devices?device_hash=eq.$deviceHardwareHash&select=can_view_profiles,is_blocked"
                     val actReq = Request.Builder()
                         .url(actUrl)
                         .addHeader("apikey", anonKey)
@@ -909,10 +927,11 @@ object DeviceActivationRepository {
                     if (actResp.isSuccessful) {
                         val actBody = actResp.body?.string() ?: "[]"
                         val actArr = org.json.JSONArray(actBody)
-                        if (actArr.length() > 0) {
-                            val obj = actArr.getJSONObject(0)
-                            if (obj.optBoolean("can_view_profiles", false)) {
+                        for (i in 0 until actArr.length()) {
+                            val obj = actArr.getJSONObject(i)
+                            if (!obj.optBoolean("is_blocked", false) && obj.optBoolean("can_view_profiles", false)) {
                                 canView = true
+                                break
                             }
                         }
                     }

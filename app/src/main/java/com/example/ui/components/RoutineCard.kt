@@ -96,7 +96,7 @@ fun WeeklyRoutineSection(
     onOpenLessonDetail: (StudentLessonItem) -> Unit = {},
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
     val dhakaZone = remember { TimeZone.getTimeZone("Asia/Dhaka") }
     val todayCal = Calendar.getInstance(dhakaZone)
     val todayDateKey = remember {
@@ -656,7 +656,7 @@ fun ShikhoRoutineCard(
     modifier: Modifier = Modifier,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = com.example.ui.theme.isAppInDarkTheme()
     val startTime = lesson.start_time ?: lesson.live_class?.start_time
     val endTime = lesson.end_time ?: lesson.live_class?.end_time
     val startCal = remember(startTime) { parseIsoToDhakaCalendar(startTime, isEndOfDay = false) }
