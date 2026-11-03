@@ -114,7 +114,14 @@ class PdfPageRenderer(
         private set
 
     val pageAspectRatios = mutableStateMapOf<Int, Float>()
-    private val cache = LruCache<Int, Bitmap>(35)
+    // Memory-bounded LruCache (capped at 32 MB or 1/8th of heap) to prevent OutOfMemoryError on low-RAM phones
+    private val maxCacheBytes: Int = ((Runtime.getRuntime().maxMemory() / 8L)
+        .coerceIn(12L * 1024L * 1024L, 32L * 1024L * 1024L)).toInt()
+    private val cache = object : LruCache<Int, Bitmap>(maxCacheBytes) {
+        override fun sizeOf(key: Int, value: Bitmap): Int {
+            return value.allocationByteCount.coerceAtLeast(1)
+        }
+    }
     private val lock = Any()
 
     var isInitialized by mutableStateOf(false)
@@ -172,11 +179,11 @@ class PdfPageRenderer(
                     val aspect = if (pHeight > 0) pWidth.toFloat() / pHeight.toFloat() else 1.414f
                     pageAspectRatios[pageIndex] = aspect
 
-                    // Render at high resolution (1200px to 2600px) so slide texts, diagrams and equations are razor sharp
-                    val renderWidth = targetWidthPx.coerceIn(1200, 2600)
+                    // Render at high resolution (1200px to 2000px) with RGB_565 (50% less RAM) since background is opaque white
+                    val renderWidth = targetWidthPx.coerceIn(1200, 2000)
                     val renderHeight = (renderWidth / aspect).toInt().coerceAtLeast(100)
 
-                    val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
+                    val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.RGB_565)
                     val canvas = Canvas(bitmap)
                     canvas.drawColor(AndroidColor.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)

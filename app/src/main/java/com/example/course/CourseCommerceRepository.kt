@@ -1026,6 +1026,12 @@ object CourseCommerceRepository {
                 JSONObject().apply {
                     put("p_device_id", deviceHardwareHash)
                     put("p_shikho_account_key", account.accountKey)
+                    put("p_shikho_user_id", account.userId.ifBlank { account.accountKey })
+                    put("p_user_phone", account.normPhone)
+                },
+                JSONObject().apply {
+                    put("p_device_id", deviceHardwareHash)
+                    put("p_shikho_account_key", account.accountKey)
                 },
                 JSONObject().apply {
                     put("p_device_id", account.accountKey)
@@ -1083,82 +1089,132 @@ object CourseCommerceRepository {
                 } catch (_: Throwable) {}
             }
 
-            // 2. Direct REST Query on `course_access_enrollments` & `course_payment_transactions`
-            // Matches strictly by student's phone number (`01XXXXXXXXX`) and `shikho_user_id` across ALL devices!
-            try {
-                val enrUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?select=*&order=updated_at.desc"
-                val enrReq = Request.Builder()
-                    .url(enrUrl)
-                    .addHeader("apikey", anonKey)
-                    .addHeader("Authorization", "Bearer $anonKey")
-                    .get()
-                    .build()
-                val enrResp = httpClient.newCall(enrReq).execute()
-                if (enrResp.isSuccessful) {
-                    restFetchSucceeded = true
-                    val rawArr = JSONArray(enrResp.body?.string() ?: "[]")
-                    for (i in 0 until rawArr.length()) {
-                        val item = rawArr.optJSONObject(i) ?: continue
-                        if (doesRowBelongToStudent(item, account)) {
-                            val rowId = item.optString("id", "").trim()
-                            if (rowId.isBlank() || seenEnrollmentIds.add(rowId)) {
-                                matchedEnrollments.put(item)
-                                // Auto-heal legacy rows while preserving real hardware `device_hash` for OneSignal triggers
-                                val rowPhone = item.optString("student_phone", "").trim()
-                                val rowAcctKey = item.optString("shikho_account_key", "").trim()
-                                val rowDevHash = item.optString("device_hash", "").trim()
-                                if (rowId.isNotBlank() && account.normPhone.isNotBlank() &&
-                                    (rowPhone != account.normPhone || rowAcctKey != account.accountKey || rowDevHash != deviceHardwareHash)
-                                ) {
-                                    runCatching {
-                                        val healJson = JSONObject().apply {
-                                            put("student_phone", account.normPhone)
-                                            put("user_phone", account.normPhone)
-                                            put("shikho_account_key", account.accountKey)
-                                            put("student_key", account.accountKey)
-                                            put("shikho_user_id", account.userId.ifBlank { account.accountKey })
-                                            put("device_hash", deviceHardwareHash)
-                                            put("display_device_id", displayDeviceId)
+            // Build a strict student-scoped PostgREST `or=(...)` filter so we NEVER fetch all students' rows
+            val orClauses = mutableListOf<String>()
+            if (deviceHardwareHash.isNotBlank()) {
+                orClauses.add("device_id.eq.$deviceHardwareHash")
+                orClauses.add("device_hash.eq.$deviceHardwareHash")
+            }
+            if (displayDeviceId.isNotBlank()) {
+                orClauses.add("display_device_id.eq.$displayDeviceId")
+            }
+            if (account.normPhone.isNotBlank()) {
+                orClauses.add("student_phone.eq.${account.normPhone}")
+                orClauses.add("user_phone.eq.${account.normPhone}")
+                orClauses.add("shikho_account_key.eq.${account.normPhone}")
+                orClauses.add("device_id.eq.${account.normPhone}")
+            }
+            if (account.accountKey.isNotBlank()) {
+                orClauses.add("shikho_account_key.eq.${account.accountKey}")
+                orClauses.add("device_id.eq.${account.accountKey}")
+            }
+            if (account.userId.isNotBlank()) {
+                orClauses.add("shikho_user_id.eq.${account.userId}")
+                orClauses.add("shikho_account_key.eq.${account.userId}")
+            }
+            val studentOrFilter = if (orClauses.isNotEmpty()) {
+                "&or=(${orClauses.distinct().joinToString(",")})"
+            } else ""
+
+            // 2. Scoped REST Query on `course_access_enrollments` & `course_payment_transactions`
+            // Matches strictly by this student's phone number (`01XXXXXXXXX`), `shikho_user_id`, and `device_hash`
+            if (studentOrFilter.isNotEmpty()) {
+                try {
+                    val enrUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?select=*${studentOrFilter}&order=updated_at.desc&limit=50"
+                    val enrReq = Request.Builder()
+                        .url(enrUrl)
+                        .addHeader("apikey", anonKey)
+                        .addHeader("Authorization", "Bearer $anonKey")
+                        .get()
+                        .build()
+                    val enrResp = httpClient.newCall(enrReq).execute()
+                    if (enrResp.isSuccessful) {
+                        restFetchSucceeded = true
+                        val rawArr = JSONArray(enrResp.body?.string() ?: "[]")
+                        for (i in 0 until rawArr.length()) {
+                            val item = rawArr.optJSONObject(i) ?: continue
+                            if (doesRowBelongToStudent(item, account)) {
+                                val rowId = item.optString("id", "").trim()
+                                if (rowId.isBlank() || seenEnrollmentIds.add(rowId)) {
+                                    matchedEnrollments.put(item)
+                                    // Auto-heal legacy rows while preserving real hardware `device_hash` for OneSignal triggers
+                                    val rowPhone = item.optString("student_phone", "").trim()
+                                    val rowAcctKey = item.optString("shikho_account_key", "").trim()
+                                    val rowDevHash = item.optString("device_hash", "").trim()
+                                    if (rowId.isNotBlank() && account.normPhone.isNotBlank() &&
+                                        (rowPhone != account.normPhone || rowAcctKey != account.accountKey || rowDevHash != deviceHardwareHash)
+                                    ) {
+                                        runCatching {
+                                            val healJson = JSONObject().apply {
+                                                put("student_phone", account.normPhone)
+                                                put("user_phone", account.normPhone)
+                                                put("shikho_account_key", account.accountKey)
+                                                put("student_key", account.accountKey)
+                                                put("shikho_user_id", account.userId.ifBlank { account.accountKey })
+                                                put("device_hash", deviceHardwareHash)
+                                                put("display_device_id", displayDeviceId)
+                                            }
+                                            val healReq = Request.Builder()
+                                                .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?id=eq.$rowId")
+                                                .addHeader("apikey", anonKey)
+                                                .addHeader("Authorization", "Bearer $anonKey")
+                                                .addHeader("Content-Type", "application/json")
+                                                .patch(healJson.toString().toRequestBody("application/json".toMediaType()))
+                                                .build()
+                                            httpClient.newCall(healReq).execute().close()
                                         }
-                                        val healReq = Request.Builder()
-                                            .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?id=eq.$rowId")
-                                            .addHeader("apikey", anonKey)
-                                            .addHeader("Authorization", "Bearer $anonKey")
-                                            .addHeader("Content-Type", "application/json")
-                                            .patch(healJson.toString().toRequestBody("application/json".toMediaType()))
-                                            .build()
-                                        httpClient.newCall(healReq).execute().close()
                                     }
                                 }
                             }
                         }
                     }
-                }
-            } catch (_: Throwable) {}
+                } catch (_: Throwable) {}
 
-            try {
-                val txUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/course_payment_transactions?select=*&order=id.desc&limit=100"
-                val txReq = Request.Builder()
-                    .url(txUrl)
-                    .addHeader("apikey", anonKey)
-                    .addHeader("Authorization", "Bearer $anonKey")
-                    .get()
-                    .build()
-                val txResp = httpClient.newCall(txReq).execute()
-                if (txResp.isSuccessful) {
-                    val rawTxArr = JSONArray(txResp.body?.string() ?: "[]")
-                    for (i in 0 until rawTxArr.length()) {
-                        val txItem = rawTxArr.optJSONObject(i) ?: continue
-                        val enrId = txItem.optString("enrollment_id", "").trim()
-                        if (doesRowBelongToStudent(txItem, account) || (enrId.isNotBlank() && enrId in seenEnrollmentIds)) {
-                            val txRowId = txItem.optString("id", "").trim()
-                            if (txRowId.isBlank() || seenTxIds.add(txRowId)) {
-                                matchedTransactions.put(txItem)
+                val txOrClauses = mutableListOf<String>()
+                if (deviceHardwareHash.isNotBlank()) {
+                    txOrClauses.add("device_id.eq.$deviceHardwareHash")
+                    txOrClauses.add("device_hash.eq.$deviceHardwareHash")
+                }
+                if (account.normPhone.isNotBlank()) {
+                    txOrClauses.add("user_phone.eq.${account.normPhone}")
+                    txOrClauses.add("shikho_account_key.eq.${account.normPhone}")
+                    txOrClauses.add("device_id.eq.${account.normPhone}")
+                }
+                if (account.accountKey.isNotBlank()) {
+                    txOrClauses.add("shikho_account_key.eq.${account.accountKey}")
+                    txOrClauses.add("device_id.eq.${account.accountKey}")
+                }
+                if (account.userId.isNotBlank()) {
+                    txOrClauses.add("shikho_user_id.eq.${account.userId}")
+                }
+                val txOrFilter = if (txOrClauses.isNotEmpty()) {
+                    "&or=(${txOrClauses.distinct().joinToString(",")})"
+                } else ""
+
+                try {
+                    val txUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/course_payment_transactions?select=*${txOrFilter}&order=id.desc&limit=50"
+                    val txReq = Request.Builder()
+                        .url(txUrl)
+                        .addHeader("apikey", anonKey)
+                        .addHeader("Authorization", "Bearer $anonKey")
+                        .get()
+                        .build()
+                    val txResp = httpClient.newCall(txReq).execute()
+                    if (txResp.isSuccessful) {
+                        val rawTxArr = JSONArray(txResp.body?.string() ?: "[]")
+                        for (i in 0 until rawTxArr.length()) {
+                            val txItem = rawTxArr.optJSONObject(i) ?: continue
+                            val enrId = txItem.optString("enrollment_id", "").trim()
+                            if (doesRowBelongToStudent(txItem, account) || (enrId.isNotBlank() && enrId in seenEnrollmentIds)) {
+                                val txRowId = txItem.optString("id", "").trim()
+                                if (txRowId.isBlank() || seenTxIds.add(txRowId)) {
+                                    matchedTransactions.put(txItem)
+                                }
                             }
                         }
                     }
-                }
-            } catch (_: Throwable) {}
+                } catch (_: Throwable) {}
+            }
 
             if (restFetchSucceeded) {
                 rootJson.put("enrollments", matchedEnrollments)
@@ -1185,7 +1241,23 @@ object CourseCommerceRepository {
         programId: String
     ): JSONObject? {
         return try {
-            val url = "${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?program_id=eq.$programId&select=*&order=updated_at.desc"
+            val orClauses = mutableListOf<String>()
+            if (account.normPhone.isNotBlank()) {
+                orClauses.add("student_phone.eq.${account.normPhone}")
+                orClauses.add("user_phone.eq.${account.normPhone}")
+                orClauses.add("shikho_account_key.eq.${account.normPhone}")
+                orClauses.add("device_id.eq.${account.normPhone}")
+            }
+            if (account.accountKey.isNotBlank()) {
+                orClauses.add("shikho_account_key.eq.${account.accountKey}")
+                orClauses.add("device_id.eq.${account.accountKey}")
+            }
+            if (account.userId.isNotBlank()) {
+                orClauses.add("shikho_user_id.eq.${account.userId}")
+                orClauses.add("shikho_account_key.eq.${account.userId}")
+            }
+            val filterPart = if (orClauses.isNotEmpty()) "&or=(${orClauses.distinct().joinToString(",")})" else ""
+            val url = "${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?program_id=eq.$programId${filterPart}&select=*&order=updated_at.desc&limit=10"
             val req = Request.Builder()
                 .url(url)
                 .addHeader("apikey", anonKey)

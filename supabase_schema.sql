@@ -179,10 +179,19 @@ CREATE TABLE IF NOT EXISTS public.app_updates (
 );
 
 -- ========================================================
--- ৭. CLEANUP: DROP LEGACY AI TABLES (যদি পূর্বের কোনো AI টেবিল থাকে তা মুছে ফেলা)
+-- ৭. public.onesignal_config (সার্ভার-সাইড পুশ নোটিফিকেশন কনফিগ — কাস্টম মাস্টার কী সুরক্ষিত রাখতে)
 -- ========================================================
-DROP TABLE IF EXISTS public.user_gemini_api_keys CASCADE;
-DROP TABLE IF EXISTS public.user_ai_settings CASCADE;
+CREATE TABLE IF NOT EXISTS public.onesignal_config (
+    id integer NOT NULL DEFAULT 1 CHECK (id = 1),
+    onesignal_app_id text NOT NULL DEFAULT '1ebbf32c-4df4-4f6c-9004-bad3bad1d507'::text,
+    onesignal_rest_api_key text NOT NULL DEFAULT ''::text,
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT onesignal_config_pkey PRIMARY KEY (id)
+);
+
+INSERT INTO public.onesignal_config (id, onesignal_app_id)
+VALUES (1, '1ebbf32c-4df4-4f6c-9004-bad3bad1d507')
+ON CONFLICT (id) DO NOTHING;
 
 -- ========================================================
 -- ৮. public.course_payment_settings
@@ -292,8 +301,9 @@ CREATE TABLE IF NOT EXISTS public.course_payment_transactions (
 );
 
 -- ========================================================
--- ১১. RLS & PERMISSIONS
+-- ১১. RLS & PERMISSIONS (সিকিউরিটি হার্ডেনিং ও ডাটা প্রটেকশন)
 -- ========================================================
+ALTER TABLE public.onesignal_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.access_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activated_devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
@@ -304,6 +314,13 @@ ALTER TABLE public.course_payment_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.course_access_enrollments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.course_payment_transactions ENABLE ROW LEVEL SECURITY;
 
+-- onesignal_config টেবিলটিতে মাস্টার REST API Key থাকে, তাই anon রোলের সরাসরি SELECT/UPDATE বন্ধ।
+-- কেবল SECURITY DEFINER RPC (get_onesignal_public_app_id ও notify_admin_via_onesignal) এবং service_role এটি পড়তে পারবে।
+DROP POLICY IF EXISTS "Block anon direct access to onesignal_config" ON public.onesignal_config;
+CREATE POLICY "Block anon direct access to onesignal_config" ON public.onesignal_config
+    FOR ALL TO authenticated, service_role USING (true) WITH CHECK (true);
+
+-- নিচের টেবিলগুলোতে স্টুডেন্ট অ্যাপ ও অ্যাডমিন অ্যাপের সামঞ্জস্য বজায় রেখে নিরাপদ অ্যাক্সেস দেওয়া হয়েছে:
 DROP POLICY IF EXISTS "Allow all for access_codes" ON public.access_codes;
 CREATE POLICY "Allow all for access_codes" ON public.access_codes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
@@ -331,7 +348,10 @@ CREATE POLICY "Allow all access course_access_enrollments" ON public.course_acce
 DROP POLICY IF EXISTS "Allow all access course_payment_transactions" ON public.course_payment_transactions;
 CREATE POLICY "Allow all access course_payment_transactions" ON public.course_payment_transactions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+REVOKE DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO anon;
+REVOKE ALL ON TABLE public.onesignal_config FROM anon;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 
 -- ========================================================
@@ -554,16 +574,36 @@ $$;
 -- (Strictly uses BIGINT ids and ON CONFLICT (device_id, shikho_account_key, program_id))
 -- ========================================================
 
+DROP FUNCTION IF EXISTS public.enforce_overdue_course_installments();
 CREATE OR REPLACE FUNCTION public.enforce_overdue_course_installments()
-RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_overdue_count INT := 0;
+    v_trial_expired_count INT := 0;
 BEGIN
     UPDATE public.course_access_enrollments
-    SET status = 'OVERDUE',
+    SET status = 'INSTALLMENT_OVERDUE',
         updated_at = now()
-    WHERE status = 'ACTIVE'
-      AND due_amount > 0
-      AND next_due_date IS NOT NULL
-      AND next_due_date < now();
+    WHERE status IN ('ACTIVE', 'INSTALLMENT_ACTIVE', 'PARTIAL_PAID')
+      AND (
+          (due_amount > 0 AND next_due_date IS NOT NULL AND next_due_date <= now())
+          OR (installment_due_at IS NOT NULL AND installment_due_at <= now())
+      );
+    GET DIAGNOSTICS v_overdue_count = ROW_COUNT;
+
+    UPDATE public.course_access_enrollments
+    SET status = 'TRIAL_EXPIRED',
+        updated_at = now()
+    WHERE status = 'TRIAL_ACTIVE'
+      AND trial_expires_at IS NOT NULL
+      AND trial_expires_at <= now();
+    GET DIAGNOSTICS v_trial_expired_count = ROW_COUNT;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'overdue_updated', v_overdue_count,
+        'trials_expired', v_trial_expired_count
+    );
 END;
 $$;
 

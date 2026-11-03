@@ -97,8 +97,8 @@ object ShikhoNotificationManager {
      */
     fun isGooglePlayServicesAvailable(context: Context): Boolean {
         return try {
-            val availability = com.google.android.gms.common.GoogleApiAvailability.getInstance()
-            availability.isGooglePlayServicesAvailable(context) == com.google.android.gms.common.ConnectionResult.SUCCESS
+            val appInfo = context.packageManager.getApplicationInfo("com.google.android.gms", 0)
+            appInfo.enabled
         } catch (_: Throwable) {
             false
         }

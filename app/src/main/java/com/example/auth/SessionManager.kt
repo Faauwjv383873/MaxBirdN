@@ -40,23 +40,33 @@ class SessionManager(context: Context) {
         fallbackPrefs
     }
 
+    private val isEncryptedStorageActive: Boolean = (sharedPreferences !== fallbackPrefs)
+
     init {
-        // Auto-heal / synchronize between secure prefs and fallback prefs
+        // Migrate any legacy tokens from fallbackPrefs into EncryptedSharedPreferences,
+        // and scrub plaintext tokens from fallbackPrefs when encrypted storage is active.
         try {
             val secureToken = sharedPreferences.getString("access_token", null)
             val fallbackToken = fallbackPrefs.getString("access_token", null)
-            if (secureToken.isNullOrBlank() && !fallbackToken.isNullOrBlank()) {
-                sharedPreferences.edit()
-                    .putString("access_token", fallbackToken)
-                    .putString("refresh_token", fallbackPrefs.getString("refresh_token", null))
-                    .putString("user_id", fallbackPrefs.getString("user_id", null))
-                    .apply()
-            } else if (!secureToken.isNullOrBlank() && fallbackToken.isNullOrBlank()) {
-                fallbackPrefs.edit()
-                    .putString("access_token", secureToken)
-                    .putString("refresh_token", sharedPreferences.getString("refresh_token", null))
-                    .putString("user_id", sharedPreferences.getString("user_id", null))
-                    .apply()
+            if (isEncryptedStorageActive) {
+                if (secureToken.isNullOrBlank() && !fallbackToken.isNullOrBlank()) {
+                    sharedPreferences.edit()
+                        .putString("access_token", fallbackToken)
+                        .putString("refresh_token", fallbackPrefs.getString("refresh_token", null))
+                        .putString("id_token", fallbackPrefs.getString("id_token", null))
+                        .putString("user_id", fallbackPrefs.getString("user_id", null))
+                        .commit()
+                }
+                if (fallbackPrefs.contains("access_token") ||
+                    fallbackPrefs.contains("refresh_token") ||
+                    fallbackPrefs.contains("id_token")
+                ) {
+                    fallbackPrefs.edit()
+                        .remove("access_token")
+                        .remove("refresh_token")
+                        .remove("id_token")
+                        .apply()
+                }
             }
         } catch (_: Exception) {
         }
@@ -176,39 +186,45 @@ class SessionManager(context: Context) {
             .putString("user_id", userId)
             .apply()
 
-        // Mirror to fallbackPrefs to ensure session is never lost on device reboot or keystore issue
-        fallbackPrefs.edit()
-            .putString("access_token", accessToken)
-            .putString("refresh_token", refreshToken)
-            .putString("user_id", userId)
-            .apply()
+        if (isEncryptedStorageActive) {
+            fallbackPrefs.edit()
+                .remove("access_token")
+                .remove("refresh_token")
+                .remove("id_token")
+                .putString("user_id", userId)
+                .apply()
+        }
     }
 
     fun updateAuthTokens(accessToken: String, refreshToken: String?, idToken: String? = null) {
         val editor = sharedPreferences.edit().putString("access_token", accessToken)
-        val fallbackEditor = fallbackPrefs.edit().putString("access_token", accessToken)
         if (!refreshToken.isNullOrBlank()) {
             editor.putString("refresh_token", refreshToken)
-            fallbackEditor.putString("refresh_token", refreshToken)
         }
         if (!idToken.isNullOrBlank()) {
             editor.putString("id_token", idToken)
-            fallbackEditor.putString("id_token", idToken)
         }
         editor.apply()
-        fallbackEditor.apply()
+
+        if (isEncryptedStorageActive) {
+            fallbackPrefs.edit()
+                .remove("access_token")
+                .remove("refresh_token")
+                .remove("id_token")
+                .apply()
+        }
     }
 
     fun getAccessToken(): String? {
         val token = sharedPreferences.getString("access_token", null)
         if (!token.isNullOrBlank()) return token
-        return fallbackPrefs.getString("access_token", null)
+        return if (!isEncryptedStorageActive) fallbackPrefs.getString("access_token", null) else null
     }
 
     fun getRefreshToken(): String? {
         val rToken = sharedPreferences.getString("refresh_token", null)
         if (!rToken.isNullOrBlank()) return rToken
-        return fallbackPrefs.getString("refresh_token", null)
+        return if (!isEncryptedStorageActive) fallbackPrefs.getString("refresh_token", null) else null
     }
 
     fun getUserId(): String? {

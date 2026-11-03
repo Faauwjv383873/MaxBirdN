@@ -36,8 +36,10 @@
     public void print(...);
 }
 
-# 4. Anti-Tamper & Security Engine Protection
--keep class com.example.security.** { *; }
+# 4. Anti-Tamper & Security Engine Protection (Obfuscated in Release Builds)
+-keepclassmembers class com.example.security.** {
+    @androidx.annotation.Keep *;
+}
 
 # 5. Moshi & API DTO Models Protection
 -keepclassmembers class * {

@@ -49,7 +49,8 @@ object AppUpdateRepository {
 
         val codeMatches = info.versionCode <= 0 ||
             info.versionCode == installedVersionCode ||
-            (dbName.equals(appName, ignoreCase = true) && installedVersionCode % 100 == info.versionCode)
+            (dbName.equals(appName, ignoreCase = true) &&
+                (installedVersionCode % 100 == info.versionCode || info.versionCode % 100 == installedVersionCode))
 
         val nameMatches = dbName.isBlank() ||
             dbName.equals(appName, ignoreCase = true) ||
@@ -96,8 +97,9 @@ object AppUpdateRepository {
                 val obj = jsonArray.getJSONObject(0)
                 val versionCode = obj.optInt("latest_version_code", 0)
                 val versionName = obj.optString("latest_version_name", "1.0.0")
-                val minSupportedCode = obj.optInt("min_supported_version_code", 0)
-                val isForce = obj.optBoolean("is_force_update", false)
+                val minSupportedCode = obj.optInt("min_supported_version_code", versionCode)
+                // Strict version enforcement: only the exact active version in the database is allowed
+                val isForce = true
                 val titleBn = obj.optString("title", "নির্ধারিত সংস্করণ ইনস্টল করুন")
                 val changelogBn = obj.optString("changelog", "অ্যাপে নতুন ফিচার এবং সিকিউরিটি আপডেট যুক্ত করা হয়েছে।")
                 val downloadUrl = obj.optString("download_url", "https://t.me/")

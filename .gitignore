@@ -16,3 +16,9 @@
 local.properties
 .env
 debug.keystore
+debug.keystore.base64
+*.jks
+*.keystore
+keystore_base64.txt
+.build-outputs/
+artifacts/

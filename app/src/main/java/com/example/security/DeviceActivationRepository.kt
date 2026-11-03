@@ -783,6 +783,7 @@ object DeviceActivationRepository {
             val jsonBody = JSONObject().apply {
                 put("p_device_hash", hardwareHash)
                 put("p_token", rawToken)
+                put("p_app_version", BuildConfig.VERSION_NAME)
             }
 
             val request = Request.Builder()
@@ -812,6 +813,9 @@ object DeviceActivationRepository {
                     .putLong(KEY_LAST_HEARTBEAT_AT, System.currentTimeMillis())
                     .apply()
                 HeartbeatResult.Valid
+            } else if (status == "update_required") {
+                Log.w(TAG, "Heartbeat requires app update: $reason")
+                HeartbeatResult.NetworkError(reason.ifBlank { "Update required" })
             } else {
                 Log.w(TAG, "Heartbeat returned invalid: $reason. Clearing activation.")
                 clearActivation(context)

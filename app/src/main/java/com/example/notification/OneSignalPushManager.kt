@@ -38,7 +38,6 @@ object OneSignalPushManager {
     private const val PREFS_NAME = "maxbird_onesignal_prefs"
     private const val KEY_PLAYER_ID = "onesignal_player_id"
     private const val KEY_CACHED_APP_ID = "cached_onesignal_app_id"
-    private const val KEY_CACHED_REST_KEY = "cached_onesignal_rest_key"
     private const val KEY_LAST_SYNCED_FCM = "last_synced_fcm_token"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -84,26 +83,6 @@ object OneSignalPushManager {
     }
 
     /**
-     * Resolves the OneSignal REST API Key from BuildConfig (GitHub Actions Secret / .env)
-     * or falls back to cached Supabase configuration if set in `onesignal_config`.
-     */
-    fun getOneSignalRestApiKey(context: Context): String {
-        val fromBuildConfig = try {
-            BuildConfig.ONESIGNAL_REST_API_KEY.trim().removeSurrounding("\"").removeSurrounding("'")
-        } catch (_: Throwable) {
-            ""
-        }
-        if (fromBuildConfig.isNotBlank() && !fromBuildConfig.contains("your-onesignal", ignoreCase = true)) {
-            return fromBuildConfig
-        }
-        return try {
-            getPrefs(context).getString(KEY_CACHED_REST_KEY, "")?.trim().orEmpty()
-        } catch (_: Throwable) {
-            ""
-        }
-    }
-
-    /**
      * Initializes OneSignal & FCM token acquisition on app launch.
      */
     fun init(context: Context) {
@@ -130,7 +109,7 @@ object OneSignalPushManager {
             val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
             if (supabaseUrl.isBlank() || anonKey.isBlank()) return@withContext
 
-            // 1. Fetch public OneSignal App ID via secure RPC (never exposes REST API Key)
+            // Fetch public OneSignal App ID via secure RPC (never exposes REST API Key)
             val rpcUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/rpc/get_onesignal_public_app_id"
             val rpcReq = Request.Builder()
                 .url(rpcUrl)
@@ -165,36 +144,9 @@ object OneSignalPushManager {
     private fun ensureFirebaseInitialized(context: Context) {
         try {
             val appContext = context.applicationContext
-            val defaultKey = String(
-                android.util.Base64.decode(
-                    "QUl6YVN5QmM0SmgyRG1ZRFZaWDQzVlVEVnBQVVJ4ZXVqSDE3TGpN",
-                    android.util.Base64.DEFAULT
-                ),
-                Charsets.UTF_8
-            ).trim()
             val existingApps = com.google.firebase.FirebaseApp.getApps(appContext)
-            val defaultApp = existingApps.firstOrNull { it.name == com.google.firebase.FirebaseApp.DEFAULT_APP_NAME }
-            if (defaultApp == null) {
-                val options = com.google.firebase.FirebaseOptions.Builder()
-                    .setProjectId("maxbird-notification")
-                    .setApplicationId("1:915326183735:android:9d6e6c275d9ede207992b2")
-                    .setApiKey(defaultKey)
-                    .setGcmSenderId("915326183735")
-                    .setStorageBucket("maxbird-notification.firebasestorage.app")
-                    .build()
-                com.google.firebase.FirebaseApp.initializeApp(appContext, options)
-            } else if (!defaultApp.options.apiKey.startsWith("AIza")) {
-                try {
-                    defaultApp.delete()
-                } catch (_: Throwable) {}
-                val options = com.google.firebase.FirebaseOptions.Builder()
-                    .setProjectId("maxbird-notification")
-                    .setApplicationId("1:915326183735:android:9d6e6c275d9ede207992b2")
-                    .setApiKey(defaultKey)
-                    .setGcmSenderId("915326183735")
-                    .setStorageBucket("maxbird-notification.firebasestorage.app")
-                    .build()
-                com.google.firebase.FirebaseApp.initializeApp(appContext, options)
+            if (existingApps.isEmpty()) {
+                com.google.firebase.FirebaseApp.initializeApp(appContext)
             }
         } catch (_: Throwable) {}
     }
@@ -344,7 +296,7 @@ object OneSignalPushManager {
                 }
             }
 
-            // 2. Sync `onesignal_player_id` and `fcm_token` to Supabase so Admin App & DB Triggers can reach this device
+            // 2. Sync `onesignal_player_id` and `fcm_token` to Supabase via RPC (with scoped fallback)
             syncPushIdentityToSupabase(
                 deviceHardwareHash = deviceHardwareHash,
                 displayDeviceId = displayDeviceId,
@@ -372,8 +324,9 @@ object OneSignalPushManager {
             val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
             if (supabaseUrl.isBlank() || anonKey.isBlank()) return
 
-            // 1. Call exact Supabase RPC `sync_student_push_identity`
-            // Signature: sync_student_push_identity(p_device_hash, p_display_device_id, p_student_phone, p_student_key, p_onesignal_player_id, p_fcm_token)
+            // 1. Primary: Call Supabase RPC `sync_student_push_identity`
+            val currentAppVersion = try { BuildConfig.VERSION_NAME.trim() } catch (_: Throwable) { "" }
+            var rpcSucceeded = false
             try {
                 val rpcPayload = JSONObject().apply {
                     put("p_device_hash", deviceHardwareHash)
@@ -382,6 +335,9 @@ object OneSignalPushManager {
                     put("p_student_key", studentKey)
                     put("p_onesignal_player_id", oneSignalPlayerId)
                     put("p_fcm_token", fcmToken)
+                    if (currentAppVersion.isNotBlank()) {
+                        put("p_app_version", currentAppVersion)
+                    }
                 }
                 val rpcReq = Request.Builder()
                     .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/sync_student_push_identity")
@@ -390,15 +346,20 @@ object OneSignalPushManager {
                     .addHeader("Content-Type", "application/json")
                     .post(rpcPayload.toString().toRequestBody("application/json".toMediaType()))
                     .build()
-                httpClient.newCall(rpcReq).execute().close()
+                httpClient.newCall(rpcReq).execute().use { resp ->
+                    rpcSucceeded = resp.isSuccessful
+                }
             } catch (_: Throwable) {}
 
-            // 2. Direct PATCH on `devices` table for this device
+            if (rpcSucceeded) return
+
+            // 2. Fallback: Scoped PATCH on `devices` table only if RPC is unavailable
             try {
                 val devPatch = JSONObject().apply {
                     put("device_id", deviceHardwareHash)
                     if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
                     if (fcmToken.isNotBlank()) put("fcm_token", fcmToken)
+                    if (currentAppVersion.isNotBlank()) put("app_version", currentAppVersion)
                     if (studentName.isNotBlank()) {
                         put("student_name", studentName)
                         put("student_note", studentName)
@@ -408,7 +369,7 @@ object OneSignalPushManager {
                     }
                 }
                 val devReq = Request.Builder()
-                    .url("${supabaseUrl.trimEnd('/')}/rest/v1/devices?or=(device_hash.eq.$deviceHardwareHash,device_id.eq.$deviceHardwareHash,display_device_id.eq.$displayDeviceId)")
+                    .url("${supabaseUrl.trimEnd('/')}/rest/v1/devices?device_hash=eq.$deviceHardwareHash")
                     .addHeader("apikey", anonKey)
                     .addHeader("Authorization", "Bearer $anonKey")
                     .addHeader("Content-Type", "application/json")
@@ -416,29 +377,11 @@ object OneSignalPushManager {
                     .build()
                 httpClient.newCall(devReq).execute().close()
             } catch (_: Throwable) {}
-
-            // 3. Direct PATCH on `course_access_enrollments` if student is logged in
-            if (studentPhone.isNotBlank() && (oneSignalPlayerId.isNotBlank() || fcmToken.isNotBlank())) {
-                try {
-                    val enrPatch = JSONObject().apply {
-                        if (oneSignalPlayerId.isNotBlank()) put("onesignal_player_id", oneSignalPlayerId)
-                        if (fcmToken.isNotBlank()) put("fcm_token", fcmToken)
-                    }
-                    val enrReq = Request.Builder()
-                        .url("${supabaseUrl.trimEnd('/')}/rest/v1/course_access_enrollments?or=(student_phone.eq.$studentPhone,user_phone.eq.$studentPhone,shikho_account_key.eq.$studentPhone,student_key.eq.$studentPhone)")
-                        .addHeader("apikey", anonKey)
-                        .addHeader("Authorization", "Bearer $anonKey")
-                        .addHeader("Content-Type", "application/json")
-                        .patch(enrPatch.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
-                    httpClient.newCall(enrReq).execute().close()
-                } catch (_: Throwable) {}
-            }
         } catch (_: Throwable) {}
     }
 
     // =========================================================================
-    // PUSH NOTIFICATION DISPATCHERS (STUDENT APP -> ADMIN APP)
+    // PUSH NOTIFICATION DISPATCHERS (STUDENT APP -> SUPABASE RPC -> ADMIN APP)
     // =========================================================================
 
     /**
@@ -553,6 +496,10 @@ object OneSignalPushManager {
         sendPushToAdminAsync(context, title, message, data)
     }
 
+    /**
+     * Dispatches admin notifications strictly via the server-side Supabase RPC `notify_admin_via_onesignal`
+     * so that the master OneSignal REST API key is never compiled into or exposed by the student APK.
+     */
     private fun sendPushToAdminAsync(
         context: Context,
         title: String,
@@ -563,101 +510,23 @@ object OneSignalPushManager {
         scope.launch {
             try {
                 fetchRemoteOneSignalConfigIfNeeded(appContext)
-                val appId = getOneSignalAppId(appContext)
-                val restKey = getOneSignalRestApiKey(appContext)
-
-                // 1. Direct OneSignal REST API call when ONESIGNAL_APP_ID & ONESIGNAL_REST_API_KEY are available
-                //    Otherwise fallback to Supabase RPC `notify_admin_via_onesignal`
-                //    Signature: notify_admin_via_onesignal(p_title, p_message, p_event_type, p_extra_data)
-                var sentViaRpc = false
-                if (appId.isBlank() || restKey.isBlank()) {
-                    try {
-                        val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
-                        if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
-                            val eventType = data.optString("event_type", "ADMIN_ALERT").ifBlank { "ADMIN_ALERT" }
-                            val rpcPayload = JSONObject().apply {
-                                put("p_title", title)
-                                put("p_message", message)
-                                put("p_event_type", eventType)
-                                put("p_extra_data", data)
-                            }
-                            val rpcReq = Request.Builder()
-                                .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/notify_admin_via_onesignal")
-                                .addHeader("apikey", anonKey)
-                                .addHeader("Authorization", "Bearer $anonKey")
-                                .addHeader("Content-Type", "application/json")
-                                .post(rpcPayload.toString().toRequestBody("application/json".toMediaType()))
-                                .build()
-                            httpClient.newCall(rpcReq).execute().use { resp ->
-                                if (resp.isSuccessful) {
-                                    sentViaRpc = true
-                                }
-                            }
-                        }
-                    } catch (_: Throwable) {}
-                }
-
-                // 2. Direct OneSignal REST API call if ONESIGNAL_APP_ID & ONESIGNAL_REST_API_KEY are in BuildConfig / Cache
-                if (!sentViaRpc && appId.isNotBlank() && restKey.isNotBlank()) {
-                    val authHeader = if (restKey.startsWith("os_v2_", ignoreCase = true)) {
-                        "Key $restKey"
-                    } else {
-                        "Basic $restKey"
+                val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
+                if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
+                    val eventType = data.optString("event_type", "ADMIN_ALERT").ifBlank { "ADMIN_ALERT" }
+                    val rpcPayload = JSONObject().apply {
+                        put("p_title", title)
+                        put("p_message", message)
+                        put("p_event_type", eventType)
+                        put("p_extra_data", data)
                     }
-
-                    // Target Admin devices using tag filter (role = admin OR is_admin = true)
-                    val tagFilterPayload = JSONObject().apply {
-                        put("app_id", appId)
-                        put("headings", JSONObject().put("en", title).put("bn", title))
-                        put("contents", JSONObject().put("en", message).put("bn", message))
-                        put("priority", 10)
-                        put("android_visibility", 1)
-                        put("data", data)
-                        put(
-                            "filters",
-                            JSONArray().apply {
-                                put(JSONObject().put("field", "tag").put("key", "role").put("relation", "=").put("value", "admin"))
-                                put(JSONObject().put("operator", "OR"))
-                                put(JSONObject().put("field", "tag").put("key", "is_admin").put("relation", "=").put("value", "true"))
-                            }
-                        )
-                    }
-
-                    val req1 = Request.Builder()
-                        .url("https://onesignal.com/api/v1/notifications")
-                        .addHeader("Authorization", authHeader)
+                    val rpcReq = Request.Builder()
+                        .url("${supabaseUrl.trimEnd('/')}/rest/v1/rpc/notify_admin_via_onesignal")
+                        .addHeader("apikey", anonKey)
+                        .addHeader("Authorization", "Bearer $anonKey")
                         .addHeader("Content-Type", "application/json")
-                        .post(tagFilterPayload.toString().toRequestBody("application/json".toMediaType()))
+                        .post(rpcPayload.toString().toRequestBody("application/json".toMediaType()))
                         .build()
-
-                    var recipients = 0
-                    httpClient.newCall(req1).execute().use { resp ->
-                        val bodyStr = resp.body?.string() ?: ""
-                        if (resp.isSuccessful && bodyStr.trim().startsWith("{")) {
-                            recipients = JSONObject(bodyStr).optInt("recipients", 0)
-                        }
-                    }
-
-                    // Fallback: Also target by external_user_id = ["ADMIN_MASTER", "admin"] if tag filter had 0 recipients
-                    if (recipients <= 0) {
-                        val extIdPayload = JSONObject().apply {
-                            put("app_id", appId)
-                            put("headings", JSONObject().put("en", title).put("bn", title))
-                            put("contents", JSONObject().put("en", message).put("bn", message))
-                            put("priority", 10)
-                            put("android_visibility", 1)
-                            put("data", data)
-                            put("include_external_user_ids", JSONArray().put("ADMIN_MASTER").put("admin").put("ADMIN"))
-                            put("channel_for_external_user_ids", "push")
-                        }
-                        val req2 = Request.Builder()
-                            .url("https://onesignal.com/api/v1/notifications")
-                            .addHeader("Authorization", authHeader)
-                            .addHeader("Content-Type", "application/json")
-                            .post(extIdPayload.toString().toRequestBody("application/json".toMediaType()))
-                            .build()
-                        runCatching { httpClient.newCall(req2).execute().close() }
-                    }
+                    httpClient.newCall(rpcReq).execute().close()
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "sendPushToAdminAsync error: ${e.message}")

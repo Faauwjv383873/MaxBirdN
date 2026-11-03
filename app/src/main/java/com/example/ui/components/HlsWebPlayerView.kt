@@ -58,6 +58,7 @@ fun HlsWebPlayerView(
     }
 
     val htmlContent = remember(streamUrl) {
+        val safeQuotedUrl = org.json.JSONObject.quote(streamUrl)
         """
         <!DOCTYPE html>
         <html>
@@ -67,14 +68,14 @@ fun HlsWebPlayerView(
                 body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
                 video { width: 100%; height: 100%; object-fit: contain; }
             </style>
-            <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+            <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js" crossorigin="anonymous"></script>
         </head>
         <body>
             <video id="video" controls controlsList="nodownload" disablePictureInPicture autoplay playsinline webkit-playsinline oncontextmenu="return false;"></video>
             <script>
                 var video = document.getElementById('video');
-                var videoSrc = "$streamUrl";
-                if (Hls.isSupported()) {
+                var videoSrc = $safeQuotedUrl;
+                if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                     var hls = new Hls({ enableWorker: true, lowLatencyMode: true });
                     hls.loadSource(videoSrc);
                     hls.attachMedia(video);
@@ -107,7 +108,8 @@ fun HlsWebPlayerView(
                         domStorageEnabled = true
                         mediaPlaybackRequiresUserGesture = false
                         allowFileAccess = false
-                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        allowContentAccess = false
+                        mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                     }
                     setOnLongClickListener { true }
                     isLongClickable = false

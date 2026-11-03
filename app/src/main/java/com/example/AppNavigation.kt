@@ -406,10 +406,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                                 navController.navigate(Routes.downloadsRoute()) { launchSingleTop = true }
                             }
                             else -> {
-                                val path = uri.path?.removePrefix("/") ?: uri.host
-                                if (!path.isNullOrBlank()) {
-                                    navController.navigate(path) { launchSingleTop = true }
-                                }
+                                android.util.Log.w("AppNavigation", "Ignored unknown shikho:// deep link host: ${uri.host}")
                             }
                         }
                     } else {
@@ -421,7 +418,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                             "report", "report_card" ->
                                 navController.navigate(Routes.REPORT_CARD) { launchSingleTop = true }
                             else ->
-                                navController.navigate(cleanLink) { launchSingleTop = true }
+                                android.util.Log.w("AppNavigation", "Ignored unwhitelisted deep link route: $cleanLink")
                         }
                     }
                 } catch (e: Exception) {

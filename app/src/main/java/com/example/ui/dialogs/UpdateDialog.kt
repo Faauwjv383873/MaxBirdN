@@ -39,9 +39,9 @@ fun UpdateDialog(
     val isDark = isAppInDarkTheme()
     val isDowngrade = AppUpdateRepository.isDowngradeRequired(updateInfo, BuildConfig.VERSION_CODE)
 
-    // If force update or version mismatch enforcement, intercept back button when isForce is true
-    BackHandler(enabled = updateInfo.isForce) {
-        // Do nothing, mandatory version enforcement cannot be bypassed
+    // Strict version enforcement: intercept back button unconditionally so old versions cannot be used
+    BackHandler(enabled = true) {
+        // Mandatory version enforcement cannot be bypassed
     }
 
     val dialogBg = if (isDark) Color(0xFF0F172A) else Color.White
@@ -51,13 +51,11 @@ fun UpdateDialog(
 
     Dialog(
         onDismissRequest = {
-            if (!updateInfo.isForce) {
-                onDismiss()
-            }
+            // Never allow dismissing when version does not match database
         },
         properties = DialogProperties(
-            dismissOnBackPress = !updateInfo.isForce,
-            dismissOnClickOutside = !updateInfo.isForce
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
         )
     ) {
         Surface(
@@ -253,29 +251,14 @@ fun UpdateDialog(
                     )
                 }
 
-                if (!updateInfo.isForce) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "পরে করব",
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = secondaryText
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "অ্যাপ ব্যবহার চালিয়ে যেতে ডাটাবেজে নির্ধারিত ভার্সন v${updateInfo.versionName} (Code: ${updateInfo.versionCode}) ইনস্টল করতে হবে।",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFEF4444),
-                        textAlign = TextAlign.Center
-                    )
-                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "অ্যাপ ব্যবহার চালিয়ে যেতে ডাটাবেজে নির্ধারিত ভার্সন v${updateInfo.versionName} (Code: ${updateInfo.versionCode}) ইনস্টল করতে হবে। পুরাতন বা ভিন্ন ভার্সন ব্যবহার করা যাবে না।",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFEF4444),
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }

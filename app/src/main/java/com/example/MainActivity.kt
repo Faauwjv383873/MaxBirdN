@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
 
     val isPipModeState = mutableStateOf(false)
     private val activeSecurityViolationState = mutableStateOf<SecurityViolation?>(null)
+    private val requiredUpdateState = mutableStateOf<AppUpdateInfo?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 0. Apply Screenshot & Screen Recording Protection (FLAG_SECURE) if enabled in BuildConfig
@@ -107,9 +108,8 @@ class MainActivity : ComponentActivity() {
                 else -> systemInDark
             }
 
-            var startupUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
-            val startupScope = rememberCoroutineScope()
             val currentViolation = activeSecurityViolationState.value
+            val currentRequiredUpdate = requiredUpdateState.value
 
             // Continuous background watchdog for Reqable / HttpCanary / Proxy / Debugger activation while app is running
             LaunchedEffect(Unit) {
@@ -122,14 +122,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Continuous strict version enforcement check (blocks old/mismatched versions immediately)
             LaunchedEffect(Unit) {
-                startupScope.launch(Dispatchers.IO) {
-                    val info = AppUpdateRepository.fetchLatestUpdate()
-                    if (info != null && AppUpdateRepository.isUpdateRequired(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
-                        withContext(Dispatchers.Main) {
-                            startupUpdateInfo = info
-                        }
+                while (true) {
+                    val info = withContext(Dispatchers.IO) {
+                        AppUpdateRepository.fetchLatestUpdate()
                     }
+                    if (info != null && AppUpdateRepository.isUpdateRequired(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
+                        requiredUpdateState.value = info
+                    } else if (info != null) {
+                        requiredUpdateState.value = null
+                    }
+                    delay(20_000L)
                 }
             }
 
@@ -152,19 +156,24 @@ class MainActivity : ComponentActivity() {
                                         finishAffinity()
                                     }
                                 )
-                            } else {
-                                AppNavigation()
-
-                                startupUpdateInfo?.let { updateInfo ->
+                            } else if (currentRequiredUpdate != null) {
+                                // Strictly block all app screens when installed version does not match database version
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A))
+                                            )
+                                        )
+                                ) {
                                     UpdateDialog(
-                                        updateInfo = updateInfo,
-                                        onDismiss = {
-                                            if (!updateInfo.isForce) {
-                                                startupUpdateInfo = null
-                                            }
-                                        }
+                                        updateInfo = currentRequiredUpdate,
+                                        onDismiss = {}
                                     )
                                 }
+                            } else {
+                                AppNavigation()
                             }
                         }
                     }
@@ -254,22 +263,30 @@ class MainActivity : ComponentActivity() {
         }
 
         // 3. Handle push notification deep links
-        val url = intent.getStringExtra(ShikhoFirebaseMessagingService.EXTRA_NOTIFICATION_URL)
+        val url = (intent.getStringExtra(ShikhoFirebaseMessagingService.EXTRA_NOTIFICATION_URL)
             ?: intent.getStringExtra(ShikhoFirebaseMessagingService.EXTRA_NOTIFICATION_DEEPLINK)
-            ?: intent.dataString
+            ?: intent.dataString)?.trim()
 
         if (!url.isNullOrBlank()) {
-            android.util.Log.d("MainActivity", "Handling notification intent URL: $url")
-            if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+            if (url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)) {
                 try {
-                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    val parsedUri = Uri.parse(url)
+                    val host = parsedUri.host?.lowercase() ?: ""
+                    if (host.isNotBlank()) {
+                        val browserIntent = Intent(Intent.ACTION_VIEW, parsedUri).apply {
+                            addCategory(Intent.CATEGORY_BROWSABLE)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(browserIntent)
                     }
-                    startActivity(browserIntent)
                 } catch (e: Throwable) {
-                    android.util.Log.e("MainActivity", "Failed to open external URL: ${e.message}", e)
+                    android.util.Log.e("MainActivity", "Failed to open external URL: ${e.message}")
                 }
-            } else {
+            } else if (
+                url.startsWith("shikho://", ignoreCase = true) ||
+                url.startsWith("lesson_player", ignoreCase = true) ||
+                url.lowercase() in setOf("downloads", "routine", "full-routine", "routine_full", "report", "report_card")
+            ) {
                 NotificationDeepLinkDispatcher.setPendingDeepLink(url)
             }
         }
@@ -285,13 +302,26 @@ class MainActivity : ComponentActivity() {
         AntiTamperSecurity.exitIfTampered(this)
         activeSecurityViolationState.value = AntiTamperSecurity.inspectSecurityViolation(this)
 
-        // Silent heartbeat verification & push identity sync with Supabase
+        // Silent heartbeat verification, version enforcement & push identity sync with Supabase
         try {
             com.example.notification.OneSignalPushManager.triggerSyncAsync(applicationContext)
-            if (com.example.security.DeviceActivationRepository.isConfigured() &&
-                com.example.security.DeviceActivationRepository.isDeviceActivated(this)
-            ) {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    val info = AppUpdateRepository.fetchLatestUpdate()
+                    if (info != null && AppUpdateRepository.isUpdateRequired(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            requiredUpdateState.value = info
+                        }
+                    } else if (info != null) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            requiredUpdateState.value = null
+                        }
+                    }
+                } catch (_: Throwable) {}
+
+                if (com.example.security.DeviceActivationRepository.isConfigured() &&
+                    com.example.security.DeviceActivationRepository.isDeviceActivated(this@MainActivity)
+                ) {
                     try {
                         val result = com.example.security.DeviceActivationRepository.verifyHeartbeat(applicationContext)
                         if (result is com.example.security.HeartbeatResult.Revoked) {

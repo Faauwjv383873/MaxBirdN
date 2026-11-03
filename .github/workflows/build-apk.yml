@@ -66,7 +66,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
-      ONESIGNAL_REST_API_KEY: ${{ secrets.ONESIGNAL_REST_API_KEY }}
+      FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
       VERSION_CODE: ${{ inputs.version_code != '' && inputs.version_code || github.run_number }}
       VERSION_NAME: ${{ inputs.version_name != '' && inputs.version_name || format('1.0.{0}', github.run_number) }}
       ENABLE_SCREENSHOT_PROTECTION: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.enable_screenshot_protection) || 'true' }}
