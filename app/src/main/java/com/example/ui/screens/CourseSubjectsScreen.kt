@@ -1537,138 +1537,50 @@ private fun OtherCourseBannerCard(
                 // Primary Action Button depending on state
                 when (state) {
                     CourseAccessState.LOCKED_BLURRED -> {
-                        val isFreeCourse = program.is_free == true
-
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            // যদি মূল Shikho সার্ভারে এখনো কোর্সটি যুক্ত না থাকে, তবে মূল সার্ভারের ডাটাবেজে ৩ দিনের ফ্রি ট্রায়াল / ফ্রি কোর্সে জয়েন করার বাটন
-                            if (!isJoinedOnShikhoServer) {
-                                Surface(
-                                    shape = RoundedCornerShape(26.dp),
-                                    color = Color(0xFFFEF08A),
-                                    shadowElevation = 3.dp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(26.dp))
-                                        .clickable(enabled = !isJoiningShikhoServer, onClick = onJoinShikhoServer)
-                                        .testTag("join_shikho_server_button_${program.id}")
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 11.dp, horizontal = 14.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (isJoiningShikhoServer) {
-                                            CircularProgressIndicator(
-                                                color = Color(0xFF0F172A),
-                                                strokeWidth = 2.dp,
-                                                modifier = Modifier.size(17.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = "মূল সার্ভারে যুক্ত হচ্ছে...",
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = Color(0xFF0F172A)
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.CloudDone,
-                                                contentDescription = null,
-                                                tint = Color(0xFF0F172A),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = if (isFreeCourse) {
-                                                    "সার্ভারে ফ্রি কোর্সে ভর্তি হোন"
-                                                } else {
-                                                    "সার্ভারে ৩ দিনের ফ্রি ট্রায়াল নিন"
-                                                },
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = Color(0xFF0F172A)
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFF10B981).copy(alpha = 0.22f),
-                                    border = BorderStroke(1.dp, Color(0xFF34D399).copy(alpha = 0.6f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp, horizontal = 12.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            tint = Color(0xFF4ADE80),
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "মূল সার্ভারে যুক্ত আছে • চালু করতে কোর্সটি কিনুন",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFD1FAE5)
-                                        )
-                                    }
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(26.dp),
-                                color = Color.White,
-                                shadowElevation = 4.dp,
+                        Surface(
+                            shape = RoundedCornerShape(26.dp),
+                            color = Color.White,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(26.dp))
+                                .clickable(enabled = !isRequestingAccess, onClick = onRequestAccess)
+                                .testTag("request_course_access_button_${program.id}")
+                        ) {
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(26.dp))
-                                    .clickable(enabled = !isRequestingAccess, onClick = onRequestAccess)
-                                    .testTag("request_course_access_button_${program.id}")
+                                    .padding(vertical = 13.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 13.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (isRequestingAccess) {
-                                        CircularProgressIndicator(
-                                            color = Color(0xFF0F172A),
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "রিকোয়েস্ট পাঠানো হচ্ছে...",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF0F172A)
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Default.VpnKey,
-                                            contentDescription = null,
-                                            tint = Color(0xFF5648F9),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "কোর্সে এক্সেস পান",
-                                            fontSize = 14.5.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = Color(0xFF0F172A)
-                                        )
-                                    }
+                                if (isRequestingAccess) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF0F172A),
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "রিকোয়েস্ট পাঠানো হচ্ছে...",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.VpnKey,
+                                        contentDescription = null,
+                                        tint = Color(0xFF5648F9),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "কোর্সে এক্সেস পান",
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF0F172A)
+                                    )
                                 }
                             }
                         }

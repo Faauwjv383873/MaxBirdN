@@ -117,8 +117,11 @@ class SessionManager(context: Context) {
          */
         fun normalizePhone(raw: String?): String {
             if (raw.isNullOrBlank()) return ""
+            val trimmed = raw.trim()
+            // Never treat hex device_hash or alphanumeric IDs as phone numbers
+            if (trimmed.any { it.isLetter() }) return ""
             val bnDigits = "০১২৩৪৫৬৭৮৯"
-            val ascii = raw.map { ch ->
+            val ascii = trimmed.map { ch ->
                 val idx = bnDigits.indexOf(ch)
                 if (idx >= 0) ('0' + idx) else ch
             }.joinToString("")
@@ -129,7 +132,7 @@ class SessionManager(context: Context) {
                 digits.length == 11 && digits.startsWith("01") -> digits
                 digits.length == 10 && digits.startsWith("1") -> "0$digits"
                 digits.length > 11 && digits.takeLast(11).startsWith("01") -> digits.takeLast(11)
-                else -> digits
+                else -> ""
             }
         }
 

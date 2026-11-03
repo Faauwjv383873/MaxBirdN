@@ -973,7 +973,7 @@ fun DeviceActivationScreen(
                                         onValueChange = { studentNameInput = it },
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .testTag("activation_code_input"),
+                                            .testTag("student_name_input"),
                                         placeholder = {
                                             Text(
                                                 text = "আপনার নাম লিখুন (ঐচ্ছিক)",

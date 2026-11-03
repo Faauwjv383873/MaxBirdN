@@ -1,0 +1,2253 @@
+-- ==========================================
+-- 1. EXTENSIONS
+-- ==========================================
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "supabase_vault";
+CREATE EXTENSION IF NOT EXISTS "pg_net";
+
+-- ==========================================
+-- 2. CUSTOM TYPES & ENUMS
+-- ==========================================
+-- No custom enums
+
+-- ==========================================
+-- 3. TABLES & COLUMNS (PUBLIC SCHEMA)
+-- ==========================================
+CREATE TABLE public.activation_support_links (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    title text NOT NULL,
+    subtitle text,
+    icon_type text DEFAULT 'telegram'::text,
+    url text NOT NULL,
+    color_hex text DEFAULT '#229ED9'::text,
+    is_active boolean DEFAULT true,
+    priority integer DEFAULT 0,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.admin_push_devices (
+    id bigint NOT NULL DEFAULT nextval('admin_push_devices_id_seq'::regclass),
+    admin_device_id text NOT NULL,
+    onesignal_player_id text,
+    fcm_token text,
+    admin_label text DEFAULT 'Admin Device'::text,
+    is_active boolean NOT NULL DEFAULT true,
+    updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.app_notices (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    title text NOT NULL,
+    description text,
+    image_url text NOT NULL,
+    action_url text,
+    action_button_text text DEFAULT 'বিস্তারিত দেখুন'::text,
+    priority integer DEFAULT 0,
+    is_active boolean DEFAULT true,
+    show_as_popup boolean DEFAULT true,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.app_updates (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    latest_version_name text NOT NULL,
+    latest_version_code integer NOT NULL,
+    min_supported_version_code integer DEFAULT 0,
+    is_force_update boolean DEFAULT true,
+    title text DEFAULT 'নতুন আপডেট উপলব্ধ!'::text,
+    changelog text NOT NULL,
+    download_url text NOT NULL,
+    button_text text DEFAULT 'এখনই আপডেট করুন'::text,
+    apk_checksum_sha256 text DEFAULT ''::text,
+    is_active boolean DEFAULT true,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.course_access_enrollments (
+    id bigint NOT NULL DEFAULT nextval('course_access_enrollments_id_seq'::regclass),
+    device_id text NOT NULL,
+    shikho_account_key text NOT NULL DEFAULT ''::text,
+    student_name text NOT NULL DEFAULT ''::text,
+    student_phone text NOT NULL DEFAULT ''::text,
+    student_class text NOT NULL DEFAULT ''::text,
+    student_group text NOT NULL DEFAULT ''::text,
+    program_id text NOT NULL,
+    program_title text NOT NULL DEFAULT ''::text,
+    class_code text NOT NULL DEFAULT ''::text,
+    group_code text NOT NULL DEFAULT ''::text,
+    batch_id text NOT NULL DEFAULT ''::text,
+    status text NOT NULL DEFAULT 'REQUESTED'::text,
+    total_price integer NOT NULL DEFAULT 0,
+    paid_amount integer NOT NULL DEFAULT 0,
+    due_amount integer NOT NULL DEFAULT 0,
+    installment_enabled boolean NOT NULL DEFAULT false,
+    selected_plan_id text NOT NULL DEFAULT 'FULL'::text,
+    selected_plan_title text NOT NULL DEFAULT 'এককালীন সম্পূর্ণ পেমেন্ট'::text,
+    total_installments integer NOT NULL DEFAULT 1,
+    completed_installments integer NOT NULL DEFAULT 0,
+    next_installment_amount integer NOT NULL DEFAULT 0,
+    installment_interval_days integer NOT NULL DEFAULT 7,
+    next_due_date timestamp with time zone,
+    installment_plans_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+    rejection_reason text NOT NULL DEFAULT ''::text,
+    admin_note text NOT NULL DEFAULT ''::text,
+    requested_at timestamp with time zone NOT NULL DEFAULT now(),
+    approved_at timestamp with time zone,
+    unlocked_at timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    device_hash text DEFAULT ''::text,
+    display_device_id text DEFAULT ''::text,
+    shikho_user_id text DEFAULT ''::text,
+    user_phone text DEFAULT ''::text,
+    banner_url text DEFAULT ''::text,
+    allow_installments boolean DEFAULT false,
+    active_plan_id text DEFAULT 'FULL'::text,
+    active_plan_title text DEFAULT 'এককালীন সম্পূর্ণ পেমেন্ট'::text,
+    last_transaction_id text DEFAULT ''::text,
+    last_payment_amount numeric DEFAULT 0,
+    last_sender_mobile text DEFAULT ''::text,
+    last_payment_method text DEFAULT ''::text,
+    pending_installment_tx_id text DEFAULT ''::text,
+    pending_installment_amount numeric DEFAULT 0,
+    trial_enabled boolean DEFAULT false,
+    trial_days integer DEFAULT 0,
+    trial_hours integer DEFAULT 0,
+    trial_started_at timestamp with time zone,
+    trial_ends_at timestamp with time zone,
+    is_trial_used boolean DEFAULT false,
+    onesignal_player_id text,
+    fcm_token text,
+    student_key text DEFAULT ''::text,
+    next_installment_due_at timestamp with time zone,
+    installment_plans jsonb DEFAULT '[]'::jsonb,
+    access_status text DEFAULT 'REQUESTED'::text,
+    course_id text DEFAULT ''::text,
+    course_title text DEFAULT ''::text,
+    trial_used boolean DEFAULT false,
+    trial_days_granted integer DEFAULT 0,
+    total_fee integer DEFAULT 0,
+    trial_expires_at timestamp with time zone
+);
+
+CREATE TABLE public.course_payment_settings (
+    id integer NOT NULL DEFAULT 1,
+    bkash_number text NOT NULL DEFAULT ''::text,
+    nagad_number text NOT NULL DEFAULT ''::text,
+    rocket_number text NOT NULL DEFAULT ''::text,
+    payment_instructions_bn text NOT NULL DEFAULT 'উপরের বিকাশ বা নগদ নম্বরে Send Money করে নিচের ফর্মে আপনার মোবাইল নম্বর, টাকার পরিমাণ এবং TrxID দিন।'::text,
+    default_course_price integer NOT NULL DEFAULT 1000,
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    payment_instruction_bn text DEFAULT 'উপরের যেকোনো নাম্বারে Send Money করে নিচের ফর্মে আপনার মোবাইল নম্বর, পাঠানো টাকার পরিমাণ এবং Transaction ID (TrxID) সঠিকভাবে প্রদান করুন।'::text
+);
+
+CREATE TABLE public.course_payment_transactions (
+    id bigint NOT NULL DEFAULT nextval('course_payment_transactions_id_seq'::regclass),
+    enrollment_id bigint,
+    device_id text NOT NULL,
+    shikho_account_key text NOT NULL DEFAULT ''::text,
+    student_name text NOT NULL DEFAULT ''::text,
+    program_id text NOT NULL,
+    program_title text NOT NULL DEFAULT ''::text,
+    plan_id text NOT NULL DEFAULT 'FULL'::text,
+    plan_title text NOT NULL DEFAULT ''::text,
+    installment_number integer NOT NULL DEFAULT 1,
+    total_installments integer NOT NULL DEFAULT 1,
+    payment_method text NOT NULL DEFAULT 'bKash'::text,
+    sender_mobile text NOT NULL,
+    amount integer NOT NULL,
+    transaction_id text NOT NULL,
+    status text NOT NULL DEFAULT 'PENDING'::text,
+    rejection_reason text NOT NULL DEFAULT ''::text,
+    submitted_at timestamp with time zone NOT NULL DEFAULT now(),
+    reviewed_at timestamp with time zone,
+    device_hash text DEFAULT ''::text,
+    display_device_id text DEFAULT ''::text,
+    shikho_user_id text DEFAULT ''::text,
+    user_phone text DEFAULT ''::text,
+    payment_type text DEFAULT 'INITIAL'::text,
+    selected_plan_id text DEFAULT 'FULL'::text,
+    selected_plan_title text DEFAULT ''::text,
+    interval_days integer DEFAULT 7,
+    created_at timestamp with time zone DEFAULT now(),
+    student_phone text DEFAULT ''::text,
+    course_id text DEFAULT ''::text,
+    course_title text DEFAULT ''::text
+);
+
+CREATE TABLE public.device_shikho_accounts (
+    id bigint NOT NULL DEFAULT nextval('device_shikho_accounts_id_seq'::regclass),
+    device_hash text,
+    display_device_id text,
+    shikho_user_id text,
+    user_phone text DEFAULT ''::text,
+    is_access_granted boolean DEFAULT true,
+    is_access_restricted boolean DEFAULT false,
+    allowed_classes text[] DEFAULT '{}'::text[],
+    allowed_groups text[] DEFAULT '{}'::text[],
+    allowed_batches text[] DEFAULT '{}'::text[],
+    allowed_programs text[] DEFAULT '{}'::text[],
+    last_seen_at timestamp with time zone DEFAULT now(),
+    created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.devices (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    device_hash text NOT NULL,
+    display_device_id text NOT NULL,
+    device_model text,
+    device_brand text,
+    device_manufacturer text,
+    android_version text,
+    sdk_version integer,
+    app_version text,
+    applied_code text,
+    is_banned boolean DEFAULT false,
+    ban_reason text DEFAULT 'অ্যাডমিন কর্তৃক ব্যান করা হয়েছে'::text,
+    banned_at timestamp with time zone,
+    status text DEFAULT 'active'::text,
+    last_seen timestamp with time zone DEFAULT now(),
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    can_view_profiles boolean DEFAULT false,
+    student_note text DEFAULT ''::text,
+    session_token text DEFAULT ''::text,
+    requested_at timestamp with time zone DEFAULT now(),
+    approved_at timestamp with time zone,
+    onesignal_player_id text,
+    fcm_token text,
+    device_id text,
+    is_blocked boolean DEFAULT false,
+    rejection_reason text DEFAULT ''::text,
+    student_name text,
+    student_phone text,
+    is_access_restricted boolean DEFAULT false,
+    bound_shikho_user_id text DEFAULT ''::text,
+    bound_user_phone text DEFAULT ''::text,
+    allowed_classes text[] DEFAULT '{}'::text[],
+    allowed_groups text[] DEFAULT '{}'::text[],
+    allowed_batches text[] DEFAULT '{}'::text[],
+    allowed_programs text[] DEFAULT '{}'::text[]
+);
+
+CREATE TABLE public.onesignal_config (
+    id integer NOT NULL DEFAULT 1,
+    onesignal_app_id text NOT NULL DEFAULT ''::text,
+    onesignal_rest_api_key text NOT NULL DEFAULT ''::text,
+    updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- ==========================================
+-- 4. CONSTRAINTS & FOREIGN KEYS
+-- ==========================================
+ALTER TABLE public.onesignal_config ADD CONSTRAINT onesignal_config_id_check CHECK ((id = 1));
+ALTER TABLE public.onesignal_config ADD CONSTRAINT onesignal_config_pkey PRIMARY KEY (id);
+ALTER TABLE public.app_notices ADD CONSTRAINT app_notices_pkey PRIMARY KEY (id);
+ALTER TABLE public.activation_support_links ADD CONSTRAINT activation_support_links_pkey PRIMARY KEY (id);
+ALTER TABLE public.admin_push_devices ADD CONSTRAINT admin_push_devices_admin_device_id_key UNIQUE (admin_device_id);
+ALTER TABLE public.admin_push_devices ADD CONSTRAINT admin_push_devices_pkey PRIMARY KEY (id);
+ALTER TABLE public.devices ADD CONSTRAINT devices_device_hash_key UNIQUE (device_hash);
+ALTER TABLE public.devices ADD CONSTRAINT devices_pkey PRIMARY KEY (id);
+ALTER TABLE public.app_updates ADD CONSTRAINT app_updates_pkey PRIMARY KEY (id);
+ALTER TABLE public.course_payment_settings ADD CONSTRAINT course_payment_settings_id_check CHECK ((id = 1));
+ALTER TABLE public.course_payment_settings ADD CONSTRAINT course_payment_settings_pkey PRIMARY KEY (id);
+ALTER TABLE public.device_shikho_accounts ADD CONSTRAINT device_shikho_accounts_pkey PRIMARY KEY (id);
+ALTER TABLE public.course_access_enrollments ADD CONSTRAINT course_access_enrollments_device_id_shikho_account_key_prog_key UNIQUE (device_id, shikho_account_key, program_id);
+ALTER TABLE public.course_access_enrollments ADD CONSTRAINT course_access_enrollments_pkey PRIMARY KEY (id);
+ALTER TABLE public.course_payment_transactions ADD CONSTRAINT course_payment_transactions_enrollment_id_fkey FOREIGN KEY (enrollment_id) REFERENCES course_access_enrollments(id) ON DELETE CASCADE;
+ALTER TABLE public.course_payment_transactions ADD CONSTRAINT course_payment_transactions_pkey PRIMARY KEY (id);
+
+-- ==========================================
+-- 5. INDEXES
+-- ==========================================
+CREATE UNIQUE INDEX onesignal_config_pkey ON public.onesignal_config USING btree (id);
+CREATE UNIQUE INDEX app_notices_pkey ON public.app_notices USING btree (id);
+CREATE UNIQUE INDEX activation_support_links_pkey ON public.activation_support_links USING btree (id);
+CREATE UNIQUE INDEX admin_push_devices_pkey ON public.admin_push_devices USING btree (id);
+CREATE UNIQUE INDEX admin_push_devices_admin_device_id_key ON public.admin_push_devices USING btree (admin_device_id);
+CREATE UNIQUE INDEX devices_pkey ON public.devices USING btree (id);
+CREATE UNIQUE INDEX devices_device_hash_key ON public.devices USING btree (device_hash);
+CREATE INDEX idx_devices_onesignal_player_id ON public.devices USING btree (onesignal_player_id);
+CREATE UNIQUE INDEX app_updates_pkey ON public.app_updates USING btree (id);
+CREATE UNIQUE INDEX course_payment_settings_pkey ON public.course_payment_settings USING btree (id);
+CREATE UNIQUE INDEX device_shikho_accounts_pkey ON public.device_shikho_accounts USING btree (id);
+CREATE UNIQUE INDEX idx_device_shikho_accounts_unique ON public.device_shikho_accounts USING btree (device_hash, shikho_user_id);
+CREATE UNIQUE INDEX course_access_enrollments_pkey ON public.course_access_enrollments USING btree (id);
+CREATE UNIQUE INDEX course_access_enrollments_device_id_shikho_account_key_prog_key ON public.course_access_enrollments USING btree (device_id, shikho_account_key, program_id);
+CREATE INDEX idx_course_access_enrollments_device ON public.course_access_enrollments USING btree (device_id, shikho_account_key);
+CREATE INDEX idx_course_access_enrollments_status ON public.course_access_enrollments USING btree (status);
+CREATE UNIQUE INDEX idx_course_enrollments_account_program ON public.course_access_enrollments USING btree (shikho_account_key, program_id);
+CREATE INDEX idx_course_enrollments_onesignal_player_id ON public.course_access_enrollments USING btree (onesignal_player_id);
+CREATE UNIQUE INDEX course_payment_transactions_pkey ON public.course_payment_transactions USING btree (id);
+CREATE INDEX idx_course_payment_tx_device ON public.course_payment_transactions USING btree (device_id, shikho_account_key);
+CREATE INDEX idx_course_payment_tx_status ON public.course_payment_transactions USING btree (status);
+
+-- ==========================================
+-- 6. VIEWS
+-- ==========================================
+-- No views
+
+-- ==========================================
+-- 7. FUNCTIONS & RPCs
+-- ==========================================
+CREATE OR REPLACE FUNCTION public.check_device_status(p_device_hash text, p_display_device_id text, p_device_model text, p_device_brand text, p_android_version text, p_app_version text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_device RECORD;
+BEGIN
+    INSERT INTO public.devices (
+        device_hash, display_device_id, device_model, device_brand,
+        android_version, app_version, last_seen, updated_at
+    ) VALUES (
+        p_device_hash, COALESCE(NULLIF(p_display_device_id, ''), 'UNKNOWN'),
+        p_device_model, p_device_brand, p_android_version, p_app_version, now(), now()
+    )
+    ON CONFLICT (device_hash) DO UPDATE SET
+        display_device_id = CASE WHEN EXCLUDED.display_device_id <> '' AND EXCLUDED.display_device_id <> 'UNKNOWN' THEN EXCLUDED.display_device_id ELSE public.devices.display_device_id END,
+        device_model = COALESCE(NULLIF(EXCLUDED.device_model, ''), public.devices.device_model),
+        device_brand = COALESCE(NULLIF(EXCLUDED.device_brand, ''), public.devices.device_brand),
+        android_version = COALESCE(NULLIF(EXCLUDED.android_version, ''), public.devices.android_version),
+        app_version = COALESCE(NULLIF(EXCLUDED.app_version, ''), public.devices.app_version),
+        last_seen = now(), updated_at = now();
+
+    SELECT is_banned, ban_reason INTO v_device FROM public.devices WHERE device_hash = p_device_hash;
+    IF FOUND AND v_device.is_banned THEN
+        RETURN json_build_object('is_banned', true, 'reason', COALESCE(v_device.ban_reason, 'এই ডিভাইসটি অ্যাডমিন কর্তৃক ব্যান করা হয়েছে।'));
+    END IF;
+
+    RETURN json_build_object('is_banned', false);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.check_device_status(p_device_hash text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    RETURN public.check_student_verification_status(p_device_hash, 'UNKNOWN', '', '', '', '')::json;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.normalize_bd_phone(p_raw text)
+ RETURNS text
+ LANGUAGE plpgsql
+ IMMUTABLE
+AS $function$
+DECLARE
+  v_digits text;
+BEGIN
+  IF p_raw IS NULL OR btrim(p_raw) = '' THEN
+    RETURN '';
+  END IF;
+  v_digits := regexp_replace(p_raw, '[^0-9]', '', 'g');
+  IF length(v_digits) = 13 AND left(v_digits, 4) = '8801' THEN
+    RETURN substring(v_digits FROM 3);
+  ELSIF length(v_digits) = 14 AND left(v_digits, 6) = '008801' THEN
+    RETURN substring(v_digits FROM 5);
+  ELSIF length(v_digits) = 11 AND left(v_digits, 2) = '01' THEN
+    RETURN v_digits;
+  ELSIF length(v_digits) = 10 AND left(v_digits, 1) = '1' THEN
+    RETURN '0' || v_digits;
+  ELSIF length(v_digits) > 11 AND left(right(v_digits, 11), 2) = '01' THEN
+    RETURN right(v_digits, 11);
+  END IF;
+  RETURN btrim(p_raw);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_toggle_device_ban(p_device_hash text, p_is_banned boolean, p_reason text DEFAULT 'অ্যাডমিন কর্তৃক এই ডিভাইসের অ্যাক্সেস স্থগিত করা হয়েছে।'::text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+    UPDATE public.devices
+    SET is_banned = p_is_banned,
+        is_blocked = p_is_banned,
+        status = CASE WHEN p_is_banned THEN 'blocked' ELSE 'active' END,
+        ban_reason = CASE WHEN p_is_banned THEN p_reason ELSE '' END,
+        rejection_reason = CASE WHEN p_is_banned THEN p_reason ELSE '' END,
+        banned_at = CASE WHEN p_is_banned THEN now() ELSE NULL END,
+        updated_at = now()
+    WHERE device_hash = p_device_hash OR device_id = p_device_hash;
+
+    RETURN json_build_object('success', true, 'device_hash', p_device_hash, 'is_banned', p_is_banned);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_set_device_course_permissions(p_device_hash text, p_is_restricted boolean, p_allowed_classes text[] DEFAULT '{}'::text[], p_allowed_groups text[] DEFAULT '{}'::text[], p_allowed_batches text[] DEFAULT '{}'::text[], p_allowed_programs text[] DEFAULT '{}'::text[])
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+    UPDATE public.devices
+    SET is_access_restricted = COALESCE(p_is_restricted, false),
+        allowed_classes = COALESCE(p_allowed_classes, '{}'::text[]),
+        allowed_groups = COALESCE(p_allowed_groups, '{}'::text[]),
+        allowed_batches = COALESCE(p_allowed_batches, '{}'::text[]),
+        allowed_programs = COALESCE(p_allowed_programs, '{}'::text[]),
+        updated_at = now()
+    WHERE device_hash = p_device_hash OR device_id = p_device_hash;
+
+    RETURN json_build_object('success', true, 'device_hash', p_device_hash, 'is_access_restricted', COALESCE(p_is_restricted, false));
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_approve_course_access_request(p_enrollment_id bigint, p_total_price integer, p_installment_enabled boolean DEFAULT true, p_installment_plans_json jsonb DEFAULT NULL::jsonb, p_admin_note text DEFAULT ''::text, p_instant_free_unlock boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_price INTEGER := GREATEST(COALESCE(p_total_price, 1000), 0);
+    v_plans JSONB;
+BEGIN
+    IF p_installment_plans_json IS NOT NULL AND jsonb_typeof(p_installment_plans_json) = 'array' AND jsonb_array_length(p_installment_plans_json) > 0 THEN
+        v_plans := p_installment_plans_json;
+    ELSE
+        v_plans := jsonb_build_array(
+            jsonb_build_object(
+                'plan_id', 'FULL',
+                'title_bn', 'এককালীন সম্পূর্ণ পেমেন্ট (' || v_price || ' টাকা)',
+                'installment_count', 1,
+                'first_payment', v_price,
+                'per_installment_amount', v_price,
+                'interval_days', 0,
+                'schedule_amounts', jsonb_build_array(v_price)
+            ),
+            jsonb_build_object(
+                'plan_id', 'INST_2',
+                'title_bn', '২ কিস্তিতে পরিশোধ (' || (v_price / 2) || ' + ' || (v_price - (v_price / 2)) || ' টাকা)',
+                'installment_count', 2,
+                'first_payment', (v_price / 2),
+                'per_installment_amount', (v_price - (v_price / 2)),
+                'interval_days', 15,
+                'schedule_amounts', jsonb_build_array((v_price / 2), (v_price - (v_price / 2)))
+            ),
+            jsonb_build_object(
+                'plan_id', 'INST_5',
+                'title_bn', '৫ কিস্তিতে পরিশোধ (প্রতি সপ্তাহে ' || (v_price / 5) || ' টাকা)',
+                'installment_count', 5,
+                'first_payment', (v_price / 5),
+                'per_installment_amount', (v_price / 5),
+                'interval_days', 7,
+                'schedule_amounts', jsonb_build_array(
+                    (v_price / 5),
+                    (v_price / 5),
+                    (v_price / 5),
+                    (v_price / 5),
+                    v_price - ((v_price / 5) * 4)
+                )
+            )
+        );
+    END IF;
+
+    UPDATE public.course_access_enrollments
+    SET
+        status = CASE WHEN p_instant_free_unlock OR v_price = 0 THEN 'ACTIVE' ELSE 'APPROVED_TO_BUY' END,
+        total_price = v_price,
+        due_amount = CASE WHEN p_instant_free_unlock OR v_price = 0 THEN 0 ELSE GREATEST(v_price - paid_amount, 0) END,
+        next_installment_amount = CASE WHEN p_instant_free_unlock OR v_price = 0 THEN 0 ELSE GREATEST(v_price - paid_amount, 0) END,
+        installment_enabled = COALESCE(p_installment_enabled, TRUE),
+        installment_plans_json = v_plans,
+        admin_note = COALESCE(p_admin_note, ''),
+        rejection_reason = '',
+        approved_at = NOW(),
+        unlocked_at = CASE WHEN p_instant_free_unlock OR v_price = 0 THEN NOW() ELSE unlocked_at END,
+        updated_at = NOW()
+    WHERE id = p_enrollment_id;
+
+    RETURN jsonb_build_object('success', TRUE);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.request_course_purchase_access(p_device_id text, p_shikho_account_key text, p_student_name text, p_student_phone text, p_student_class text, p_student_group text, p_program_id text, p_program_title text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_phone text;
+    v_account_key text;
+    v_real_dev_id text;
+    v_player_id text;
+    v_existing_id bigint;
+    v_existing_status text;
+BEGIN
+    v_phone := public.normalize_bd_phone(COALESCE(NULLIF(btrim(p_student_phone), ''), btrim(p_shikho_account_key)));
+    v_account_key := COALESCE(NULLIF(v_phone, ''), NULLIF(btrim(p_shikho_account_key), ''), btrim(p_device_id));
+    v_real_dev_id := COALESCE(NULLIF(btrim(p_device_id), ''), v_account_key);
+
+    SELECT onesignal_player_id INTO v_player_id
+    FROM public.devices
+    WHERE device_hash = v_real_dev_id OR device_id = v_real_dev_id OR display_device_id = v_real_dev_id
+    LIMIT 1;
+
+    SELECT id, status INTO v_existing_id, v_existing_status
+    FROM public.course_access_enrollments
+    WHERE (
+        (v_account_key <> '' AND (shikho_account_key = v_account_key OR student_phone = v_account_key))
+        OR (v_real_dev_id <> '' AND device_id = v_real_dev_id)
+    )
+    AND (program_id = p_program_id OR course_id = p_program_id)
+    ORDER BY updated_at DESC NULLS LAST, id DESC
+    LIMIT 1;
+
+    IF v_existing_id IS NOT NULL THEN
+        UPDATE public.course_access_enrollments
+        SET device_id = COALESCE(NULLIF(v_real_dev_id, ''), device_id),
+            shikho_account_key = COALESCE(NULLIF(v_account_key, ''), shikho_account_key),
+            student_name = COALESCE(NULLIF(btrim(p_student_name), ''), student_name),
+            student_phone = COALESCE(NULLIF(v_phone, ''), student_phone),
+            student_class = COALESCE(NULLIF(btrim(p_student_class), ''), student_class),
+            student_group = COALESCE(NULLIF(btrim(p_student_group), ''), student_group),
+            program_title = COALESCE(NULLIF(btrim(p_program_title), ''), program_title),
+            course_title = COALESCE(NULLIF(btrim(p_program_title), ''), course_title),
+            onesignal_player_id = COALESCE(NULLIF(v_player_id, ''), onesignal_player_id),
+            status = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN v_existing_status
+                ELSE 'REQUESTED'
+            END,
+            access_status = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN v_existing_status
+                ELSE 'REQUESTED'
+            END,
+            approved_at = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN approved_at
+                ELSE NULL
+            END,
+            total_price = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN total_price
+                ELSE 0
+            END,
+            total_fee = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN total_fee
+                ELSE 0
+            END,
+            due_amount = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN due_amount
+                ELSE 0
+            END,
+            installment_enabled = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN installment_enabled
+                ELSE false
+            END,
+            allow_installments = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN allow_installments
+                ELSE false
+            END,
+            installment_plans_json = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN installment_plans_json
+                ELSE '[]'::jsonb
+            END,
+            installment_plans = CASE
+                WHEN v_existing_status IN ('ACTIVE', 'TRIAL_ACTIVE') THEN installment_plans
+                ELSE '[]'::jsonb
+            END,
+            updated_at = now()
+        WHERE id = v_existing_id;
+    ELSE
+        INSERT INTO public.course_access_enrollments (
+            device_id, shikho_account_key, student_name, student_phone,
+            student_class, student_group, program_id, course_id,
+            program_title, course_title, status, access_status,
+            total_price, total_fee, paid_amount, due_amount, next_installment_amount,
+            installment_enabled, allow_installments, installment_plans_json, installment_plans,
+            onesignal_player_id, requested_at, updated_at
+        ) VALUES (
+            v_real_dev_id, v_account_key, COALESCE(NULLIF(btrim(p_student_name), ''), 'শিক্ষার্থী'), v_phone,
+            p_student_class, p_student_group, p_program_id, p_program_id,
+            p_program_title, p_program_title, 'REQUESTED', 'REQUESTED',
+            0, 0, 0, 0, 0,
+            false, false, '[]'::jsonb, '[]'::jsonb,
+            v_player_id, now(), now()
+        )
+        RETURNING id, status INTO v_existing_id, v_existing_status;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'ok', true,
+        'success', true,
+        'enrollment_id', v_existing_id,
+        'status', COALESCE(v_existing_status, 'REQUESTED')
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_sync_course_enrollment_columns()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    NEW.device_id := COALESCE(NULLIF(btrim(NEW.device_id), ''), NULLIF(btrim(NEW.device_hash), ''), '');
+    NEW.device_hash := COALESCE(NULLIF(btrim(NEW.device_hash), ''), NULLIF(btrim(NEW.device_id), ''), '');
+
+    NEW.student_phone := public.normalize_bd_phone(COALESCE(NULLIF(btrim(NEW.student_phone), ''), NULLIF(btrim(NEW.user_phone), ''), ''));
+    NEW.user_phone := COALESCE(NULLIF(btrim(NEW.user_phone), ''), NEW.student_phone);
+
+    NEW.shikho_account_key := COALESCE(
+        NULLIF(public.normalize_bd_phone(NEW.shikho_account_key), ''),
+        NULLIF(btrim(NEW.shikho_account_key), ''),
+        NULLIF(btrim(NEW.shikho_user_id), ''),
+        NULLIF(btrim(NEW.student_key), ''),
+        NULLIF(NEW.student_phone, ''),
+        NEW.device_id
+    );
+    NEW.shikho_user_id := COALESCE(NULLIF(btrim(NEW.shikho_user_id), ''), NEW.shikho_account_key);
+    NEW.student_key := COALESCE(NULLIF(btrim(NEW.student_key), ''), NEW.shikho_account_key);
+
+    NEW.student_class := COALESCE(NULLIF(btrim(NEW.student_class), ''), NULLIF(btrim(NEW.class_code), ''), '');
+    NEW.class_code := COALESCE(NULLIF(btrim(NEW.class_code), ''), NEW.student_class);
+    NEW.student_group := COALESCE(NULLIF(btrim(NEW.student_group), ''), NULLIF(btrim(NEW.group_code), ''), '');
+    NEW.group_code := COALESCE(NULLIF(btrim(NEW.group_code), ''), NEW.student_group);
+
+    NEW.program_id := COALESCE(NULLIF(btrim(NEW.program_id), ''), NULLIF(btrim(NEW.course_id), ''), '');
+    NEW.course_id := COALESCE(NULLIF(btrim(NEW.course_id), ''), NEW.program_id);
+    NEW.program_title := COALESCE(NULLIF(btrim(NEW.program_title), ''), NULLIF(btrim(NEW.course_title), ''), '');
+    NEW.course_title := COALESCE(NULLIF(btrim(NEW.course_title), ''), NEW.program_title);
+
+    IF TG_OP = 'UPDATE' AND NEW.access_status IS DISTINCT FROM OLD.access_status AND NEW.status IS NOT DISTINCT FROM OLD.status THEN
+        NEW.status := UPPER(COALESCE(NULLIF(btrim(NEW.access_status), ''), 'REQUESTED'));
+    ELSE
+        NEW.status := UPPER(COALESCE(NULLIF(btrim(NEW.status), ''), NULLIF(btrim(NEW.access_status), ''), 'REQUESTED'));
+    END IF;
+    NEW.access_status := NEW.status;
+
+    NEW.selected_plan_id := COALESCE(NULLIF(btrim(NEW.selected_plan_id), ''), NULLIF(btrim(NEW.active_plan_id), ''), 'FULL');
+    NEW.active_plan_id := COALESCE(NULLIF(btrim(NEW.active_plan_id), ''), NEW.selected_plan_id);
+    NEW.selected_plan_title := COALESCE(NULLIF(btrim(NEW.selected_plan_title), ''), NULLIF(btrim(NEW.active_plan_title), ''), 'এককালীন সম্পূর্ণ পেমেন্ট');
+    NEW.active_plan_title := COALESCE(NULLIF(btrim(NEW.active_plan_title), ''), NEW.selected_plan_title);
+
+    NEW.next_installment_due_at := NEW.next_due_date;
+    NEW.trial_used := COALESCE(NEW.is_trial_used, false);
+    NEW.trial_days_granted := COALESCE(NEW.trial_days, 0);
+    NEW.trial_expires_at := NEW.trial_ends_at;
+
+    IF NEW.status IN ('REQUESTED', 'ACCESS_REQUESTED') AND NEW.approved_at IS NULL AND COALESCE(NEW.paid_amount, 0) = 0 THEN
+        NEW.total_price := 0;
+        NEW.total_fee := 0;
+        NEW.paid_amount := 0;
+        NEW.due_amount := 0;
+        NEW.next_installment_amount := 0;
+        NEW.installment_enabled := false;
+        NEW.allow_installments := false;
+        NEW.installment_plans_json := '[]'::jsonb;
+        NEW.installment_plans := '[]'::jsonb;
+    ELSE
+        IF NEW.installment_enabled IS DISTINCT FROM NEW.allow_installments THEN
+            IF TG_OP = 'UPDATE' AND NEW.allow_installments IS DISTINCT FROM OLD.allow_installments THEN
+                NEW.installment_enabled := NEW.allow_installments;
+            ELSE
+                NEW.allow_installments := COALESCE(NEW.installment_enabled, true);
+                NEW.installment_enabled := COALESCE(NEW.installment_enabled, true);
+            END IF;
+        END IF;
+
+        IF NEW.installment_plans IS DISTINCT FROM NEW.installment_plans_json THEN
+            IF TG_OP = 'UPDATE' AND NEW.installment_plans IS DISTINCT FROM OLD.installment_plans THEN
+                NEW.installment_plans_json := NEW.installment_plans;
+            ELSE
+                NEW.installment_plans := COALESCE(NEW.installment_plans_json, '[]'::jsonb);
+            END IF;
+        END IF;
+
+        NEW.total_price := COALESCE(NEW.total_price, 1000);
+        NEW.total_fee := NEW.total_price;
+        NEW.paid_amount := COALESCE(NEW.paid_amount, 0);
+        NEW.due_amount := GREATEST(0, NEW.total_price - NEW.paid_amount);
+    END IF;
+
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.request_student_verification(p_device_hash text, p_display_device_id text DEFAULT ''::text, p_device_model text DEFAULT ''::text, p_device_brand text DEFAULT ''::text, p_android_version text DEFAULT ''::text, p_app_version text DEFAULT ''::text, p_student_note text DEFAULT ''::text, p_app_signature text DEFAULT ''::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_existing record;
+    v_note text := btrim(COALESCE(p_student_note, ''));
+    v_req_ver text := public.get_required_app_version_name();
+    v_client_ver text := NULLIF(BTRIM(REGEXP_REPLACE(COALESCE(p_app_version, ''), '^[vV]', '')), '');
+BEGIN
+    IF v_req_ver <> '' AND v_client_ver IS NOT NULL AND LOWER(v_client_ver) <> LOWER(v_req_ver) THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'status', 'blocked',
+            'is_banned', true,
+            'ban_reason', 'পুরাতন ভার্সনের অ্যাপ (v' || v_client_ver || ') ব্যবহার করা যাবে না! শুধুমাত্র নির্ধারিত ভার্সন (v' || v_req_ver || ') ইনস্টল করুন।'
+        );
+    END IF;
+
+    SELECT * INTO v_existing FROM public.devices WHERE device_hash = p_device_hash LIMIT 1;
+
+    IF v_existing.device_hash IS NOT NULL THEN
+        IF COALESCE(v_existing.is_banned, false) = true OR lower(COALESCE(v_existing.status, '')) IN ('banned', 'blocked') THEN
+            RETURN jsonb_build_object(
+                'success', false,
+                'status', 'blocked',
+                'is_banned', true,
+                'ban_reason', COALESCE(NULLIF(btrim(v_existing.ban_reason), ''), 'এই ডিভাইসে অ্যাপ ব্যবহারের অনুমতি স্থগিত করা হয়েছে।')
+            );
+        END IF;
+
+        IF lower(COALESCE(v_existing.status, '')) IN ('active', 'approved') THEN
+            RETURN jsonb_build_object(
+                'success', true,
+                'status', 'active',
+                'is_banned', false,
+                'session_token', COALESCE(NULLIF(btrim(v_existing.session_token), ''), 'VERIFIED-' || p_device_hash)
+            );
+        END IF;
+    END IF;
+
+    INSERT INTO public.devices (
+        device_hash, display_device_id, device_model, device_brand,
+        android_version, app_version, student_note, applied_code,
+        status, is_banned, requested_at, updated_at
+    ) VALUES (
+        p_device_hash, p_display_device_id, p_device_model, p_device_brand,
+        p_android_version, p_app_version, v_note,
+        CASE WHEN v_note <> '' THEN 'REQ: ' || v_note ELSE 'STUDENT-VERIFY' END,
+        'pending', false, now(), now()
+    )
+    ON CONFLICT (device_hash) DO UPDATE SET
+        display_device_id = EXCLUDED.display_device_id,
+        device_model = EXCLUDED.device_model,
+        device_brand = EXCLUDED.device_brand,
+        android_version = EXCLUDED.android_version,
+        app_version = EXCLUDED.app_version,
+        student_note = CASE WHEN v_note <> '' THEN v_note ELSE public.devices.student_note END,
+        applied_code = CASE WHEN v_note <> '' THEN 'REQ: ' || v_note ELSE COALESCE(NULLIF(public.devices.applied_code, ''), 'STUDENT-VERIFY') END,
+        status = 'pending',
+        requested_at = now(),
+        updated_at = now();
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'status', 'pending',
+        'is_banned', false,
+        'student_note', v_note,
+        'message', 'স্বাগতম! আপনার স্টুডেন্ট ভেরিফিকেশন আবেদন সফলভাবে গৃহীত হয়েছে।'
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.get_onesignal_public_app_id()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_app_id TEXT;
+BEGIN
+    SELECT onesignal_app_id INTO v_app_id FROM public.onesignal_config WHERE id = 1;
+    RETURN jsonb_build_object('onesignal_app_id', COALESCE(v_app_id, ''));
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.notify_admin_via_onesignal(p_title text, p_message text, p_event_type text DEFAULT 'ADMIN_ALERT'::text, p_extra_data jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_app_id TEXT;
+    v_api_key TEXT;
+    v_auth_header TEXT;
+    v_player_ids TEXT[];
+    v_payload JSONB;
+BEGIN
+    SELECT onesignal_app_id, onesignal_rest_api_key
+    INTO v_app_id, v_api_key
+    FROM public.onesignal_config
+    WHERE id = 1;
+
+    IF COALESCE(v_app_id, '') = '' OR COALESCE(v_api_key, '') = '' THEN
+        RETURN jsonb_build_object('ok', false, 'reason', 'OneSignal config missing');
+    END IF;
+
+    IF v_api_key ILIKE 'os_v2_%' THEN
+        v_auth_header := 'Key ' || v_api_key;
+    ELSE
+        v_auth_header := 'Basic ' || v_api_key;
+    END IF;
+
+    SELECT ARRAY_AGG(DISTINCT onesignal_player_id)
+    INTO v_player_ids
+    FROM public.admin_push_devices
+    WHERE is_active = TRUE
+      AND COALESCE(onesignal_player_id, '') <> '';
+
+    IF v_player_ids IS NOT NULL AND ARRAY_LENGTH(v_player_ids, 1) > 0 THEN
+        v_payload := jsonb_build_object(
+            'app_id', v_app_id,
+            'include_player_ids', to_jsonb(v_player_ids),
+            'headings', jsonb_build_object('en', p_title, 'bn', p_title),
+            'contents', jsonb_build_object('en', p_message, 'bn', p_message),
+            'priority', 10,
+            'data', COALESCE(p_extra_data, '{}'::jsonb) || jsonb_build_object(
+                'type', p_event_type,
+                'title', p_title,
+                'body', p_message
+            )
+        );
+
+        PERFORM net.http_post(
+            url := 'https://onesignal.com/api/v1/notifications',
+            headers := jsonb_build_object(
+                'Content-Type', 'application/json',
+                'Authorization', v_auth_header
+            ),
+            body := v_payload
+        );
+    END IF;
+
+    v_payload := jsonb_build_object(
+        'app_id', v_app_id,
+        'filters', jsonb_build_array(
+            jsonb_build_object('field', 'tag', 'key', 'role', 'relation', '=', 'value', 'admin')
+        ),
+        'headings', jsonb_build_object('en', p_title, 'bn', p_title),
+        'contents', jsonb_build_object('en', p_message, 'bn', p_message),
+        'priority', 10,
+        'data', COALESCE(p_extra_data, '{}'::jsonb) || jsonb_build_object(
+            'type', p_event_type,
+            'title', p_title,
+            'body', p_message
+        )
+    );
+
+    PERFORM net.http_post(
+        url := 'https://onesignal.com/api/v1/notifications',
+        headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'Authorization', v_auth_header
+        ),
+        body := v_payload
+    );
+
+    RETURN jsonb_build_object('ok', true);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_course_enrollments_onesignal_notify()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_title TEXT;
+    v_id TEXT;
+BEGIN
+    BEGIN
+        v_title := COALESCE(NULLIF(NEW.program_title, ''), NULLIF(NEW.course_title, ''), 'কোর্স');
+        v_id := COALESCE(NULLIF(NEW.program_id, ''), NULLIF(NEW.course_id, ''), '');
+
+        IF (TG_OP = 'INSERT' AND NEW.status = 'REQUESTED')
+           OR (TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'REQUESTED') THEN
+            PERFORM public.notify_admin_via_onesignal(
+                '📚 নতুন কোর্স এক্সেস রিকোয়েস্ট!',
+                COALESCE(NULLIF(NEW.student_name, ''), NEW.student_phone, 'শিক্ষার্থী') || ' - "' || v_title || '" কোর্সে এক্সেস রিকোয়েস্ট পাঠিয়েছে।',
+                'ADMIN_COURSE_ACCESS_REQUEST',
+                jsonb_build_object(
+                    'enrollment_id', NEW.id,
+                    'program_id', v_id,
+                    'course_id', v_id,
+                    'program_title', v_title,
+                    'student_phone', NEW.student_phone
+                )
+            );
+        END IF;
+
+        IF TG_OP = 'UPDATE' AND COALESCE(OLD.is_trial_used, FALSE) = FALSE AND COALESCE(NEW.is_trial_used, FALSE) = TRUE THEN
+            PERFORM public.notify_admin_via_onesignal(
+                '🎁 ফ্রি ট্রায়াল শুরু হয়েছে!',
+                COALESCE(NULLIF(NEW.student_name, ''), NEW.student_phone, 'শিক্ষার্থী') || ' - "' || v_title || '" কোর্সে ফ্রি ট্রায়াল চালু করেছে।',
+                'ADMIN_FREE_TRIAL_STARTED',
+                jsonb_build_object(
+                    'enrollment_id', NEW.id,
+                    'program_id', v_id,
+                    'course_id', v_id,
+                    'student_phone', NEW.student_phone
+                )
+            );
+        END IF;
+
+        IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+            IF NEW.status IN ('APPROVED_TO_BUY', 'APPROVED_UNPAID') THEN
+                PERFORM public.notify_student_via_onesignal(
+                    NEW.onesignal_player_id,
+                    COALESCE(NULLIF(NEW.device_hash, ''), NEW.device_id),
+                    NEW.student_phone,
+                    '🎉 কোর্স রিকোয়েস্ট অনুমোদিত হয়েছে!',
+                    '"' || v_title || '"-এর রিকোয়েস্ট অনুমোদিত হয়েছে (মূল্য: ৳' || COALESCE(NEW.total_price, 0)::INT || CASE WHEN COALESCE(NEW.trial_enabled, FALSE) AND COALESCE(NEW.trial_days, 0) > 0 THEN ', সাথে ' || NEW.trial_days || ' দিনের ফ্রি ট্রায়াল!' ELSE '' END || ')।',
+                    'COURSE_ACCESS_APPROVED',
+                    jsonb_build_object('program_id', v_id, 'course_id', v_id, 'status', NEW.status)
+                );
+            ELSIF NEW.status = 'ACTIVE' AND OLD.status <> 'ACTIVE' THEN
+                PERFORM public.notify_student_via_onesignal(
+                    NEW.onesignal_player_id,
+                    COALESCE(NULLIF(NEW.device_hash, ''), NEW.device_id),
+                    NEW.student_phone,
+                    '✅ কোর্স আনলক হয়েছে!',
+                    'আপনার "' || v_title || '" কোর্সটি আনলক করা হয়েছে। এখন ক্লাস শুরু করতে পারেন!',
+                    'COURSE_UNLOCKED',
+                    jsonb_build_object('program_id', v_id, 'course_id', v_id, 'status', NEW.status)
+                );
+            ELSIF NEW.status IN ('REJECTED', 'LOCKED', 'REVOKED') THEN
+                PERFORM public.notify_student_via_onesignal(
+                    NEW.onesignal_player_id,
+                    COALESCE(NULLIF(NEW.device_hash, ''), NEW.device_id),
+                    NEW.student_phone,
+                    '❌ কোর্স রিকোয়েস্ট বাতিল বা লক হয়েছে',
+                    '"' || v_title || '" কোর্সের এক্সেস স্থগিত বা বাতিল করা হয়েছে। ' || COALESCE(NEW.admin_note, ''),
+                    'COURSE_ACCESS_REJECTED',
+                    jsonb_build_object('program_id', v_id, 'course_id', v_id, 'status', NEW.status)
+                );
+            END IF;
+        END IF;
+
+        IF TG_OP = 'UPDATE'
+           AND (OLD.trial_days IS DISTINCT FROM NEW.trial_days OR OLD.trial_ends_at IS DISTINCT FROM NEW.trial_ends_at)
+           AND OLD.status = NEW.status THEN
+            PERFORM public.notify_student_via_onesignal(
+                NEW.onesignal_player_id,
+                COALESCE(NULLIF(NEW.device_hash, ''), NEW.device_id),
+                NEW.student_phone,
+                '⏳ ফ্রি ট্রায়ালের সময় আপডেট হয়েছে!',
+                '"' || v_title || '" কোর্সের ফ্রি ট্রায়ালের মেয়াদ অ্যাডমিন আপডেট করেছেন।',
+                'COURSE_TRIAL_UPDATED',
+                jsonb_build_object('program_id', v_id, 'course_id', v_id, 'trial_days', NEW.trial_days)
+            );
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_fn_course_enrollments_onesignal_notify skipped error: %', SQLERRM;
+    END;
+
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_set_device_block_status(p_device_hash text, p_is_banned boolean DEFAULT true, p_reason text DEFAULT 'অ্যাডমিন কর্তৃক ব্লক করা হয়েছে'::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    UPDATE public.devices
+    SET
+        status = CASE WHEN p_is_banned THEN 'blocked' ELSE 'active' END,
+        is_banned = p_is_banned,
+        is_blocked = p_is_banned,
+        ban_reason = CASE WHEN p_is_banned THEN COALESCE(p_reason, '') ELSE '' END,
+        rejection_reason = CASE WHEN p_is_banned THEN COALESCE(p_reason, '') ELSE '' END,
+        banned_at = CASE WHEN p_is_banned THEN now() ELSE NULL END,
+        approved_at = CASE WHEN NOT p_is_banned THEN now() ELSE approved_at END,
+        updated_at = now()
+    WHERE device_hash = p_device_hash
+       OR device_id = p_device_hash
+       OR display_device_id = p_device_hash
+       OR id::text = p_device_hash;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_sync_course_payment_tx_columns()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    NEW.device_id := COALESCE(NULLIF(NEW.device_id, ''), NULLIF(NEW.device_hash, ''), '');
+    NEW.device_hash := COALESCE(NULLIF(NEW.device_hash, ''), NULLIF(NEW.device_id, ''), '');
+    NEW.program_id := COALESCE(NULLIF(NEW.program_id, ''), NULLIF(NEW.course_id, ''), '');
+    NEW.course_id := COALESCE(NULLIF(NEW.course_id, ''), NEW.program_id);
+    NEW.program_title := COALESCE(NULLIF(NEW.program_title, ''), NULLIF(NEW.course_title, ''), '');
+    NEW.course_title := COALESCE(NULLIF(NEW.course_title, ''), NEW.program_title);
+    NEW.student_phone := COALESCE(NULLIF(NEW.student_phone, ''), NULLIF(NEW.user_phone, ''), NULLIF(NEW.sender_mobile, ''), '');
+    NEW.user_phone := COALESCE(NULLIF(NEW.user_phone, ''), NEW.student_phone);
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_course_payments_onesignal_notify()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_device_hash TEXT;
+    v_player_id TEXT;
+    v_phone TEXT;
+    v_title TEXT;
+    v_prog_id TEXT;
+BEGIN
+    BEGIN
+        SELECT COALESCE(NULLIF(device_hash, ''), device_id), onesignal_player_id, student_phone
+        INTO v_device_hash, v_player_id, v_phone
+        FROM public.course_access_enrollments
+        WHERE id = NEW.enrollment_id
+        LIMIT 1;
+
+        v_phone := COALESCE(NULLIF(v_phone, ''), NULLIF(NEW.sender_mobile, ''), NULLIF(NEW.user_phone, ''), '');
+        v_title := COALESCE(NULLIF(NEW.program_title, ''), NULLIF(NEW.course_title, ''), 'কোর্স');
+        v_prog_id := COALESCE(NULLIF(NEW.program_id, ''), NULLIF(NEW.course_id, ''), '');
+
+        IF TG_OP = 'INSERT' AND NEW.status = 'PENDING' THEN
+            PERFORM public.notify_admin_via_onesignal(
+                '💰 নতুন কোর্স পেমেন্ট সাবমিট হয়েছে!',
+                v_phone || ' - "' || v_title || '" কোর্সের জন্য ৳' || COALESCE(NEW.amount, 0)::INT || ' (' || COALESCE(NEW.payment_method, 'bKash') || ' TrxID: ' || COALESCE(NEW.transaction_id, '') || ') পাঠিয়েছে।',
+                'ADMIN_COURSE_PAYMENT_SUBMITTED',
+                jsonb_build_object(
+                    'payment_id', NEW.id,
+                    'enrollment_id', NEW.enrollment_id,
+                    'program_id', v_prog_id,
+                    'course_id', v_prog_id,
+                    'transaction_id', NEW.transaction_id
+                )
+            );
+        END IF;
+
+        IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+            IF NEW.status = 'APPROVED' THEN
+                PERFORM public.notify_student_via_onesignal(
+                    v_player_id,
+                    v_device_hash,
+                    v_phone,
+                    '✅ পেমেন্ট ভেরিফাই ও অনুমোদিত হয়েছে!',
+                    'আপনার ৳' || COALESCE(NEW.amount, 0)::INT || ' পেমেন্ট (TrxID: ' || COALESCE(NEW.transaction_id, '') || ') অনুমোদিত হয়েছে এবং "' || v_title || '" আনলক করা হয়েছে!',
+                    'COURSE_PAYMENT_APPROVED',
+                    jsonb_build_object('program_id', v_prog_id, 'course_id', v_prog_id, 'payment_id', NEW.id)
+                );
+            ELSIF NEW.status = 'REJECTED' THEN
+                PERFORM public.notify_student_via_onesignal(
+                    v_player_id,
+                    v_device_hash,
+                    v_phone,
+                    '❌ পেমেন্ট ভেরিফিকেশন বাতিল হয়েছে',
+                    'আপনার ৳' || COALESCE(NEW.amount, 0)::INT || ' পেমেন্ট (TrxID: ' || COALESCE(NEW.transaction_id, '') || ') বাতিল হয়েছে। কারণ: ' || COALESCE(NULLIF(NEW.rejection_reason, ''), 'সঠিক TrxID দিয়ে পুনরায় চেষ্টা করুন।'),
+                    'COURSE_PAYMENT_REJECTED',
+                    jsonb_build_object('program_id', v_prog_id, 'course_id', v_prog_id, 'payment_id', NEW.id)
+                );
+            END IF;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_fn_course_payments_onesignal_notify skipped error: %', SQLERRM;
+    END;
+
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_devices_onesignal_notify()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_dev_id TEXT;
+    v_name TEXT;
+    v_phone TEXT;
+    v_reason TEXT;
+    v_now_blocked BOOLEAN;
+    v_old_blocked BOOLEAN;
+BEGIN
+    BEGIN
+        v_dev_id := COALESCE(NULLIF(NEW.device_hash, ''), NULLIF(NEW.device_id, ''), NEW.display_device_id, 'UNKNOWN');
+        v_name := COALESCE(NULLIF(NEW.student_note, ''), NULLIF(NEW.student_name, ''), 'শিক্ষার্থী');
+        v_phone := COALESCE(NULLIF(NEW.student_phone, ''), 'N/A');
+        v_reason := COALESCE(NULLIF(NEW.ban_reason, ''), NULLIF(NEW.rejection_reason, ''), 'অ্যাডমিন কর্তৃক ব্লক করা হয়েছে');
+        v_now_blocked := COALESCE(NEW.is_banned, false) OR COALESCE(NEW.is_blocked, false) OR LOWER(COALESCE(NEW.status, '')) IN ('blocked', 'banned', 'rejected');
+
+        IF (TG_OP = 'INSERT' AND LOWER(COALESCE(NEW.status, 'pending')) = 'pending')
+           OR (TG_OP = 'UPDATE' AND LOWER(COALESCE(NEW.status, '')) = 'pending' AND (LOWER(COALESCE(OLD.status, '')) <> 'pending' OR OLD.requested_at IS DISTINCT FROM NEW.requested_at)) THEN
+            PERFORM public.notify_admin_via_onesignal(
+                '📱 নতুন ডিভাইস ভেরিফিকেশন রিকোয়েস্ট!',
+                v_name || ' (' || COALESCE(NEW.device_model, 'Device') || ') অ্যাপ অ্যাক্সেসের জন্য রিকোয়েস্ট পাঠিয়েছে।',
+                'ADMIN_DEVICE_ACCESS_REQUEST',
+                jsonb_build_object('device_id', v_dev_id, 'student_phone', v_phone)
+            );
+            RETURN NEW;
+        END IF;
+
+        IF TG_OP = 'UPDATE' THEN
+            v_old_blocked := COALESCE(OLD.is_banned, false) OR COALESCE(OLD.is_blocked, false) OR LOWER(COALESCE(OLD.status, '')) IN ('blocked', 'banned', 'rejected');
+
+            IF LOWER(COALESCE(OLD.status, '')) IS DISTINCT FROM LOWER(COALESCE(NEW.status, ''))
+               AND LOWER(COALESCE(NEW.status, '')) IN ('active', 'approved')
+               AND NOT v_now_blocked THEN
+                PERFORM public.notify_student_via_onesignal(
+                    NEW.onesignal_player_id, v_dev_id, NEW.student_phone,
+                    '✅ ডিভাইস ভেরিফিকেশন সফল!',
+                    'অভিনন্দন! অ্যাডমিন আপনার ডিভাইসের অ্যাক্সেস অনুমোদন করেছেন।',
+                    'DEVICE_APPROVED',
+                    jsonb_build_object('status', 'active', 'device_id', v_dev_id)
+                );
+            END IF;
+
+            IF (NOT v_old_blocked) AND v_now_blocked THEN
+                PERFORM public.notify_student_via_onesignal(
+                    NEW.onesignal_player_id, v_dev_id, NEW.student_phone,
+                    '🚫 ডিভাইস ব্লক করা হয়েছে!',
+                    'আপনার ডিভাইসটি অ্যাডমিন ব্লক করেছেন। কারণ: ' || v_reason,
+                    'DEVICE_BLOCKED',
+                    jsonb_build_object('status', 'blocked', 'device_id', v_dev_id)
+                );
+            ELSIF v_old_blocked AND (NOT v_now_blocked) THEN
+                PERFORM public.notify_student_via_onesignal(
+                    NEW.onesignal_player_id, v_dev_id, NEW.student_phone,
+                    '🔓 ডিভাইস আনব্লক করা হয়েছে!',
+                    'আপনার ডিভাইসের ব্লক তুলে নেওয়া হয়েছে। এখন আবার অ্যাপ ব্যবহার করতে পারবেন।',
+                    'DEVICE_UNBLOCKED',
+                    jsonb_build_object('status', 'active', 'device_id', v_dev_id)
+                );
+            END IF;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'trg_fn_devices_onesignal_notify skipped error: %', SQLERRM;
+    END;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.start_course_free_trial(p_student_key text, p_program_id text, p_program_title text DEFAULT ''::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_row public.course_access_enrollments%ROWTYPE;
+    v_total_hours INTEGER;
+    v_now TIMESTAMPTZ := now();
+    v_ends_at TIMESTAMPTZ;
+    v_norm_key TEXT;
+BEGIN
+    v_norm_key := public.normalize_bd_phone(p_student_key);
+
+    SELECT *
+    INTO v_row
+    FROM public.course_access_enrollments
+    WHERE (
+        shikho_account_key = p_student_key
+        OR student_key = p_student_key
+        OR device_id = p_student_key
+        OR device_hash = p_student_key
+        OR (v_norm_key <> '' AND public.normalize_bd_phone(student_phone) = v_norm_key)
+    )
+    AND program_id = p_program_id
+    ORDER BY updated_at DESC
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'message', 'কোর্স এক্সেস রেকর্ড পাওয়া যায়নি।');
+    END IF;
+
+    IF COALESCE(v_row.trial_enabled, false) = false THEN
+        RETURN jsonb_build_object('success', false, 'message', 'এই কোর্সের জন্য ফ্রি ট্রায়াল অনুমোদিত নয়।');
+    END IF;
+
+    IF COALESCE(v_row.is_trial_used, false) = true AND v_row.trial_ends_at IS NOT NULL AND v_row.trial_ends_at <= v_now THEN
+        RETURN jsonb_build_object('success', false, 'message', 'আপনি ইতোমধ্যে এই কোর্সের ফ্রি ট্রায়াল ব্যবহার করেছেন।');
+    END IF;
+
+    IF v_row.trial_ends_at IS NOT NULL AND v_row.trial_ends_at > v_now THEN
+        RETURN jsonb_build_object(
+            'success', true,
+            'status', 'TRIAL_ACTIVE',
+            'trial_started_at', v_row.trial_started_at,
+            'trial_ends_at', v_row.trial_ends_at
+        );
+    END IF;
+
+    v_total_hours := GREATEST(1, (COALESCE(v_row.trial_days, 0) * 24) + COALESCE(v_row.trial_hours, 0));
+    v_ends_at := v_now + (v_total_hours || ' hours')::INTERVAL;
+
+    UPDATE public.course_access_enrollments
+    SET status = 'TRIAL_ACTIVE',
+        trial_started_at = v_now,
+        trial_ends_at = v_ends_at,
+        is_trial_used = true,
+        updated_at = v_now
+    WHERE id = v_row.id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'status', 'TRIAL_ACTIVE',
+        'trial_started_at', v_now,
+        'trial_ends_at', v_ends_at
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.notify_student_via_onesignal(p_onesignal_player_id text, p_device_hash text, p_student_phone text, p_title text, p_message text, p_event_type text DEFAULT 'STUDENT_UPDATE'::text, p_extra_data jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_app_id TEXT;
+    v_api_key TEXT;
+    v_auth_header TEXT;
+    v_target_player_id TEXT;
+    v_payload JSONB;
+BEGIN
+    SELECT onesignal_app_id, onesignal_rest_api_key
+    INTO v_app_id, v_api_key
+    FROM public.onesignal_config
+    WHERE id = 1;
+
+    IF COALESCE(v_app_id, '') = '' OR COALESCE(v_api_key, '') = '' THEN
+        RETURN jsonb_build_object('ok', false, 'reason', 'OneSignal config missing');
+    END IF;
+
+    IF v_api_key ILIKE 'os_v2_%' THEN
+        v_auth_header := 'Key ' || v_api_key;
+    ELSE
+        v_auth_header := 'Basic ' || v_api_key;
+    END IF;
+
+    v_target_player_id := NULLIF(TRIM(COALESCE(p_onesignal_player_id, '')), '');
+
+    IF v_target_player_id IS NULL AND COALESCE(p_device_hash, '') <> '' THEN
+        SELECT NULLIF(TRIM(onesignal_player_id), '')
+        INTO v_target_player_id
+        FROM public.devices
+        WHERE device_hash = p_device_hash
+           OR device_id = p_device_hash
+           OR display_device_id = p_device_hash
+        LIMIT 1;
+    END IF;
+
+    IF v_target_player_id IS NOT NULL THEN
+        v_payload := jsonb_build_object(
+            'app_id', v_app_id,
+            'include_player_ids', jsonb_build_array(v_target_player_id),
+            'headings', jsonb_build_object('en', p_title, 'bn', p_title),
+            'contents', jsonb_build_object('en', p_message, 'bn', p_message),
+            'priority', 10,
+            'data', COALESCE(p_extra_data, '{}'::jsonb) || jsonb_build_object(
+                'type', p_event_type,
+                'title', p_title,
+                'body', p_message,
+                'device_hash', COALESCE(p_device_hash, ''),
+                'student_phone', COALESCE(p_student_phone, '')
+            )
+        );
+    ELSIF COALESCE(p_device_hash, '') <> '' THEN
+        v_payload := jsonb_build_object(
+            'app_id', v_app_id,
+            'filters', jsonb_build_array(
+                jsonb_build_object('field', 'tag', 'key', 'device_hash', 'relation', '=', 'value', p_device_hash)
+            ),
+            'headings', jsonb_build_object('en', p_title, 'bn', p_title),
+            'contents', jsonb_build_object('en', p_message, 'bn', p_message),
+            'priority', 10,
+            'data', COALESCE(p_extra_data, '{}'::jsonb) || jsonb_build_object(
+                'type', p_event_type,
+                'title', p_title,
+                'body', p_message,
+                'device_hash', COALESCE(p_device_hash, ''),
+                'student_phone', COALESCE(p_student_phone, '')
+            )
+        );
+    ELSE
+        RETURN jsonb_build_object('ok', false, 'reason', 'No target player_id or device_hash');
+    END IF;
+
+    PERFORM net.http_post(
+        url := 'https://onesignal.com/api/v1/notifications',
+        headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'Authorization', v_auth_header
+        ),
+        body := v_payload
+    );
+
+    RETURN jsonb_build_object('ok', true);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_sync_devices_columns()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    NEW.device_hash := COALESCE(NULLIF(btrim(NEW.device_hash), ''), NULLIF(btrim(NEW.device_id), ''), NULLIF(btrim(NEW.display_device_id), ''));
+    NEW.device_id := COALESCE(NULLIF(btrim(NEW.device_id), ''), NEW.device_hash);
+    NEW.is_banned := COALESCE(NEW.is_banned, NEW.is_blocked, false);
+    NEW.is_blocked := NEW.is_banned;
+    NEW.ban_reason := COALESCE(NULLIF(NEW.ban_reason, ''), NULLIF(NEW.rejection_reason, ''), '');
+    NEW.rejection_reason := NEW.ban_reason;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.submit_course_payment_transaction(p_device_id text, p_shikho_account_key text, p_student_name text, p_program_id text, p_program_title text, p_plan_id text, p_plan_title text, p_total_installments integer, p_installment_interval_days integer, p_payment_method text, p_sender_mobile text, p_amount integer, p_transaction_id text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_account_key text;
+    v_real_dev_id text;
+    v_player_id text;
+    v_enr_id bigint;
+    v_completed integer := 0;
+    v_cur_status text := 'PAYMENT_PENDING';
+BEGIN
+    v_account_key := public.normalize_bd_phone(COALESCE(NULLIF(btrim(p_shikho_account_key), ''), btrim(p_device_id)));
+    IF v_account_key = '' THEN
+        v_account_key := COALESCE(NULLIF(btrim(p_shikho_account_key), ''), btrim(p_device_id));
+    END IF;
+    v_real_dev_id := COALESCE(NULLIF(btrim(p_device_id), ''), v_account_key);
+
+    SELECT onesignal_player_id INTO v_player_id
+    FROM public.devices
+    WHERE device_hash = v_real_dev_id OR device_id = v_real_dev_id OR display_device_id = v_real_dev_id
+    LIMIT 1;
+
+    SELECT id, completed_installments, status
+    INTO v_enr_id, v_completed, v_cur_status
+    FROM public.course_access_enrollments
+    WHERE (
+        shikho_account_key = v_account_key
+        OR public.normalize_bd_phone(student_phone) = v_account_key
+        OR device_id = v_real_dev_id
+        OR device_hash = v_real_dev_id
+    ) AND program_id = p_program_id
+    ORDER BY updated_at DESC
+    LIMIT 1;
+
+    IF v_enr_id IS NULL THEN
+        INSERT INTO public.course_access_enrollments (
+            device_id, device_hash, shikho_account_key, onesignal_player_id, student_name, student_phone,
+            program_id, program_title, selected_plan_id, selected_plan_title,
+            total_installments, installment_interval_days, status, updated_at
+        ) VALUES (
+            v_real_dev_id, v_real_dev_id, v_account_key, v_player_id, COALESCE(NULLIF(btrim(p_student_name), ''), 'শিক্ষার্থী'), v_account_key,
+            p_program_id, p_program_title, p_plan_id, p_plan_title,
+            GREATEST(COALESCE(p_total_installments, 1), 1), GREATEST(COALESCE(p_installment_interval_days, 7), 1),
+            'PAYMENT_PENDING', now()
+        ) RETURNING id, completed_installments, status INTO v_enr_id, v_completed, v_cur_status;
+    ELSE
+        UPDATE public.course_access_enrollments
+        SET
+            device_id = COALESCE(NULLIF(v_real_dev_id, ''), device_id),
+            device_hash = COALESCE(NULLIF(v_real_dev_id, ''), device_hash),
+            shikho_account_key = v_account_key,
+            onesignal_player_id = COALESCE(NULLIF(v_player_id, ''), onesignal_player_id),
+            selected_plan_id = COALESCE(NULLIF(p_plan_id, ''), selected_plan_id),
+            selected_plan_title = COALESCE(NULLIF(p_plan_title, ''), selected_plan_title),
+            total_installments = CASE WHEN completed_installments = 0 THEN GREATEST(COALESCE(p_total_installments, 1), 1) ELSE total_installments END,
+            installment_interval_days = CASE WHEN completed_installments = 0 THEN GREATEST(COALESCE(p_installment_interval_days, 7), 1) ELSE installment_interval_days END,
+            status = CASE WHEN status = 'ACTIVE' THEN 'ACTIVE' ELSE 'PAYMENT_PENDING' END,
+            rejection_reason = '',
+            updated_at = now()
+        WHERE id = v_enr_id;
+    END IF;
+
+    INSERT INTO public.course_payment_transactions (
+        enrollment_id, device_id, device_hash, shikho_account_key, student_name,
+        program_id, program_title, plan_id, plan_title,
+        installment_number, payment_method, sender_mobile,
+        amount, transaction_id, status, submitted_at
+    ) VALUES (
+        v_enr_id, v_real_dev_id, v_real_dev_id, v_account_key, COALESCE(NULLIF(btrim(p_student_name), ''), 'শিক্ষার্থী'),
+        p_program_id, p_program_title, COALESCE(p_plan_id, 'FULL'), COALESCE(p_plan_title, 'একবারে সম্পূর্ণ পেমেন্ট'),
+        COALESCE(v_completed, 0) + 1, p_payment_method, p_sender_mobile,
+        p_amount, p_transaction_id, 'PENDING', now()
+    );
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'enrollment_id', v_enr_id,
+        'message', 'আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! অ্যাডমিন যাচাই করে এপ্রুভ করলেই কোর্সটি আনলক হয়ে যাবে।'
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.enforce_overdue_course_installments()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_overdue_count integer := 0;
+    v_trial_count integer := 0;
+BEGIN
+    -- কিস্তির মেয়াদ শেষ হলে OVERDUE করা
+    UPDATE public.course_access_enrollments
+    SET status = 'OVERDUE',
+        access_status = 'OVERDUE',
+        updated_at = NOW()
+    WHERE UPPER(COALESCE(status, '')) IN ('ACTIVE', 'APPROVED', 'INSTALLMENT_ACTIVE', 'PARTIAL_PAID')
+      AND (COALESCE(installment_enabled, true) = true OR COALESCE(allow_installments, true) = true)
+      AND COALESCE(due_amount, 0) > 0
+      AND (
+          (next_due_date IS NOT NULL AND next_due_date <= NOW())
+          OR (next_installment_due_at IS NOT NULL AND next_installment_due_at <= NOW())
+      );
+    GET DIAGNOSTICS v_overdue_count = ROW_COUNT;
+
+    -- ফ্রি ট্রায়ালের মেয়াদ শেষ হলে পেমেন্ট স্ট্যাটাসে ফেরত নেওয়া
+    UPDATE public.course_access_enrollments
+    SET status = CASE WHEN COALESCE(paid_amount, 0) > 0 THEN 'ACTIVE' ELSE 'APPROVED_TO_BUY' END,
+        access_status = CASE WHEN COALESCE(paid_amount, 0) > 0 THEN 'ACTIVE' ELSE 'APPROVED_TO_BUY' END,
+        is_trial_used = true,
+        trial_used = true,
+        updated_at = NOW()
+    WHERE UPPER(COALESCE(status, '')) IN ('TRIAL_ACTIVE', 'FREE_TRIAL')
+      AND (
+          (trial_ends_at IS NOT NULL AND trial_ends_at <= NOW())
+          OR (trial_expires_at IS NOT NULL AND trial_expires_at <= NOW())
+      );
+    GET DIAGNOSTICS v_trial_count = ROW_COUNT;
+
+    RETURN v_overdue_count + v_trial_count;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.verify_device_heartbeat(p_device_hash text, p_token text, p_app_version text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+  v_device public.devices%ROWTYPE;
+  v_req_ver TEXT;
+  v_effective_ver TEXT;
+BEGIN
+  SELECT * INTO v_device
+  FROM public.devices
+  WHERE device_hash = p_device_hash OR device_id = p_device_hash
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('valid', false, 'reason', 'ডিভাইসটি খুঁজে পাওয়া যায়নি।');
+  END IF;
+
+  v_effective_ver := NULLIF(BTRIM(REGEXP_REPLACE(COALESCE(NULLIF(TRIM(p_app_version), ''), TRIM(COALESCE(v_device.app_version, ''))), '^[vV]', '')), '');
+  v_req_ver := public.get_required_app_version_name();
+
+  IF v_req_ver <> '' AND v_effective_ver IS NOT NULL AND LOWER(v_effective_ver) <> LOWER(v_req_ver) THEN
+    RETURN jsonb_build_object(
+      'valid', false,
+      'status', 'update_required',
+      'reason', 'পুরাতন ভার্সন বন্ধ করা হয়েছে। অনুগ্রহ করে নতুন ভার্সন (v' || v_req_ver || ') আপডেট করুন।'
+    );
+  END IF;
+
+  IF COALESCE(v_device.is_banned, false) = true OR
+     COALESCE(v_device.is_blocked, false) = true OR
+     LOWER(COALESCE(v_device.status, '')) IN ('banned', 'blocked', 'rejected', 'revoked', 'disabled', 'suspended') THEN
+    RETURN jsonb_build_object(
+      'valid', false,
+      'is_banned', true,
+      'is_blocked', true,
+      'status', v_device.status,
+      'reason', COALESCE(NULLIF(v_device.ban_reason, ''), NULLIF(v_device.rejection_reason, ''), 'অ্যাডমিন আপনার ডিভাইসটি ব্লক করেছেন।')
+    );
+  END IF;
+
+  IF LOWER(COALESCE(v_device.status, '')) IN ('pending', 'unverified') THEN
+    RETURN jsonb_build_object(
+      'valid', false,
+      'status', v_device.status,
+      'reason', 'আপনার ডিভাইসটি এখনো অনুমোদিত হয়নি।'
+    );
+  END IF;
+
+  UPDATE public.devices
+  SET last_seen = NOW(),
+      updated_at = NOW(),
+      app_version = CASE WHEN COALESCE(TRIM(p_app_version), '') <> '' THEN TRIM(p_app_version) ELSE app_version END
+  WHERE id = v_device.id;
+
+  RETURN jsonb_build_object(
+    'valid', true,
+    'is_banned', false,
+    'is_blocked', false,
+    'status', COALESCE(v_device.status, 'active'),
+    'student_name', COALESCE(v_device.student_name, v_device.student_note, '')
+  );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_enforce_mandatory_app_update()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    NEW.is_force_update := true;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.get_required_app_version_name()
+ RETURNS text
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_ver TEXT;
+BEGIN
+    SELECT NULLIF(BTRIM(REGEXP_REPLACE(COALESCE(latest_version_name, ''), '^[vV]', '')), '')
+    INTO v_ver
+    FROM public.app_updates
+    WHERE is_active = true
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    RETURN COALESCE(v_ver, '');
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.check_student_verification_status(p_device_hash text, p_display_device_id text DEFAULT ''::text, p_device_model text DEFAULT ''::text, p_device_brand text DEFAULT ''::text, p_android_version text DEFAULT ''::text, p_app_version text DEFAULT ''::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_dev RECORD;
+    v_req_ver TEXT := public.get_required_app_version_name();
+    v_client_ver TEXT := NULLIF(BTRIM(REGEXP_REPLACE(COALESCE(p_app_version, ''), '^[vV]', '')), '');
+BEGIN
+    -- যদি ক্লায়েন্ট ভার্সন পাঠায় এবং সেটি ডাটাবেজের নির্ধারিত ভার্সনের সাথে না মেলে, সাথে সাথে ব্লক মেসেজ রিটার্ন করবে
+    IF v_req_ver <> '' AND v_client_ver IS NOT NULL AND LOWER(v_client_ver) <> LOWER(v_req_ver) THEN
+        RETURN jsonb_build_object(
+            'status', 'blocked',
+            'is_banned', true,
+            'is_blocked', true,
+            'is_approved', false,
+            'can_view_profiles', false,
+            'ban_reason', 'পুরাতন ভার্সনের অ্যাপ (v' || v_client_ver || ') ব্যবহার করা যাবে না! শুধুমাত্র নির্ধারিত ভার্সন (v' || v_req_ver || ') ইনস্টল করে ব্যবহার করুন।'
+        );
+    END IF;
+
+    SELECT * INTO v_dev
+    FROM public.devices
+    WHERE device_hash = p_device_hash
+       OR device_id = p_device_hash
+       OR (p_display_device_id <> '' AND display_device_id = p_display_device_id)
+    LIMIT 1;
+
+    IF v_dev IS NULL THEN
+        RETURN jsonb_build_object(
+            'status', 'unverified',
+            'is_banned', false,
+            'is_approved', false,
+            'can_view_profiles', false
+        );
+    END IF;
+
+    -- ক্লায়েন্টের বর্তমান ভার্সন ডাটাবেজে আপডেট রাখা
+    IF v_client_ver IS NOT NULL AND COALESCE(v_dev.app_version, '') <> v_client_ver THEN
+        UPDATE public.devices SET app_version = v_client_ver, last_seen = NOW() WHERE id = v_dev.id;
+    END IF;
+
+    IF v_dev.is_banned = true OR v_dev.is_blocked = true OR LOWER(COALESCE(v_dev.status, '')) IN ('banned', 'blocked', 'rejected', 'suspended', 'revoked') THEN
+        RETURN jsonb_build_object(
+            'status', 'banned',
+            'is_banned', true,
+            'is_approved', false,
+            'can_view_profiles', false,
+            'ban_reason', COALESCE(NULLIF(v_dev.ban_reason, ''), NULLIF(v_dev.rejection_reason, ''), 'এই ডিভাইসে প্রবেশাধিকার স্থগিত করা হয়েছে।')
+        );
+    END IF;
+
+    IF LOWER(COALESCE(v_dev.status, '')) IN ('active', 'approved') THEN
+        RETURN jsonb_build_object(
+            'status', 'active',
+            'is_banned', false,
+            'is_approved', true,
+            'session_token', COALESCE(NULLIF(v_dev.session_token, ''), 'VERIFIED-' || p_device_hash),
+            'applied_code', COALESCE(v_dev.applied_code, 'VERIFIED-DEVICE'),
+            'student_note', COALESCE(v_dev.student_note, v_dev.student_name, ''),
+            'can_view_profiles', COALESCE(v_dev.can_view_profiles, false),
+            'is_access_restricted', COALESCE(v_dev.is_access_restricted, false),
+            'allowed_classes', COALESCE(v_dev.allowed_classes, '{}'::text[]),
+            'allowed_groups', COALESCE(v_dev.allowed_groups, '{}'::text[]),
+            'allowed_batches', COALESCE(v_dev.allowed_batches, '{}'::text[]),
+            'allowed_programs', COALESCE(v_dev.allowed_programs, '{}'::text[]),
+            'bound_shikho_user_id', COALESCE(v_dev.bound_shikho_user_id, ''),
+            'bound_user_phone', COALESCE(v_dev.bound_user_phone, '')
+        );
+    END IF;
+
+    RETURN jsonb_build_object(
+        'status', COALESCE(NULLIF(v_dev.status, ''), 'pending'),
+        'is_banned', false,
+        'is_approved', false,
+        'can_view_profiles', false,
+        'student_note', COALESCE(v_dev.student_note, v_dev.student_name, '')
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.get_student_course_commerce_status(p_device_id text DEFAULT ''::text, p_shikho_account_key text DEFAULT ''::text, p_shikho_user_id text DEFAULT ''::text, p_user_phone text DEFAULT ''::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_dev text := TRIM(COALESCE(p_device_id, ''));
+    v_acc text := TRIM(COALESCE(p_shikho_account_key, ''));
+    v_uid text := TRIM(COALESCE(p_shikho_user_id, ''));
+    v_phn text := RIGHT(REGEXP_REPLACE(COALESCE(p_user_phone, ''), '[^0-9]', '', 'g'), 11);
+    v_settings jsonb;
+    v_enrollments jsonb;
+    v_transactions jsonb;
+BEGIN
+    -- মেয়াদোত্তীর্ণ ফ্রি ট্রায়াল ও কিস্তি অটো-ব্লক করা
+    PERFORM public.enforce_overdue_course_installments();
+
+    SELECT to_jsonb(s) INTO v_settings
+    FROM public.course_payment_settings s
+    ORDER BY id ASC
+    LIMIT 1;
+
+    SELECT COALESCE(jsonb_agg(to_jsonb(e) ORDER BY e.updated_at DESC), '[]'::jsonb)
+    INTO v_enrollments
+    FROM public.course_access_enrollments e
+    WHERE (v_dev <> '' AND (e.device_id = v_dev OR e.device_hash = v_dev))
+       OR (v_acc <> '' AND (e.shikho_account_key = v_acc OR e.device_id = v_acc))
+       OR (v_uid <> '' AND e.shikho_user_id = v_uid)
+       OR (v_phn <> '' AND LENGTH(v_phn) >= 11 AND (
+           RIGHT(REGEXP_REPLACE(COALESCE(e.user_phone, ''), '[^0-9]', '', 'g'), 11) = v_phn
+           OR RIGHT(REGEXP_REPLACE(COALESCE(e.student_phone, ''), '[^0-9]', '', 'g'), 11) = v_phn
+       ));
+
+    SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY t.created_at DESC), '[]'::jsonb)
+    INTO v_transactions
+    FROM public.course_payment_transactions t
+    WHERE (v_dev <> '' AND (t.device_id = v_dev OR t.device_hash = v_dev))
+       OR (v_acc <> '' AND t.shikho_account_key = v_acc)
+       OR (v_uid <> '' AND t.shikho_user_id = v_uid)
+       OR (v_phn <> '' AND LENGTH(v_phn) >= 11 AND (
+           RIGHT(REGEXP_REPLACE(COALESCE(t.user_phone, ''), '[^0-9]', '', 'g'), 11) = v_phn
+           OR RIGHT(REGEXP_REPLACE(COALESCE(t.student_phone, ''), '[^0-9]', '', 'g'), 11) = v_phn
+       ));
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'payment_settings', COALESCE(v_settings, '{}'::jsonb),
+        'enrollments', COALESCE(v_enrollments, '[]'::jsonb),
+        'transactions', COALESCE(v_transactions, '[]'::jsonb)
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.sync_student_push_identity(p_device_hash text, p_display_device_id text DEFAULT ''::text, p_student_phone text DEFAULT ''::text, p_student_key text DEFAULT ''::text, p_onesignal_player_id text DEFAULT ''::text, p_fcm_token text DEFAULT ''::text, p_app_version text DEFAULT ''::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+  v_hash TEXT := TRIM(COALESCE(p_device_hash, ''));
+  v_disp TEXT := TRIM(COALESCE(p_display_device_id, ''));
+  v_phone TEXT := RIGHT(REGEXP_REPLACE(COALESCE(p_student_phone, ''), '[^0-9]', '', 'g'), 11);
+  v_player TEXT := TRIM(COALESCE(p_onesignal_player_id, ''));
+  v_fcm TEXT := TRIM(COALESCE(p_fcm_token, ''));
+  v_ver TEXT := TRIM(COALESCE(p_app_version, ''));
+BEGIN
+  IF v_hash = '' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Missing device_hash');
+  END IF;
+
+  UPDATE public.devices
+  SET
+    onesignal_player_id = CASE WHEN v_player <> '' THEN v_player ELSE onesignal_player_id END,
+    fcm_token = CASE WHEN v_fcm <> '' THEN v_fcm ELSE fcm_token END,
+    student_phone = CASE WHEN LENGTH(v_phone) >= 11 THEN v_phone ELSE student_phone END,
+    app_version = CASE WHEN v_ver <> '' THEN v_ver ELSE app_version END,
+    last_seen = NOW(),
+    updated_at = NOW()
+  WHERE device_hash = v_hash
+     OR device_id = v_hash
+     OR (v_disp <> '' AND display_device_id = v_disp);
+
+  UPDATE public.course_access_enrollments
+  SET
+    onesignal_player_id = CASE WHEN v_player <> '' THEN v_player ELSE onesignal_player_id END,
+    fcm_token = CASE WHEN v_fcm <> '' THEN v_fcm ELSE fcm_token END,
+    updated_at = NOW()
+  WHERE device_id = v_hash
+     OR device_hash = v_hash
+     OR (LENGTH(v_phone) >= 11 AND (
+         RIGHT(REGEXP_REPLACE(COALESCE(student_phone, ''), '[^0-9]', '', 'g'), 11) = v_phone
+         OR RIGHT(REGEXP_REPLACE(COALESCE(user_phone, ''), '[^0-9]', '', 'g'), 11) = v_phone
+     ));
+
+  RETURN jsonb_build_object('success', true);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_guard_devices_direct_tamper()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    IF current_user IN ('anon', 'authenticated') THEN
+        IF TG_OP = 'INSERT' THEN
+            NEW.status := 'pending';
+            NEW.is_banned := false;
+            NEW.is_blocked := false;
+            NEW.can_view_profiles := false;
+        ELSIF TG_OP = 'UPDATE' THEN
+            NEW.is_banned := OLD.is_banned;
+            NEW.is_blocked := OLD.is_blocked;
+            NEW.ban_reason := OLD.ban_reason;
+            NEW.rejection_reason := OLD.rejection_reason;
+            NEW.can_view_profiles := OLD.can_view_profiles;
+            NEW.is_access_restricted := OLD.is_access_restricted;
+            NEW.allowed_classes := OLD.allowed_classes;
+            NEW.allowed_groups := OLD.allowed_groups;
+            NEW.allowed_batches := OLD.allowed_batches;
+            NEW.allowed_programs := OLD.allowed_programs;
+            IF LOWER(COALESCE(NEW.status, '')) IN ('active', 'approved') AND LOWER(COALESCE(OLD.status, '')) NOT IN ('active', 'approved') THEN
+                NEW.status := OLD.status;
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_guard_enrollments_direct_tamper()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    IF current_user IN ('anon', 'authenticated') THEN
+        IF TG_OP = 'INSERT' THEN
+            NEW.status := 'REQUESTED';
+            NEW.access_status := 'REQUESTED';
+            NEW.paid_amount := 0;
+            NEW.approved_at := NULL;
+            NEW.unlocked_at := NULL;
+        ELSIF TG_OP = 'UPDATE' THEN
+            NEW.paid_amount := OLD.paid_amount;
+            NEW.total_price := OLD.total_price;
+            NEW.total_fee := OLD.total_fee;
+            NEW.approved_at := OLD.approved_at;
+            NEW.unlocked_at := OLD.unlocked_at;
+            NEW.trial_days := OLD.trial_days;
+            NEW.trial_hours := OLD.trial_hours;
+            IF UPPER(COALESCE(NEW.status, '')) = 'ACTIVE' AND UPPER(COALESCE(OLD.status, '')) <> 'ACTIVE' THEN
+                NEW.status := OLD.status;
+                NEW.access_status := OLD.access_status;
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_guard_payment_tx_direct_tamper()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    IF current_user IN ('anon', 'authenticated') THEN
+        NEW.status := 'PENDING';
+        NEW.reviewed_at := NULL;
+    END IF;
+    RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_approve_device_verification(p_device_hash text, p_student_note text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+  v_token text;
+BEGIN
+  v_token := 'VERIFIED-' || gen_random_uuid()::text;
+
+  UPDATE public.devices
+  SET
+    status = 'active',
+    is_banned = false,
+    ban_reason = '',
+    session_token = COALESCE(NULLIF(btrim(session_token), ''), v_token),
+    student_note = COALESCE(NULLIF(btrim(p_student_note), ''), student_note),
+    applied_code = CASE
+      WHEN COALESCE(btrim(applied_code), '') = '' OR applied_code LIKE 'REQ:%' THEN 'VERIFIED-STUDENT'
+      ELSE applied_code
+    END,
+    approved_at = now(),
+    updated_at = now()
+  WHERE device_hash = p_device_hash OR display_device_id = p_device_hash;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'status', 'active',
+    'message', 'ডিভাইস ভেরিফিকেশন সফলভাবে অ্যাপ্রুভ করা হয়েছে!'
+  );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_set_account_course_permissions(p_device_hash text, p_shikho_user_id text, p_user_phone text DEFAULT ''::text, p_is_access_granted boolean DEFAULT true, p_is_restricted boolean DEFAULT true, p_allowed_classes text[] DEFAULT '{}'::text[], p_allowed_groups text[] DEFAULT '{}'::text[], p_allowed_batches text[] DEFAULT '{}'::text[], p_allowed_programs text[] DEFAULT '{}'::text[], p_revoke_other_accounts boolean DEFAULT true)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    IF p_revoke_other_accounts = true AND p_is_access_granted = true THEN
+        UPDATE public.device_shikho_accounts
+        SET is_access_granted = false,
+            is_access_restricted = false,
+            allowed_classes = '{}'::TEXT[],
+            allowed_groups = '{}'::TEXT[],
+            allowed_batches = '{}'::TEXT[],
+            allowed_programs = '{}'::TEXT[]
+        WHERE (device_hash = p_device_hash OR display_device_id = p_device_hash)
+          AND shikho_user_id <> p_shikho_user_id;
+    END IF;
+
+    INSERT INTO public.device_shikho_accounts (
+        device_hash, display_device_id, shikho_user_id, user_phone,
+        is_access_granted, is_access_restricted,
+        allowed_classes, allowed_groups, allowed_batches, allowed_programs, last_seen_at
+    ) VALUES (
+        p_device_hash, p_device_hash, p_shikho_user_id, COALESCE(p_user_phone, ''),
+        COALESCE(p_is_access_granted, true), COALESCE(p_is_restricted, true),
+        COALESCE(p_allowed_classes, '{}'::TEXT[]), COALESCE(p_allowed_groups, '{}'::TEXT[]),
+        COALESCE(p_allowed_batches, '{}'::TEXT[]), COALESCE(p_allowed_programs, '{}'::TEXT[]), now()
+    )
+    ON CONFLICT (device_hash, shikho_user_id) DO UPDATE SET
+        user_phone = COALESCE(NULLIF(EXCLUDED.user_phone, ''), public.device_shikho_accounts.user_phone),
+        is_access_granted = EXCLUDED.is_access_granted,
+        is_access_restricted = EXCLUDED.is_access_restricted,
+        allowed_classes = EXCLUDED.allowed_classes,
+        allowed_groups = EXCLUDED.allowed_groups,
+        allowed_batches = EXCLUDED.allowed_batches,
+        allowed_programs = EXCLUDED.allowed_programs,
+        last_seen_at = now();
+
+    IF p_is_access_granted = true THEN
+        UPDATE public.devices
+        SET is_access_restricted = COALESCE(p_is_restricted, true),
+            bound_shikho_user_id = p_shikho_user_id,
+            bound_user_phone = COALESCE(p_user_phone, ''),
+            allowed_classes = COALESCE(p_allowed_classes, '{}'::TEXT[]),
+            allowed_groups = COALESCE(p_allowed_groups, '{}'::TEXT[]),
+            allowed_batches = COALESCE(p_allowed_batches, '{}'::TEXT[]),
+            allowed_programs = COALESCE(p_allowed_programs, '{}'::TEXT[]),
+            updated_at = now()
+        WHERE device_hash = p_device_hash OR device_id = p_device_hash OR display_device_id = p_device_hash;
+    END IF;
+
+    RETURN json_build_object(
+        'success', true,
+        'message', 'নির্দিষ্ট শিখো অ্যাকাউন্টের জন্য সিলেবাস ও কোর্স এক্সেস সফলভাবে সেট করা হয়েছে!'
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_approve_course_access_with_trial(p_student_key text, p_program_id text, p_total_price numeric, p_allow_installments boolean DEFAULT false, p_installment_plans jsonb DEFAULT '[]'::jsonb, p_trial_enabled boolean DEFAULT false, p_trial_days integer DEFAULT 0, p_trial_hours integer DEFAULT 0, p_start_trial_immediately boolean DEFAULT false, p_admin_note text DEFAULT ''::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_now TIMESTAMPTZ := now();
+    v_total_hours INTEGER;
+    v_trial_started TIMESTAMPTZ := NULL;
+    v_trial_ends TIMESTAMPTZ := NULL;
+    v_status TEXT := 'APPROVED_TO_BUY';
+    v_norm_key TEXT;
+BEGIN
+    v_norm_key := public.normalize_bd_phone(p_student_key);
+    v_total_hours := GREATEST(0, (COALESCE(p_trial_days, 0) * 24) + COALESCE(p_trial_hours, 0));
+
+    IF p_trial_enabled AND p_start_trial_immediately AND v_total_hours > 0 THEN
+        v_trial_started := v_now;
+        v_trial_ends := v_now + (v_total_hours || ' hours')::INTERVAL;
+        v_status := 'TRIAL_ACTIVE';
+    END IF;
+
+    UPDATE public.course_access_enrollments
+    SET status = v_status,
+        total_price = COALESCE(p_total_price, 0)::INTEGER,
+        due_amount = GREATEST(0, COALESCE(p_total_price, 0)::INTEGER - COALESCE(paid_amount, 0)),
+        allow_installments = COALESCE(p_allow_installments, false),
+        installment_enabled = COALESCE(p_allow_installments, false),
+        installment_plans_json = CASE WHEN p_installment_plans IS NOT NULL AND jsonb_typeof(p_installment_plans) = 'array' AND jsonb_array_length(p_installment_plans) > 0 THEN p_installment_plans ELSE installment_plans_json END,
+        trial_enabled = COALESCE(p_trial_enabled, false),
+        trial_days = GREATEST(0, COALESCE(p_trial_days, 0)),
+        trial_hours = GREATEST(0, COALESCE(p_trial_hours, 0)),
+        trial_started_at = CASE
+            WHEN p_start_trial_immediately AND v_total_hours > 0 THEN v_trial_started
+            WHEN NOT p_trial_enabled THEN NULL
+            ELSE trial_started_at
+        END,
+        trial_ends_at = CASE
+            WHEN p_start_trial_immediately AND v_total_hours > 0 THEN v_trial_ends
+            WHEN NOT p_trial_enabled THEN NULL
+            ELSE trial_ends_at
+        END,
+        is_trial_used = CASE
+            WHEN p_start_trial_immediately AND v_total_hours > 0 THEN true
+            WHEN p_trial_enabled THEN false
+            ELSE is_trial_used
+        END,
+        admin_note = COALESCE(p_admin_note, admin_note),
+        approved_at = COALESCE(approved_at, v_now),
+        updated_at = v_now
+    WHERE (
+        shikho_account_key = p_student_key
+        OR student_key = p_student_key
+        OR device_id = p_student_key
+        OR id::text = p_student_key
+        OR (v_norm_key <> '' AND public.normalize_bd_phone(student_phone) = v_norm_key)
+    )
+    AND program_id = p_program_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'status', v_status,
+        'trial_ends_at', v_trial_ends
+    );
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_manage_course_trial(p_student_key text, p_program_id text, p_action text, p_days integer DEFAULT 0, p_hours integer DEFAULT 0)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_row public.course_access_enrollments%ROWTYPE;
+    v_now TIMESTAMPTZ := now();
+    v_delta_hours INTEGER;
+    v_new_ends_at TIMESTAMPTZ;
+    v_new_status TEXT;
+    v_norm_key TEXT;
+BEGIN
+    v_norm_key := public.normalize_bd_phone(p_student_key);
+
+    SELECT *
+    INTO v_row
+    FROM public.course_access_enrollments
+    WHERE (
+        shikho_account_key = p_student_key
+        OR student_key = p_student_key
+        OR device_id = p_student_key
+        OR id::text = p_student_key
+        OR (v_norm_key <> '' AND public.normalize_bd_phone(student_phone) = v_norm_key)
+    )
+    AND program_id = p_program_id
+    ORDER BY updated_at DESC
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'message', 'Enrollment row not found');
+    END IF;
+
+    v_delta_hours := (COALESCE(p_days, 0) * 24) + COALESCE(p_hours, 0);
+
+    IF p_action = 'SET_DURATION' THEN
+        v_new_ends_at := v_now + (GREATEST(1, v_delta_hours) || ' hours')::INTERVAL;
+        UPDATE public.course_access_enrollments
+        SET trial_enabled = true,
+            trial_days = GREATEST(0, COALESCE(p_days, 0)),
+            trial_hours = GREATEST(0, COALESCE(p_hours, 0)),
+            trial_started_at = COALESCE(trial_started_at, v_now),
+            trial_ends_at = v_new_ends_at,
+            is_trial_used = true,
+            status = CASE WHEN COALESCE(paid_amount, 0) > 0 THEN 'ACTIVE' ELSE 'TRIAL_ACTIVE' END,
+            updated_at = v_now
+        WHERE id = v_row.id;
+
+    ELSIF p_action = 'ADD_HOURS' THEN
+        v_new_ends_at := GREATEST(COALESCE(v_row.trial_ends_at, v_now), v_now) + (GREATEST(1, v_delta_hours) || ' hours')::INTERVAL;
+        UPDATE public.course_access_enrollments
+        SET trial_enabled = true,
+            trial_started_at = COALESCE(trial_started_at, v_now),
+            trial_ends_at = v_new_ends_at,
+            is_trial_used = true,
+            status = CASE WHEN COALESCE(paid_amount, 0) > 0 THEN 'ACTIVE' ELSE 'TRIAL_ACTIVE' END,
+            updated_at = v_now
+        WHERE id = v_row.id;
+
+    ELSIF p_action = 'REDUCE_HOURS' THEN
+        v_new_ends_at := COALESCE(v_row.trial_ends_at, v_now) - (GREATEST(1, v_delta_hours) || ' hours')::INTERVAL;
+        v_new_status := CASE
+            WHEN COALESCE(v_row.paid_amount, 0) > 0 THEN 'ACTIVE'
+            WHEN v_new_ends_at <= v_now THEN 'APPROVED_TO_BUY'
+            ELSE 'TRIAL_ACTIVE'
+        END;
+        UPDATE public.course_access_enrollments
+        SET trial_ends_at = v_new_ends_at,
+            status = v_new_status,
+            updated_at = v_now
+        WHERE id = v_row.id;
+
+    ELSIF p_action = 'END_TRIAL_NOW' THEN
+        UPDATE public.course_access_enrollments
+        SET trial_ends_at = v_now - INTERVAL '1 minute',
+            is_trial_used = true,
+            status = CASE WHEN COALESCE(paid_amount, 0) > 0 THEN 'ACTIVE' ELSE 'APPROVED_TO_BUY' END,
+            updated_at = v_now
+        WHERE id = v_row.id;
+
+    ELSIF p_action = 'RESET_TRIAL' THEN
+        UPDATE public.course_access_enrollments
+        SET trial_enabled = true,
+            trial_days = GREATEST(0, COALESCE(p_days, trial_days, 1)),
+            trial_hours = GREATEST(0, COALESCE(p_hours, trial_hours, 0)),
+            trial_started_at = NULL,
+            trial_ends_at = NULL,
+            is_trial_used = false,
+            status = CASE WHEN COALESCE(paid_amount, 0) > 0 THEN 'ACTIVE' ELSE 'APPROVED_TO_BUY' END,
+            updated_at = v_now
+        WHERE id = v_row.id;
+    END IF;
+
+    RETURN jsonb_build_object('success', true, 'action', p_action);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.admin_review_course_payment(p_transaction_id bigint, p_approve boolean, p_rejection_reason text DEFAULT ''::text, p_custom_next_due_days integer DEFAULT NULL::integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    v_tx RECORD;
+    v_enr RECORD;
+    v_new_paid INTEGER;
+    v_new_due INTEGER;
+    v_new_completed INTEGER;
+    v_total_inst INTEGER;
+    v_interval_days INTEGER;
+    v_next_due TIMESTAMPTZ;
+    v_next_amount INTEGER;
+BEGIN
+    SELECT * INTO v_tx FROM public.course_payment_transactions WHERE id = p_transaction_id;
+    IF v_tx IS NULL THEN
+        RETURN jsonb_build_object('success', FALSE, 'message', 'Transaction not found');
+    END IF;
+
+    -- যদি আগে থেকেই APPROVED হয়ে থাকে তবে ডাবল যোগ রোধ করা
+    IF p_approve AND v_tx.status = 'APPROVED' THEN
+        RETURN jsonb_build_object('success', TRUE, 'message', 'Already approved');
+    END IF;
+
+    SELECT * INTO v_enr FROM public.course_access_enrollments WHERE id = v_tx.enrollment_id;
+
+    IF p_approve THEN
+        IF v_enr IS NOT NULL THEN
+            v_new_paid := COALESCE(v_enr.paid_amount, 0) + COALESCE(v_tx.amount, 0);
+            v_new_due := GREATEST(COALESCE(v_enr.total_price, 0) - v_new_paid, 0);
+            v_new_completed := COALESCE(v_enr.completed_installments, 0) + 1;
+            v_total_inst := GREATEST(COALESCE(v_enr.total_installments, v_tx.total_installments, 1), 1);
+            v_interval_days := COALESCE(p_custom_next_due_days, NULLIF(v_enr.installment_interval_days, 0), 7);
+
+            IF v_new_due > 0 THEN
+                v_next_due := NOW() + (v_interval_days || ' days')::INTERVAL;
+                IF (v_total_inst - v_new_completed) > 0 THEN
+                    v_next_amount := CEIL(v_new_due::NUMERIC / (v_total_inst - v_new_completed)::NUMERIC)::INTEGER;
+                ELSE
+                    v_next_amount := v_new_due;
+                END IF;
+            ELSE
+                v_next_due := NULL;
+                v_next_amount := 0;
+            END IF;
+
+            UPDATE public.course_access_enrollments
+            SET
+                status = 'ACTIVE',
+                paid_amount = v_new_paid,
+                due_amount = v_new_due,
+                completed_installments = v_new_completed,
+                next_installment_amount = v_next_amount,
+                next_due_date = v_next_due,
+                pending_installment_tx_id = '',
+                pending_installment_amount = 0,
+                rejection_reason = '',
+                unlocked_at = COALESCE(unlocked_at, NOW()),
+                updated_at = NOW()
+            WHERE id = v_enr.id;
+        END IF;
+
+        UPDATE public.course_payment_transactions
+        SET status = 'APPROVED', rejection_reason = '', reviewed_at = NOW()
+        WHERE id = p_transaction_id;
+    ELSE
+        UPDATE public.course_payment_transactions
+        SET
+            status = 'REJECTED',
+            rejection_reason = COALESCE(NULLIF(TRIM(p_rejection_reason), ''), 'পেমেন্ট তথ্য সঠিক নয়। অনুগ্রহ করে সঠিক TrxID ও মোবাইল নম্বর দিয়ে আবার চেষ্টা করুন।'),
+            reviewed_at = NOW()
+        WHERE id = p_transaction_id;
+
+        IF v_enr IS NOT NULL THEN
+            UPDATE public.course_access_enrollments
+            SET
+                status = CASE
+                    WHEN v_enr.paid_amount > 0 AND (v_enr.next_due_date IS NULL OR v_enr.next_due_date > NOW()) THEN 'ACTIVE'
+                    WHEN v_enr.paid_amount > 0 AND v_enr.next_due_date <= NOW() THEN 'OVERDUE'
+                    ELSE 'PAYMENT_REJECTED'
+                END,
+                pending_installment_tx_id = '',
+                pending_installment_amount = 0,
+                rejection_reason = COALESCE(NULLIF(TRIM(p_rejection_reason), ''), 'পেমেন্ট তথ্য সঠিক নয়। অনুগ্রহ করে সঠিক TrxID ও মোবাইল নম্বর দিয়ে আবার চেষ্টা করুন।'),
+                updated_at = NOW()
+            WHERE id = v_enr.id;
+        END IF;
+    END IF;
+
+    RETURN jsonb_build_object('success', TRUE);
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.update_onesignal_config_secure(p_app_id text, p_rest_api_key text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    INSERT INTO public.onesignal_config (id, onesignal_app_id, onesignal_rest_api_key, updated_at)
+    VALUES (1, btrim(COALESCE(p_app_id, '')), btrim(COALESCE(p_rest_api_key, '')), now())
+    ON CONFLICT (id) DO UPDATE
+    SET onesignal_app_id = EXCLUDED.onesignal_app_id,
+        onesignal_rest_api_key = CASE
+            WHEN EXCLUDED.onesignal_rest_api_key <> '' THEN EXCLUDED.onesignal_rest_api_key
+            ELSE public.onesignal_config.onesignal_rest_api_key
+        END,
+        updated_at = now();
+
+    RETURN jsonb_build_object('success', true);
+END;
+$function$
+;
+
+-- ==========================================
+-- 8. TRIGGERS (PUBLIC, AUTH, STORAGE)
+-- ==========================================
+CREATE TRIGGER update_objects_updated_at BEFORE UPDATE ON storage.objects FOR EACH ROW EXECUTE FUNCTION storage.update_updated_at_column();
+CREATE TRIGGER enforce_bucket_name_length_trigger BEFORE INSERT OR UPDATE OF name ON storage.buckets FOR EACH ROW EXECUTE FUNCTION storage.enforce_bucket_name_length();
+CREATE TRIGGER protect_buckets_delete BEFORE DELETE ON storage.buckets FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();
+CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete();
+CREATE TRIGGER protect_bucket_control_insert BEFORE INSERT ON storage.buckets FOR EACH ROW EXECUTE FUNCTION storage.protect_bucket_control_columns('service_role');
+CREATE TRIGGER protect_bucket_control_update BEFORE UPDATE OF lifecycle_configuration, lifecycle_configuration_generation ON storage.buckets FOR EACH ROW EXECUTE FUNCTION storage.protect_bucket_control_columns();
+CREATE TRIGGER protect_bucket_control_update_role AFTER UPDATE OF lifecycle_configuration, lifecycle_configuration_generation ON storage.buckets FOR EACH ROW EXECUTE FUNCTION storage.enforce_bucket_lifecycle_service_role('service_role');
+CREATE TRIGGER trg_devices_onesignal_notify AFTER INSERT OR UPDATE ON public.devices FOR EACH ROW EXECUTE FUNCTION trg_fn_devices_onesignal_notify();
+CREATE TRIGGER trg_course_enrollments_onesignal_notify AFTER INSERT OR UPDATE ON public.course_access_enrollments FOR EACH ROW EXECUTE FUNCTION trg_fn_course_enrollments_onesignal_notify();
+CREATE TRIGGER trg_course_payments_onesignal_notify AFTER INSERT OR UPDATE ON public.course_payment_transactions FOR EACH ROW EXECUTE FUNCTION trg_fn_course_payments_onesignal_notify();
+CREATE TRIGGER trg_sync_course_enrollment_columns BEFORE INSERT OR UPDATE ON public.course_access_enrollments FOR EACH ROW EXECUTE FUNCTION fn_sync_course_enrollment_columns();
+CREATE TRIGGER trg_sync_course_payment_tx_columns BEFORE INSERT OR UPDATE ON public.course_payment_transactions FOR EACH ROW EXECUTE FUNCTION fn_sync_course_payment_tx_columns();
+CREATE TRIGGER trg_sync_devices_columns BEFORE INSERT OR UPDATE ON public.devices FOR EACH ROW EXECUTE FUNCTION fn_sync_devices_columns();
+CREATE TRIGGER enforce_versioning_status_transition BEFORE UPDATE OF versioning_status ON storage.buckets FOR EACH ROW EXECUTE FUNCTION storage.enforce_versioning_status_transition();
+CREATE TRIGGER trg_enforce_mandatory_app_update BEFORE INSERT OR UPDATE ON public.app_updates FOR EACH ROW EXECUTE FUNCTION fn_enforce_mandatory_app_update();
+CREATE TRIGGER trg_guard_devices_direct_tamper BEFORE INSERT OR UPDATE ON public.devices FOR EACH ROW EXECUTE FUNCTION fn_guard_devices_direct_tamper();
+CREATE TRIGGER trg_guard_enrollments_direct_tamper BEFORE INSERT OR UPDATE ON public.course_access_enrollments FOR EACH ROW EXECUTE FUNCTION fn_guard_enrollments_direct_tamper();
+CREATE TRIGGER trg_guard_payment_tx_direct_tamper BEFORE INSERT OR UPDATE ON public.course_payment_transactions FOR EACH ROW EXECUTE FUNCTION fn_guard_payment_tx_direct_tamper();
+
+-- ==========================================
+-- 9. ROW LEVEL SECURITY (RLS) STATUS
+-- ==========================================
+ALTER TABLE public.onesignal_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_notices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activation_support_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_push_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_payment_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.device_shikho_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_access_enrollments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_payment_transactions ENABLE ROW LEVEL SECURITY;
+
+-- ==========================================
+-- 10. RLS POLICIES (PUBLIC & STORAGE)
+-- ==========================================
+CREATE POLICY "Allow public read active app updates" ON public.app_updates AS PERMISSIVE FOR SELECT TO public USING ((is_active = true));
+CREATE POLICY "Allow public read active notices" ON public.app_notices AS PERMISSIVE FOR SELECT TO anon, authenticated USING ((is_active = true));
+CREATE POLICY "Allow public read access for activation support links" ON public.activation_support_links AS PERMISSIVE FOR SELECT TO anon, authenticated USING ((is_active = true));
+CREATE POLICY "Allow public read devices" ON public.devices AS PERMISSIVE FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "Block anon direct access to onesignal_config" ON public.onesignal_config AS PERMISSIVE FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
+CREATE POLICY "Public read device_shikho_accounts" ON public.device_shikho_accounts AS PERMISSIVE FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "Service role full device_shikho_accounts" ON public.device_shikho_accounts AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Public read course_payment_settings" ON public.course_payment_settings AS PERMISSIVE FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "Service role full course_payment_settings" ON public.course_payment_settings AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full app_updates" ON public.app_updates AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full app_notices" ON public.app_notices AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full activation_support_links" ON public.activation_support_links AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Service role only admin_push_devices" ON public.admin_push_devices AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow student insert devices" ON public.devices AS PERMISSIVE FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "Allow student update devices" ON public.devices AS PERMISSIVE FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full devices" ON public.devices AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow student read enrollments" ON public.course_access_enrollments AS PERMISSIVE FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "Allow student insert enrollments" ON public.course_access_enrollments AS PERMISSIVE FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "Allow student update enrollments" ON public.course_access_enrollments AS PERMISSIVE FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Service role full enrollments" ON public.course_access_enrollments AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow student read payment_tx" ON public.course_payment_transactions AS PERMISSIVE FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "Allow student insert payment_tx" ON public.course_payment_transactions AS PERMISSIVE FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "Service role full payment_tx" ON public.course_payment_transactions AS PERMISSIVE FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ==========================================
+-- 11. STORAGE BUCKETS
+-- ==========================================
+-- No storage buckets
+
+-- ==========================================
+-- 12. REALTIME PUBLICATIONS
+-- ==========================================
+-- No realtime tables

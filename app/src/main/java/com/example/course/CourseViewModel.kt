@@ -323,20 +323,6 @@ class CourseViewModel(
                 )
             }
 
-            // স্টুডেন্ট এক্সেস রিকোয়েস্ট পাঠানোর সাথে সাথেই মূল Shikho সার্ভারে যদি ৩ দিনের ট্রায়াল বা ফ্রি কোর্স জয়েন না থাকে তবে অটোমেটিক জয়েন করে দেবে
-            if (programId !in _uiState.value.shikhoServerJoinedIds) {
-                try {
-                    val joinRes = ensureCourseJoinedOnShikhoServer(
-                        programId = programId,
-                        isFreeCourse = isFreeOnShikho
-                    )
-                    if (joinRes.isSuccess) {
-                        CourseRepository.clearCache()
-                        _uiState.update { it.copy(shikhoServerJoinedIds = it.shikhoServerJoinedIds + programId) }
-                    }
-                } catch (_: Exception) {}
-            }
-
             val classCode = sessionManager.getUserClassName() ?: "C11"
             val groupCode = sessionManager.getUserGroup() ?: "Humanities"
             val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
@@ -363,6 +349,7 @@ class CourseViewModel(
                         enrollmentSuccessMessage = msg
                     )
                 }
+                fetchEnrolledPrograms()
             }.onFailure { err ->
                 val errMsg = err.localizedMessage ?: "রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে"
                 if (context != null) {
@@ -392,16 +379,7 @@ class CourseViewModel(
                 )
             }
 
-            // প্রথমে মূল Shikho সার্ভারে ৩ দিনের ট্রায়াল/ফ্রি এনরোলমেন্ট নিশ্চিত করা
-            try {
-                val targetOther = _uiState.value.otherPrograms.find { it.id == programId }
-                ensureCourseJoinedOnShikhoServer(
-                    programId = programId,
-                    isFreeCourse = targetOther?.is_free == true
-                )
-            } catch (_: Exception) {}
-
-            // এরপর আমাদের অ্যাডমিন ডাটাবেজে (Supabase) অ্যাডমিনের অনুমোদিত ফ্রি ট্রায়াল চালু করা
+            // প্রথমে আমাদের অ্যাডমিন ডাটাবেজে (Supabase) অ্যাডমিনের অনুমোদিত ফ্রি ট্রায়াল চালু করা
             val result = CourseCommerceRepository.startCourseFreeTrial(
                 context = sessionManager.appContext,
                 programId = programId,
@@ -409,6 +387,15 @@ class CourseViewModel(
             )
 
             result.onSuccess { msg ->
+                // শুধুমাত্র অ্যাডমিন অনুমোদিত ফ্রি ট্রায়াল সফলভাবে চালু হলেই মূল সার্ভারে যুক্ত করা হবে
+                try {
+                    val targetOther = _uiState.value.otherPrograms.find { it.id == programId }
+                    ensureCourseJoinedOnShikhoServer(
+                        programId = programId,
+                        isFreeCourse = targetOther?.is_free == true
+                    )
+                } catch (_: Exception) {}
+
                 if (context != null) {
                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                 }
