@@ -161,8 +161,6 @@ fun MainContainerScreen(
                         onNavigateToChangeSyllabus = onNavigateToChangeSyllabus,
                         onNavigateToCourseTab = { selectedIndex = 1 },
                         onCourseSelected = { program ->
-                            // শুধুমাত্র হোম স্ক্রিনের সিলেক্টেড কোর্স পরিবর্তন হবে
-                            homeViewModel.switchActiveCourse(program)
                             Toast.makeText(
                                 context,
                                 "${program.title_bn ?: "কোর্স"} নির্বাচিত হয়েছে ✨",

@@ -124,14 +124,15 @@ class HomeViewModel(
             programId = program.id,
             titleBn = program.title_bn,
             batchId = program.enrollment_details?.batch_id,
-            classCode = program.classes?.firstOrNull()
+            classCode = program.classes?.firstOrNull(),
+            phaseId = null
         )
 
-        // Update FCM topic subscriptions for the switched course cleanly
+        // Immediately unsubscribe previous course topics and subscribe new course program topic on shikho-tech
         com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
             context = getApplication(),
             newProgramId = program.id,
-            newPhaseId = sessionManager.getActiveProgramPhaseId()
+            newPhaseId = null
         )
 
         // Load saved subject filter for this course if any
@@ -143,6 +144,8 @@ class HomeViewModel(
         _uiState.value = _uiState.value.copy(
             activeProgram = program,
             showCourseSwitcher = false,
+            weeklyRoutine = emptyList(),
+            programPhases = emptyList(),
             selectedSubjectCodes = savedSubjects,
             courseSubjects = initialSubjects
         )
@@ -324,13 +327,7 @@ class HomeViewModel(
                 val j2 = viewModelScope.launch { fetchAcademicPrograms() }
                 j2.join()
 
-                // 3. Fetch Weekly Routine for active program
-                val active = _uiState.value.activeProgram
-                if (active != null) {
-                    fetchWeeklyRoutine(active)
-                }
-
-                // 4. Fetch dynamic in-app announcements / notices from Admin (Supabase)
+                // 3. Fetch dynamic in-app announcements / notices from Admin (Supabase)
                 fetchAppNotices(forceRefresh = isRefresh)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -508,16 +505,23 @@ class HomeViewModel(
                 ?: allPrograms.firstOrNull()
 
             if (active != null) {
-                // শুধুমাত্র তখনই সেভ করা হবে যদি আগে কোনো হোম কোর্স সেভ না থাকে অথবা বর্তমান সিলেক্টেড কোর্সের সাথেই মিলে যায়
-                if (savedProgramId.isNullOrBlank() || active.id == savedProgramId) {
-                    sessionManager.saveActiveProgram(
-                        programId = active.id,
-                        titleBn = active.title_bn,
-                        batchId = active.enrollment_details?.batch_id,
-                        classCode = active.classes?.firstOrNull()
-                    )
+                if (savedProgramId != null && savedProgramId != active.id) {
+                    com.example.notification.ClassAlarmScheduler.cancelAllAlarms(getApplication())
                 }
+                sessionManager.saveActiveProgram(
+                    programId = active.id,
+                    titleBn = active.title_bn,
+                    batchId = active.enrollment_details?.batch_id,
+                    classCode = active.classes?.firstOrNull()
+                )
+                com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
+                    context = getApplication(),
+                    newProgramId = active.id,
+                    newPhaseId = sessionManager.getActiveProgramPhaseId()
+                )
             } else if (allPrograms.isEmpty() && unfilteredAllPrograms.isNotEmpty()) {
+                com.example.notification.ClassAlarmScheduler.cancelAllAlarms(getApplication())
+                com.example.notification.ShikhoNotificationManager.unsubscribeActiveCourseTopics(getApplication())
                 sessionManager.clearActiveProgram()
             }
 
@@ -590,8 +594,8 @@ class HomeViewModel(
                     """.trimIndent(),
                     variables = mapOf("program_id" to programId, "course_progress_percentage" to true)
                 )
-                val phaseRes = apiService.getProgramPhases(phaseQuery)
-                val phases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                val phaseRes = runCatching { apiService.getProgramPhases(phaseQuery) }.getOrNull()
+                val phases = phaseRes?.data?.programPhasesByStudent?.data ?: emptyList()
                 val finalPhases = if (phases.isNotEmpty()) phases else com.example.ui.components.defaultCoursePhases
                 _uiState.value = _uiState.value.copy(programPhases = finalPhases)
 
@@ -603,6 +607,16 @@ class HomeViewModel(
                 if (currentPhase == null || currentPhase.id.isBlank()) {
                     _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
                     return@launch
+                }
+
+                // শিখো সার্ভারের প্রোগ্রাম ও ফেজ ফায়ারবেস টপিক সাবস্ক্রিপশন সিঙ্ক করা (projects/shikho-tech)
+                if (programId == sessionManager.getActiveProgramId() || _uiState.value.activeProgram?.id == programId) {
+                    sessionManager.saveActiveProgramPhaseId(currentPhase.id)
+                    com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
+                        getApplication(),
+                        programId,
+                        currentPhase.id
+                    )
                 }
 
                 // ৩. অফিসিয়াল অ্যাপের মতো চলতি সপ্তাহের শনিবার থেকে শুক্রবার (৭ দিন) ক্যালকুলেট করা
@@ -629,7 +643,7 @@ class HomeViewModel(
                 val startDate = isoFormat.format(startCal.time)
                 val endDate = isoFormat.format(endCal.time)
 
-                // ৪. অফিসিয়াল অ্যাপের মতো একক কুয়েরি পাঠানো (কোনো অপ্রয়োজনীয় ফলব্যাক লুপ ছাড়া)
+                // ৪. অফিসিয়াল অ্যাপের মতো একক কুয়েরি পাঠানো
                 val routineQuery = GraphQlQuery(
                     operationName = "GetStudentSpecificLessons",
                     query = """
@@ -653,19 +667,19 @@ class HomeViewModel(
                     )
                 )
 
-                val routineResponse = apiService.getStudentLessons(routineQuery)
-                val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
+                val routineResponse = runCatching { apiService.getStudentLessons(routineQuery) }.getOrNull()
+                val routineLessons = routineResponse?.data?.studentSpecificLessons?.data ?: emptyList()
 
                 com.example.course.LessonCacheManager.saveLessons(routineLessons, programId = programId)
                 com.example.notification.ClassAlarmScheduler.schedule7DayClassAlarms(getApplication(), programId, routineLessons)
 
-                // ৫. খালি আসলে খালিই থাকবে (যেমন Think AI তে খালি আসে), স্প্যাম কুয়েরি হবে না
+                // ৫. খালি আসলে খালিই থাকবে, স্প্যাম কুয়েরি হবে না
                 _uiState.value = _uiState.value.copy(
                     weeklyRoutine = routineLessons.sortedBy { it.start_time ?: "" },
                     isRoutineLoading = false
                 )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isRoutineLoading = false)
+                _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
             }
         }
     }
@@ -713,8 +727,8 @@ class HomeViewModel(
                         """.trimIndent(),
                         variables = mapOf("program_id" to programId, "course_progress_percentage" to true)
                     )
-                    val phaseRes = apiService.getProgramPhases(phaseQuery)
-                    val fetchedPhases = phaseRes.data?.programPhasesByStudent?.data ?: emptyList()
+                    val phaseRes = runCatching { apiService.getProgramPhases(phaseQuery) }.getOrNull()
+                    val fetchedPhases = phaseRes?.data?.programPhasesByStudent?.data ?: emptyList()
                     phases = if (fetchedPhases.isNotEmpty()) fetchedPhases else com.example.ui.components.defaultCoursePhases
                     _uiState.value = _uiState.value.copy(programPhases = phases)
                 }
@@ -726,6 +740,15 @@ class HomeViewModel(
                 if (currentPhase == null || currentPhase.id.isBlank()) {
                     _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
                     return@launch
+                }
+
+                if (programId == sessionManager.getActiveProgramId() || _uiState.value.activeProgram?.id == programId) {
+                    sessionManager.saveActiveProgramPhaseId(currentPhase.id)
+                    com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
+                        getApplication(),
+                        programId,
+                        currentPhase.id
+                    )
                 }
 
                 val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka"))
@@ -773,9 +796,10 @@ class HomeViewModel(
                     )
                 )
 
-                val routineResponse = apiService.getStudentLessons(routineQuery)
-                val routineLessons = routineResponse.data?.studentSpecificLessons?.data ?: emptyList()
+                val routineResponse = runCatching { apiService.getStudentLessons(routineQuery) }.getOrNull()
+                val routineLessons = routineResponse?.data?.studentSpecificLessons?.data ?: emptyList()
                 com.example.course.LessonCacheManager.saveLessons(routineLessons, programId = programId)
+                com.example.notification.ClassAlarmScheduler.schedule7DayClassAlarms(getApplication(), programId, routineLessons)
                 val completedSet = completedItemRepository?.completedIdsState?.value ?: sessionManager.getCompletedLessonIds()
                 val enrichedRoutine = com.example.course.LessonCacheManager.enrichWithCompletedState(routineLessons, completedSet)
                 _uiState.value = _uiState.value.copy(
@@ -783,7 +807,7 @@ class HomeViewModel(
                     isRoutineLoading = false
                 )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isRoutineLoading = false)
+                _uiState.value = _uiState.value.copy(weeklyRoutine = emptyList(), isRoutineLoading = false)
             }
         }
     }

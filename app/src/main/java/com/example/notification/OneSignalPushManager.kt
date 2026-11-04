@@ -141,45 +141,123 @@ object OneSignalPushManager {
         } catch (_: Throwable) {}
     }
 
-    private fun ensureFirebaseInitialized(context: Context) {
-        try {
+    private const val MAXBIRD_FIREBASE_APP_NAME = "maxbird-notification"
+    private const val MAXBIRD_PROJECT_ID = "maxbird-notification"
+    private const val MAXBIRD_APP_ID = "1:915326183735:android:9d6e6c275d9ede207992b2"
+    private const val MAXBIRD_SENDER_ID = "915326183735"
+    private const val MAXBIRD_API_KEY_B64 = "QUl6YVN5QmM0SmgyRG1ZRFZaWDQzVlVEVnBQVVJ4ZXVqSDE3TGpN"
+
+    private fun getOrInitMaxBirdFirebaseApp(context: Context): com.google.firebase.FirebaseApp? {
+        return try {
             val appContext = context.applicationContext
             val existingApps = com.google.firebase.FirebaseApp.getApps(appContext)
             if (existingApps.isEmpty()) {
                 com.google.firebase.FirebaseApp.initializeApp(appContext)
             }
-        } catch (_: Throwable) {}
+            val existingMaxBird = existingApps.firstOrNull { it.name == MAXBIRD_FIREBASE_APP_NAME }
+            if (existingMaxBird != null) {
+                return existingMaxBird
+            }
+            val apiKey = String(android.util.Base64.decode(MAXBIRD_API_KEY_B64, android.util.Base64.DEFAULT)).trim()
+            val options = com.google.firebase.FirebaseOptions.Builder()
+                .setProjectId(MAXBIRD_PROJECT_ID)
+                .setApplicationId(MAXBIRD_APP_ID)
+                .setGcmSenderId(MAXBIRD_SENDER_ID)
+                .setApiKey(apiKey)
+                .setStorageBucket("maxbird-notification.firebasestorage.app")
+                .build()
+            com.google.firebase.FirebaseApp.initializeApp(appContext, options, MAXBIRD_FIREBASE_APP_NAME)
+        } catch (e: Throwable) {
+            try {
+                com.google.firebase.FirebaseApp.getInstance(MAXBIRD_FIREBASE_APP_NAME)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    private fun getFirebaseMessagingForApp(firebaseApp: com.google.firebase.FirebaseApp?): FirebaseMessaging? {
+        if (firebaseApp == null) return null
+        return try {
+            firebaseApp.get(FirebaseMessaging::class.java)
+        } catch (_: Throwable) {
+            try {
+                val method = FirebaseMessaging::class.java.getDeclaredMethod(
+                    "getInstance",
+                    com.google.firebase.FirebaseApp::class.java
+                )
+                method.isAccessible = true
+                method.invoke(null, firebaseApp) as? FirebaseMessaging
+            } catch (_: Throwable) {
+                null
+            }
+        }
     }
 
     private fun acquireFcmAndSync(context: Context, studentNameOverride: String? = null) {
         try {
-            ensureFirebaseInitialized(context)
-            val fcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null }
-            if (fcm != null) {
-                try {
-                    fcm.isAutoInitEnabled = true
-                } catch (_: Throwable) {}
-                fcm.token.addOnCompleteListener { task ->
-                    val token = if (task.isSuccessful) task.result else null
-                    val resolvedToken = if (!token.isNullOrBlank()) {
-                        SessionManager(context).setFcmToken(token)
-                        token
-                    } else {
-                        SessionManager(context).getFcmToken().orEmpty()
+            val maxBirdApp = getOrInitMaxBirdFirebaseApp(context)
+            val maxBirdFcm = getFirebaseMessagingForApp(maxBirdApp)
+            val defaultFcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null }
+
+            // Also ensure default (shikho-tech) FCM token is initialized for Shikho topic subscriptions
+            try {
+                defaultFcm?.isAutoInitEnabled = true
+                defaultFcm?.token?.addOnCompleteListener { defaultTask ->
+                    if (defaultTask.isSuccessful && !defaultTask.result.isNullOrBlank()) {
+                        SessionManager(context).setFcmToken(defaultTask.result)
                     }
-                    scope.launch {
-                        syncStudentDeviceWithOneSignal(
-                            context = context,
-                            fcmToken = resolvedToken,
-                            studentNameOverride = studentNameOverride
-                        )
+                }
+            } catch (_: Throwable) {}
+
+            val targetFcm = maxBirdFcm ?: defaultFcm
+            if (targetFcm != null) {
+                try {
+                    targetFcm.isAutoInitEnabled = true
+                } catch (_: Throwable) {}
+                targetFcm.token.addOnCompleteListener { task ->
+                    val token = if (task.isSuccessful) task.result else null
+                    if (!token.isNullOrBlank()) {
+                        getPrefs(context).edit().putString(KEY_LAST_SYNCED_FCM, token).apply()
+                        scope.launch {
+                            syncStudentDeviceWithOneSignal(
+                                context = context,
+                                fcmToken = token,
+                                studentNameOverride = studentNameOverride
+                            )
+                        }
+                    } else {
+                        // Fallback to default FCM token if secondary token task didn't return
+                        defaultFcm?.token?.addOnCompleteListener { defTask ->
+                            val fallbackToken = if (defTask.isSuccessful && !defTask.result.isNullOrBlank()) {
+                                defTask.result
+                            } else {
+                                getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
+                                    ?: SessionManager(context).getFcmToken().orEmpty()
+                            }
+                            scope.launch {
+                                syncStudentDeviceWithOneSignal(
+                                    context = context,
+                                    fcmToken = fallbackToken,
+                                    studentNameOverride = studentNameOverride
+                                )
+                            }
+                        } ?: scope.launch {
+                            syncStudentDeviceWithOneSignal(
+                                context = context,
+                                fcmToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
+                                    ?: SessionManager(context).getFcmToken().orEmpty(),
+                                studentNameOverride = studentNameOverride
+                            )
+                        }
                     }
                 }
             } else {
                 scope.launch {
                     syncStudentDeviceWithOneSignal(
                         context = context,
-                        fcmToken = SessionManager(context).getFcmToken().orEmpty(),
+                        fcmToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
+                            ?: SessionManager(context).getFcmToken().orEmpty(),
                         studentNameOverride = studentNameOverride
                     )
                 }
@@ -189,7 +267,8 @@ object OneSignalPushManager {
             scope.launch {
                 syncStudentDeviceWithOneSignal(
                     context = context,
-                    fcmToken = SessionManager(context).getFcmToken().orEmpty(),
+                    fcmToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
+                        ?: SessionManager(context).getFcmToken().orEmpty(),
                     studentNameOverride = studentNameOverride
                 )
             }

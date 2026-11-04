@@ -22,8 +22,9 @@ class ClassAlarmReceiver : BroadcastReceiver() {
             action == "android.intent.action.QUICKBOOT_POWERON" ||
             action == "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {
-            Log.d("ClassAlarmReceiver", "🔄 Device rebooted: rescheduling all active custom study alarms")
+            Log.d("ClassAlarmReceiver", "🔄 Device rebooted: rescheduling all active custom & routine class alarms")
             CustomAlarmScheduler.rescheduleAllActive(context)
+            ClassAlarmScheduler.rescheduleSavedRoutineAlarms(context)
             return
         }
 

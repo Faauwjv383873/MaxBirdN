@@ -297,9 +297,12 @@ class SessionManager(context: Context) {
         classCode: String? = null,
         phaseId: String? = null
     ) {
+        val oldProgramId = sharedPreferences.getString("active_program_id", null)
         val editor = sharedPreferences.edit()
             .putString("active_program_id", programId)
-            .putString("active_program_title_bn", titleBn)
+        if (!titleBn.isNullOrBlank()) {
+            editor.putString("active_program_title_bn", titleBn)
+        }
         if (!batchId.isNullOrBlank()) {
             editor.putString("active_program_batch_id", batchId)
         }
@@ -308,6 +311,19 @@ class SessionManager(context: Context) {
         }
         if (!phaseId.isNullOrBlank()) {
             editor.putString("active_program_phase_id", phaseId)
+        } else if (oldProgramId != null && oldProgramId != programId) {
+            // কোর্স পরিবর্তন হলে পুরাতন কোর্সের phase_id মুছে ফেলা হবে যাতে নতুন কোর্সের সাথে না মেশে
+            editor.remove("active_program_phase_id")
+        }
+        editor.apply()
+    }
+
+    fun saveActiveProgramPhaseId(phaseId: String?) {
+        val editor = sharedPreferences.edit()
+        if (!phaseId.isNullOrBlank()) {
+            editor.putString("active_program_phase_id", phaseId)
+        } else {
+            editor.remove("active_program_phase_id")
         }
         editor.apply()
     }
@@ -336,6 +352,14 @@ class SessionManager(context: Context) {
     fun getSubscribedFcmPhaseId(): String? = sharedPreferences.getString("subscribed_fcm_phase_id", null)
     fun setSubscribedFcmPhaseId(phaseId: String?) {
         sharedPreferences.edit().putString("subscribed_fcm_phase_id", phaseId).apply()
+    }
+
+    fun getSubscribedCourseTopics(): Set<String> {
+        return sharedPreferences.getStringSet("subscribed_fcm_course_topics", emptySet()) ?: emptySet()
+    }
+
+    fun setSubscribedCourseTopics(topics: Set<String>) {
+        sharedPreferences.edit().putStringSet("subscribed_fcm_course_topics", HashSet(topics)).apply()
     }
 
     fun saveUserAcademicInfo(

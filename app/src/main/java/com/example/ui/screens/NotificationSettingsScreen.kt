@@ -98,8 +98,16 @@ fun NotificationSettingsScreen(
     var showAddAlarmDialog by remember { mutableStateOf(false) }
 
     // Compute upcoming scheduled alarms from routine lessons
+    val effectiveLessons = remember(homeUiState.weeklyRoutine) {
+        if (homeUiState.weeklyRoutine.isNotEmpty()) {
+            homeUiState.weeklyRoutine
+        } else {
+            com.example.course.LessonCacheManager.getAllLessons()
+        }
+    }
+
     val upcomingRoutineAlarms = remember(
-        homeUiState.weeklyRoutine,
+        effectiveLessons,
         leadTimeMinutes,
         disabledIds,
         allEnabled,
@@ -108,13 +116,29 @@ fun NotificationSettingsScreen(
     ) {
         ClassAlarmScheduler.extractScheduledAlarms(
             context = context,
-            lessons = homeUiState.weeklyRoutine
+            lessons = effectiveLessons
         )
     }
 
     // Reschedule whenever preferences change
     fun syncAllAlarms() {
-        ClassAlarmScheduler.scheduleUpcomingClassAlarms(context, homeUiState.weeklyRoutine)
+        ClassAlarmScheduler.scheduleUpcomingClassAlarms(context, effectiveLessons)
+    }
+
+    // Automatically sync FCM topics, OneSignal player, and schedule all upcoming routine class alarms
+    // in the background (previously triggered by the Terminal component before it was removed from UI)
+    LaunchedEffect(Unit) {
+        if (homeUiState.weeklyRoutine.isEmpty() && !homeUiState.isLoading) {
+            homeViewModel.loadData()
+        }
+        com.example.notification.ShikhoNotificationManager.syncAllTopicSubscriptions(context.applicationContext)
+        com.example.notification.OneSignalPushManager.triggerSyncAsync(context.applicationContext)
+    }
+
+    LaunchedEffect(effectiveLessons, leadTimeMinutes, allEnabled, liveClassEnabled, examEnabled) {
+        if (effectiveLessons.isNotEmpty()) {
+            ClassAlarmScheduler.scheduleUpcomingClassAlarms(context, effectiveLessons)
+        }
     }
 
     val pageBg = if (isDark) Color(0xFF070D19) else Color(0xFFF8FAFC)

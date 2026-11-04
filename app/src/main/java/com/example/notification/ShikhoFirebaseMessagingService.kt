@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.auth.SessionManager
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +24,18 @@ import java.net.URL
 import kotlin.random.Random
 
 /**
- * Service to handle incoming Firebase Cloud Messaging (FCM) notifications and token refreshes.
+ * Service to handle incoming Firebase Cloud Messaging (FCM) notifications and token refreshes
+ * from BOTH notification backends:
+ * 1. Shikho Official Server (`projects/shikho-tech`):
+ *    - Live Class Alerts (`LIVE_ShikhoNotification_...`)
+ *    - Model Test / Live Exam / Quiz / Result Alerts
+ *    - Daily Routine & Study Guideline Alerts
+ *    - Orientation Live & Global Broadcast Campaigns (`SHIKHO_ALL` & `{userId}`)
+ * 2. MaxBird Database (`projects/maxbird-notification` + OneSignal + Supabase):
+ *    - Device Approval / Block / Unblock
+ *    - Course Access Approval & Pricing Ready
+ *    - Payment / Installment Verification & Due Reminders
+ *    - Free Trial Activation
  */
 class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -33,6 +45,8 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
         const val EXTRA_NOTIFICATION_DEEPLINK = "extra_notification_deeplink"
         const val EXTRA_NOTIFICATION_TYPE = "extra_notification_type"
         const val EXTRA_CONTENT_ID = "extra_content_id"
+
+        private val PROGRAM_TOPIC_REGEX = Regex("Program_([A-Za-z0-9]+)")
     }
 
     override fun onNewToken(token: String) {
@@ -41,19 +55,41 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
         val sessionManager = SessionManager(applicationContext)
         sessionManager.setFcmToken(token)
 
-        // Sync all subscriptions with the new token (FCM topics + OneSignal Player + Supabase)
+        // Sync all subscriptions with the new token (Shikho FCM topics + OneSignal Player + Supabase)
         ShikhoNotificationManager.syncAllTopicSubscriptions(applicationContext)
         OneSignalPushManager.triggerSyncAsync(applicationContext)
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
-        Log.d(TAG, "FCM Message received from: ${remoteMessage.from}")
-        ShikhoNotificationManager.logTerminal("PUSH", "📩 Push Notification Received from: ${remoteMessage.from}")
+        val fromTopicOrSender = remoteMessage.from ?: ""
+        Log.d(TAG, "FCM Message received from: $fromTopicOrSender")
+        ShikhoNotificationManager.logTerminal("PUSH", "📩 Push Notification Received from: $fromTopicOrSender")
 
+        val sessionManager = SessionManager(applicationContext)
         val data = remoteMessage.data
         val notification = remoteMessage.notification
 
-        // Parse OneSignal's custom JSON payload (`{"i": "notif_id", "a": {...}}`) if present
+        // 1. If this notification came from a course-specific Shikho topic (`LIVE_ShikhoNotification_...`),
+        // verify it matches the student's currently selected course on the Home Screen.
+        // If it belongs to an old course the student switched away from, auto-unsubscribe and ignore it.
+        if (fromTopicOrSender.startsWith("/topics/LIVE_ShikhoNotification_")) {
+            val rawTopicName = fromTopicOrSender.removePrefix("/topics/")
+            val topicProgramId = PROGRAM_TOPIC_REGEX.find(rawTopicName)?.groupValues?.getOrNull(1)
+            val activeProgramId = sessionManager.getActiveProgramId()?.trim()
+
+            if (!topicProgramId.isNullOrBlank() &&
+                !activeProgramId.isNullOrBlank() &&
+                !topicProgramId.equals(activeProgramId, ignoreCase = true)
+            ) {
+                Log.d(TAG, "Ignoring notification from old switched-away course topic: $rawTopicName (active=$activeProgramId)")
+                try {
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(rawTopicName)
+                } catch (_: Throwable) {}
+                return
+            }
+        }
+
+        // 2. Parse OneSignal's custom JSON payload (`{"i": "notif_id", "a": {...}}`) if present
         val oneSignalAdditionalData = try {
             val customRaw = data["custom"]
             if (!customRaw.isNullOrBlank() && customRaw.trim().startsWith("{")) {
@@ -68,14 +104,15 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
                 ?: data["event_type"]
                 ?: data["type"]
                 ?: data["content_type"]
+                ?: data["category"]
                 ?: oneSignalAdditionalData?.optString("notification_type", "")?.takeIf { it.isNotBlank() }
                 ?: oneSignalAdditionalData?.optString("event_type", "")?.takeIf { it.isNotBlank() }
                 ?: oneSignalAdditionalData?.optString("type", "")?.takeIf { it.isNotBlank() }
-                ?: ""
+                ?: if (fromTopicOrSender.contains("LIVE_ShikhoNotification", ignoreCase = true)) "LIVE_CLASS" else ""
         ).trim()
 
-        // Critical Admin -> Student notifications (Device Approved/Blocked/Unblocked, Course Approved, Payment Verified)
-        // must ALWAYS be shown even if general marketing notifications are toggled off.
+        // 3. Classify the 5 Notification Types:
+        // Type A: Critical Admin / Database Updates (Supabase + OneSignal)
         val isCriticalAdminUpdate = eventType.contains("DEVICE", ignoreCase = true) ||
             eventType.contains("COURSE", ignoreCase = true) ||
             eventType.contains("PAYMENT", ignoreCase = true) ||
@@ -88,58 +125,104 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
             data.containsKey("alert") ||
             data.containsKey("custom")
 
-        val sessionManager = SessionManager(applicationContext)
-        if (!isCriticalAdminUpdate && !sessionManager.isAllNotificationsEnabled()) {
-            Log.d(TAG, "Push notifications are disabled in user settings. Skipping display.")
-            return
+        // Type B: Live Class Notifications (Shikho Server)
+        val isLiveClassNotification = !isCriticalAdminUpdate && (
+            eventType.contains("live", ignoreCase = true) ||
+                eventType.contains("class", ignoreCase = true) ||
+                fromTopicOrSender.contains("LIVE_ShikhoNotification", ignoreCase = true)
+            )
+
+        // Type C: Model Test / Exam / Quiz Notifications (Shikho Server)
+        val isExamNotification = !isCriticalAdminUpdate && (
+            eventType.contains("exam", ignoreCase = true) ||
+                eventType.contains("model_test", ignoreCase = true) ||
+                eventType.contains("quiz", ignoreCase = true) ||
+                eventType.contains("test", ignoreCase = true) ||
+                eventType.contains("result", ignoreCase = true)
+            )
+
+        // Respect user notification toggles for non-admin notifications
+        if (!isCriticalAdminUpdate) {
+            if (!sessionManager.isAllNotificationsEnabled()) {
+                Log.d(TAG, "Master notifications disabled. Skipping non-admin push.")
+                return
+            }
+            if (isLiveClassNotification && !sessionManager.isLiveClassNotificationEnabled()) {
+                Log.d(TAG, "Live class notifications disabled. Skipping.")
+                return
+            }
+            if (isExamNotification && !sessionManager.isExamNotificationEnabled()) {
+                Log.d(TAG, "Exam notifications disabled. Skipping.")
+                return
+            }
         }
 
-        val title = notification?.title
-            ?: data["title"]
-            ?: data["heading"]
-            ?: oneSignalAdditionalData?.optString("title", "")?.takeIf { it.isNotBlank() }
-            ?: "শিখো নোটিফিকেশন"
+        val title = (
+            notification?.title
+                ?: data["title"]
+                ?: data["heading"]
+                ?: data["notification_title"]
+                ?: oneSignalAdditionalData?.optString("title", "")?.takeIf { it.isNotBlank() }
+                ?: "শিখো নোটিফিকেশন"
+            ).trim()
 
-        // Note: OneSignal sends the notification body in `data["alert"]`!
-        val body = notification?.body
-            ?: data["alert"]
-            ?: data["body"]
-            ?: data["message"]
-            ?: data["description"]
-            ?: oneSignalAdditionalData?.optString("body", "")?.takeIf { it.isNotBlank() }
-            ?: oneSignalAdditionalData?.optString("message", "")?.takeIf { it.isNotBlank() }
-            ?: ""
+        val body = (
+            notification?.body
+                ?: data["alert"]
+                ?: data["body"]
+                ?: data["message"]
+                ?: data["description"]
+                ?: data["subtitle"]
+                ?: data["text"]
+                ?: oneSignalAdditionalData?.optString("body", "")?.takeIf { it.isNotBlank() }
+                ?: oneSignalAdditionalData?.optString("message", "")?.takeIf { it.isNotBlank() }
+                ?: ""
+            ).trim()
 
-        val imageUrl = notification?.imageUrl?.toString()
-            ?: data["bicon"]
-            ?: data["big_picture"]
-            ?: data["image"]
-            ?: data["image_url"]
-            ?: data["banner"]
-            ?: oneSignalAdditionalData?.optString("image_url", "")?.takeIf { it.isNotBlank() }
+        val imageUrl = (
+            notification?.imageUrl?.toString()
+                ?: data["bicon"]
+                ?: data["big_picture"]
+                ?: data["image"]
+                ?: data["image_url"]
+                ?: data["banner"]
+                ?: data["banner_url"]
+                ?: data["picture"]
+                ?: data["media_url"]
+                ?: oneSignalAdditionalData?.optString("image_url", "")?.takeIf { it.isNotBlank() }
+            )?.trim()
 
-        val deeplink = data["deeplink"]
-            ?: data["url"]
-            ?: data["link"]
-            ?: data["click_action"]
-            ?: oneSignalAdditionalData?.optString("deeplink", "")?.takeIf { it.isNotBlank() }
-            ?: ""
+        val deeplink = (
+            data["deeplink"]
+                ?: data["deep_link"]
+                ?: data["url"]
+                ?: data["link"]
+                ?: data["click_action"]
+                ?: data["action_url"]
+                ?: oneSignalAdditionalData?.optString("deeplink", "")?.takeIf { it.isNotBlank() }
+                ?: ""
+            ).trim()
 
-        val contentId = data["content_id"]
-            ?: data["program_id"]
-            ?: data["id"]
-            ?: data["lesson_id"]
-            ?: oneSignalAdditionalData?.optString("program_id", "")
-            ?: ""
+        val contentId = (
+            data["content_id"]
+                ?: data["lesson_id"]
+                ?: data["live_class_id"]
+                ?: data["model_test_id"]
+                ?: data["program_id"]
+                ?: data["id"]
+                ?: oneSignalAdditionalData?.optString("program_id", "")
+                ?: ""
+            ).trim()
 
         // Process and display notification + refresh device/course status in background scope
         CoroutineScope(Dispatchers.IO).launch {
-            // Automatically sync device approval and course commerce state when Admin sends a status update push!
-            runCatching {
-                com.example.security.DeviceActivationRepository.checkStudentVerificationStatus(applicationContext)
-            }
-            runCatching {
-                com.example.course.CourseCommerceRepository.fetchCourseCommerceStatus(applicationContext)
+            if (isCriticalAdminUpdate) {
+                runCatching {
+                    com.example.security.DeviceActivationRepository.checkStudentVerificationStatus(applicationContext)
+                }
+                runCatching {
+                    com.example.course.CourseCommerceRepository.fetchCourseCommerceStatus(applicationContext)
+                }
             }
 
             val bitmap = if (!imageUrl.isNullOrBlank()) {
@@ -147,39 +230,45 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
             } else null
 
             displayNotification(
+                sessionManager = sessionManager,
                 title = title,
                 body = body,
-                imageUrl = imageUrl,
                 largeBitmap = bitmap,
                 deeplink = deeplink,
                 type = eventType,
-                contentId = contentId
+                contentId = contentId,
+                useLiveChannel = isLiveClassNotification || isExamNotification
             )
         }
     }
 
     private fun displayNotification(
+        sessionManager: SessionManager,
         title: String,
         body: String,
-        imageUrl: String?,
         largeBitmap: Bitmap?,
         deeplink: String,
         type: String,
-        contentId: String
+        contentId: String,
+        useLiveChannel: Boolean
     ) {
-        val channelId = if (type.contains("live", ignoreCase = true) || deeplink.contains("live", ignoreCase = true)) {
+        ShikhoNotificationManager.createNotificationChannels(applicationContext)
+
+        val channelId = if (useLiveChannel || type.contains("live", ignoreCase = true) || deeplink.contains("live", ignoreCase = true)) {
             ShikhoNotificationManager.CHANNEL_LIVE_CLASSES
         } else {
             ShikhoNotificationManager.CHANNEL_PUSH_NOTIFICATIONS
         }
 
-        // Create PendingIntent pointing to MainActivity
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_NOTIFICATION_URL, deeplink)
             putExtra(EXTRA_NOTIFICATION_DEEPLINK, deeplink)
             putExtra(EXTRA_NOTIFICATION_TYPE, type)
             putExtra(EXTRA_CONTENT_ID, contentId)
+            if (contentId.isNotBlank() && (useLiveChannel || type.contains("live", ignoreCase = true))) {
+                putExtra("lesson_id", contentId)
+            }
             if (deeplink.isNotBlank()) {
                 data = Uri.parse(deeplink)
             }
@@ -193,7 +282,9 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val soundUri = if (sessionManager.isNotificationSoundEnabled()) {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        } else null
 
         val appLogoBitmap = try {
             BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
@@ -206,16 +297,21 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setSound(defaultSound)
-            .setVibrate(longArrayOf(0, 300, 200, 300))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(if (useLiveChannel) NotificationCompat.CATEGORY_EVENT else NotificationCompat.CATEGORY_MESSAGE)
             .setContentIntent(pendingIntent)
+
+        if (soundUri != null) {
+            builder.setSound(soundUri)
+        }
+        if (sessionManager.isNotificationVibrateEnabled()) {
+            builder.setVibrate(longArrayOf(0, 350, 200, 350))
+        }
 
         if (appLogoBitmap != null) {
             builder.setLargeIcon(appLogoBitmap)
         }
 
-        // If a banner image was downloaded, use BigPictureStyle; otherwise, use BigTextStyle
         if (largeBitmap != null) {
             builder.setStyle(
                 NotificationCompat.BigPictureStyle()
@@ -234,7 +330,7 @@ class ShikhoFirebaseMessagingService : FirebaseMessagingService() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notificationId = Random.nextInt(1000, 999999)
         notificationManager.notify(notificationId, builder.build())
-        Log.d(TAG, "Displayed notification (id: $notificationId): $title")
+        Log.d(TAG, "Displayed notification (id: $notificationId, type: $type): $title")
     }
 
     private fun downloadBitmap(urlString: String): Bitmap? {

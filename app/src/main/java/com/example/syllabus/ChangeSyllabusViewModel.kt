@@ -413,6 +413,8 @@ class ChangeSyllabusViewModel(
                     phone = sessionManager.getUserPhone()
                 )
 
+                com.example.notification.ClassAlarmScheduler.cancelAllAlarms(context)
+                com.example.notification.ShikhoNotificationManager.unsubscribeActiveCourseTopics(context)
                 sessionManager.clearActiveProgram()
 
                 _uiState.value = _uiState.value.copy(

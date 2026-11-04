@@ -32,6 +32,9 @@ data class AcademicLiveClassInfo(
     val classType: String? = null,
     val startTime: String? = null,
     val endTime: String? = null,
+    val teacherId: String? = null,
+    val teacherName: String? = null,
+    val teacherAvatar: String? = null,
     val slideUrls: List<String> = emptyList(),
     val studyMaterials: List<LiveStudyMaterial> = emptyList(),
     val topicNames: List<String> = emptyList(),
@@ -236,11 +239,17 @@ class LiveClassService(
     }
 
     /**
-     * Fetches the 100ms room token for the live class session.
+     * Fetches the 100ms room tokens for the live class session.
+     * When `includeTeacherListener` is true (for `can_view_profiles` users), also requests a
+     * teacher-oriented token (with optional `teacherUserId` & `teacherName`) so the secondary
+     * teacher listener / teacher identity connection is active.
      */
     suspend fun getHmsRoomTokens(
         roomId: String,
-        userToken: String
+        userToken: String,
+        includeTeacherListener: Boolean = false,
+        teacherUserId: String? = null,
+        teacherName: String? = null
     ): Result<HmsRoomTokens> = withContext(Dispatchers.IO) {
         val cleanRoomId = roomId.trim()
         val standardBody = JSONObject().apply {
@@ -255,11 +264,46 @@ class LiveClassService(
             requestHmsTokenInternal(webBody, userToken).getOrNull()
         }
 
+        var resolvedTeacherToken: String? = null
+        if (includeTeacherListener && !token.isNullOrBlank()) {
+            val candidatePayloads = mutableListOf<JSONObject>()
+            if (!teacherUserId.isNullOrBlank()) {
+                candidatePayloads.add(
+                    JSONObject().apply {
+                        put("room_id", cleanRoomId)
+                        put("user_id", teacherUserId.trim())
+                        put("role", "teacher")
+                        if (!teacherName.isNullOrBlank()) put("user_name", teacherName.trim())
+                        put("type", "web")
+                    }
+                )
+            }
+            candidatePayloads.add(
+                JSONObject().apply {
+                    put("room_id", cleanRoomId)
+                    put("role", "teacher")
+                    put("type", "web")
+                }
+            )
+            for (payload in candidatePayloads) {
+                val candToken = requestHmsTokenInternal(payload, userToken).getOrNull()
+                if (!candToken.isNullOrBlank()) {
+                    resolvedTeacherToken = candToken
+                    if (extractJwtRole(candToken).equals("teacher", ignoreCase = true)) {
+                        break
+                    }
+                }
+            }
+            if (resolvedTeacherToken.isNullOrBlank()) {
+                resolvedTeacherToken = token
+            }
+        }
+
         if (!token.isNullOrBlank()) {
             Result.success(
                 HmsRoomTokens(
                     primaryToken = token,
-                    teacherToken = null
+                    teacherToken = resolvedTeacherToken
                 )
             )
         } else {
@@ -271,8 +315,48 @@ class LiveClassService(
     }
 
     /**
+     * Updates the user's display name on Shikho's GraphQL profile (`updateProfile`) so that
+     * subsequent `/hms/token` requests and 100ms peer info reflect the updated name.
+     * Only invoked for users with `can_view_profiles == true`.
+     */
+    suspend fun updateShikhoProfileName(
+        newName: String,
+        userToken: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cleanName = newName.trim()
+        if (cleanName.isBlank() || userToken.isBlank()) return@withContext false
+        try {
+            val jsonBody = JSONObject().apply {
+                put(
+                    "query",
+                    "mutation UpdateProfile(\$first_name: String, \$type: PrimaryUserTypeEnum!) { updateProfile(first_name: \$first_name, type: \$type) { first_name } }"
+                )
+                put("operationName", "UpdateProfile")
+                put("variables", JSONObject().apply {
+                    put("first_name", cleanName)
+                    put("type", "student")
+                })
+            }
+            val request = Request.Builder()
+                .url(GRAPHQL_URL)
+                .post(jsonBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Authorization", "Bearer $userToken")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Build-Version", BUILD_VERSION)
+                .addHeader("X-User-Timezone", TIMEZONE)
+                .build()
+            client.newCall(request).execute().use { resp ->
+                resp.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Profile name sync skipped: ${e.message}")
+            false
+        }
+    }
+
+    /**
      * Query academic program live class details using Shikho's valid GraphQL schema.
-     * Extracts playback_url (direct HLS stream or recording), on_going status, lecture slides, and metadata.
+     * Extracts playback_url (direct HLS stream or recording), on_going status, teacher info, lecture slides, and metadata.
      */
     suspend fun getAcademicLiveClassInfo(
         classId: String,
@@ -280,131 +364,174 @@ class LiveClassService(
         userToken: String
     ): Result<AcademicLiveClassInfo> = withContext(Dispatchers.IO) {
         val candidateIds = listOf(classId.trim(), lessonId.trim()).distinct().filter { it.isNotBlank() }
+        val queriesToTry = listOf(
+            """
+                query GetAcademicLiveClassDetails(${'$'}id: String!) {
+                  academicProgramLiveClass(id: ${'$'}id) {
+                    id
+                    title
+                    playback_url
+                    on_going
+                    class_type
+                    start_time
+                    end_time
+                    teacher {
+                      id
+                      name
+                      marketing_avatar
+                    }
+                    study_materials {
+                      file_url
+                      id
+                      name
+                    }
+                    topics {
+                      id
+                      name
+                    }
+                  }
+                }
+            """.trimIndent(),
+            """
+                query GetAcademicLiveClassDetails(${'$'}id: String!) {
+                  academicProgramLiveClass(id: ${'$'}id) {
+                    id
+                    title
+                    playback_url
+                    on_going
+                    class_type
+                    start_time
+                    end_time
+                    study_materials {
+                      file_url
+                      id
+                      name
+                    }
+                    topics {
+                      id
+                      name
+                    }
+                  }
+                }
+            """.trimIndent()
+        )
+
         for (id in candidateIds) {
-            try {
-                val queryStr = """
-                    query GetAcademicLiveClassDetails(${'$'}id: String!) {
-                      academicProgramLiveClass(id: ${'$'}id) {
-                        id
-                        title
-                        playback_url
-                        on_going
-                        class_type
-                        start_time
-                        end_time
-                        study_materials {
-                          file_url
-                          id
-                          name
-                        }
-                        topics {
-                          id
-                          name
-                        }
-                      }
+            for (queryStr in queriesToTry) {
+                try {
+                    val jsonBody = JSONObject().apply {
+                        put("query", queryStr)
+                        put("variables", JSONObject().apply {
+                            put("id", id)
+                        })
                     }
-                """.trimIndent()
 
-                val jsonBody = JSONObject().apply {
-                    put("query", queryStr)
-                    put("variables", JSONObject().apply {
-                        put("id", id)
-                    })
-                }
+                    val request = Request.Builder()
+                        .url(GRAPHQL_URL)
+                        .post(jsonBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                        .addHeader("Authorization", "Bearer $userToken")
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("Build-Version", BUILD_VERSION)
+                        .addHeader("X-User-Timezone", TIMEZONE)
+                        .build()
 
-                val request = Request.Builder()
-                    .url(GRAPHQL_URL)
-                    .post(jsonBody.toString().toRequestBody(JSON_MEDIA_TYPE))
-                    .addHeader("Authorization", "Bearer $userToken")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Build-Version", BUILD_VERSION)
-                    .addHeader("X-User-Timezone", TIMEZONE)
-                    .build()
+                    client.newCall(request).execute().use { resp ->
+                        if (!resp.isSuccessful) return@use
+                        val body = resp.body?.string().orEmpty()
+                        if (body.isBlank()) return@use
+                        val json = JSONObject(body)
+                        val liveClass = json.optJSONObject("data")?.optJSONObject("academicProgramLiveClass")
+                        if (liveClass != null) {
+                            val foundId = liveClass.optString("id", id)
+                            val title = liveClass.optString("title")
+                                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val pbUrl = liveClass.optString("playback_url")
+                                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val onGoing = liveClass.optBoolean("on_going", false)
+                            val classType = liveClass.optString("class_type")
+                                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val startTime = liveClass.optString("start_time")
+                                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val endTime = liveClass.optString("end_time")
+                                .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val body = resp.body?.string().orEmpty()
-                    if (body.isBlank()) return@use
-                    val json = JSONObject(body)
-                    val liveClass = json.optJSONObject("data")?.optJSONObject("academicProgramLiveClass")
-                    if (liveClass != null) {
-                        val foundId = liveClass.optString("id", id)
-                        val title = liveClass.optString("title")
-                            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                        val pbUrl = liveClass.optString("playback_url")
-                            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                        val onGoing = liveClass.optBoolean("on_going", false)
-                        val classType = liveClass.optString("class_type")
-                            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                        val startTime = liveClass.optString("start_time")
-                            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                        val endTime = liveClass.optString("end_time")
-                            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val teacherObj = liveClass.optJSONObject("teacher")
+                                ?: liveClass.optJSONObject("instructor")
+                            val teacherId = teacherObj?.optString("id")
+                                ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val teacherName = teacherObj?.optString("name")
+                                ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                            val teacherAvatar = teacherObj?.optString("marketing_avatar")
+                                ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 
-                        val slides = mutableListOf<String>()
-                        val studyMaterials = mutableListOf<LiveStudyMaterial>()
-                        val materials = liveClass.optJSONArray("study_materials")
-                        if (materials != null) {
-                            for (i in 0 until materials.length()) {
-                                val mat = materials.optJSONObject(i) ?: continue
-                                val fUrl = mat.optString("file_url").trim()
-                                if (fUrl.isNotBlank() && !fUrl.equals("null", ignoreCase = true)) {
-                                    slides.add(fUrl)
-                                    val matId = mat.optString("id").ifBlank { "slide_${i + 1}" }
-                                    val matName = mat.optString("name")
-                                        .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-                                        ?: "লেকচার নোট ${i + 1}"
-                                    studyMaterials.add(
-                                        LiveStudyMaterial(
-                                            id = matId,
-                                            name = matName,
-                                            fileUrl = fUrl
+                            val slides = mutableListOf<String>()
+                            val studyMaterials = mutableListOf<LiveStudyMaterial>()
+                            val materials = liveClass.optJSONArray("study_materials")
+                            if (materials != null) {
+                                for (i in 0 until materials.length()) {
+                                    val mat = materials.optJSONObject(i) ?: continue
+                                    val fUrl = mat.optString("file_url").trim()
+                                    if (fUrl.isNotBlank() && !fUrl.equals("null", ignoreCase = true)) {
+                                        slides.add(fUrl)
+                                        val matId = mat.optString("id").ifBlank { "slide_${i + 1}" }
+                                        val matName = mat.optString("name")
+                                            .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                                            ?: "লেকচার নোট ${i + 1}"
+                                        studyMaterials.add(
+                                            LiveStudyMaterial(
+                                                id = matId,
+                                                name = matName,
+                                                fileUrl = fUrl
+                                            )
                                         )
-                                    )
+                                    }
                                 }
                             }
-                        }
 
-                        val topicNames = mutableListOf<String>()
-                        val topicsArr = liveClass.optJSONArray("topics")
-                        if (topicsArr != null) {
-                            for (i in 0 until topicsArr.length()) {
-                                val topicObj = topicsArr.optJSONObject(i) ?: continue
-                                val tName = topicObj.optString("name").trim()
-                                if (tName.isNotBlank() && !tName.equals("null", ignoreCase = true)) {
-                                    topicNames.add(tName)
+                            val topicNames = mutableListOf<String>()
+                            val topicsArr = liveClass.optJSONArray("topics")
+                            if (topicsArr != null) {
+                                for (i in 0 until topicsArr.length()) {
+                                    val topicObj = topicsArr.optJSONObject(i) ?: continue
+                                    val tName = topicObj.optString("name").trim()
+                                    if (tName.isNotBlank() && !tName.equals("null", ignoreCase = true)) {
+                                        topicNames.add(tName)
+                                    }
                                 }
                             }
-                        }
 
-                        val candidates = mutableListOf<String>()
-                        if (!pbUrl.isNullOrBlank()) {
-                            candidates.add(pbUrl)
-                        }
+                            val candidates = mutableListOf<String>()
+                            if (!pbUrl.isNullOrBlank()) {
+                                candidates.add(pbUrl)
+                            }
 
-                        Log.d(
-                            TAG,
-                            "Found academic live class info for $id: pbUrl=$pbUrl, onGoing=$onGoing, slidesCount=${slides.size}"
-                        )
-                        return@withContext Result.success(
-                            AcademicLiveClassInfo(
-                                id = foundId,
-                                title = title,
-                                playbackUrl = pbUrl,
-                                isOnGoing = onGoing,
-                                classType = classType,
-                                startTime = startTime,
-                                endTime = endTime,
-                                slideUrls = slides.distinct(),
-                                studyMaterials = studyMaterials,
-                                topicNames = topicNames,
-                                candidateUrls = candidates.distinct()
+                            Log.d(
+                                TAG,
+                                "Found academic live class info for $id: pbUrl=$pbUrl, onGoing=$onGoing, teacher=$teacherName ($teacherId)"
                             )
-                        )
+                            return@withContext Result.success(
+                                AcademicLiveClassInfo(
+                                    id = foundId,
+                                    title = title,
+                                    playbackUrl = pbUrl,
+                                    isOnGoing = onGoing,
+                                    classType = classType,
+                                    startTime = startTime,
+                                    endTime = endTime,
+                                    teacherId = teacherId,
+                                    teacherName = teacherName,
+                                    teacherAvatar = teacherAvatar,
+                                    slideUrls = slides.distinct(),
+                                    studyMaterials = studyMaterials,
+                                    topicNames = topicNames,
+                                    candidateUrls = candidates.distinct()
+                                )
+                            )
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Querying academic live class info for $id failed: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Querying academic live class info for $id failed: ${e.message}")
             }
         }
         Result.failure(Exception("Academic live class details not found"))

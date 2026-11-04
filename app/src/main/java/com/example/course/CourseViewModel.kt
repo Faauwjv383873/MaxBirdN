@@ -1022,6 +1022,7 @@ class CourseViewModel(
                         }
                         if (programId.isNotBlank() && currentPhaseId.isNotBlank() && programId == sessionManager.getActiveProgramId()) {
                             try {
+                                sessionManager.saveActiveProgramPhaseId(currentPhaseId)
                                 com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
                                     com.example.ShikhoApp.instance,
                                     programId,
@@ -1235,6 +1236,7 @@ class CourseViewModel(
         val progId = _uiState.value.programId.ifBlank { sessionManager.getActiveProgramId() ?: "" }
         if (progId.isNotBlank() && progId == sessionManager.getActiveProgramId()) {
             try {
+                sessionManager.saveActiveProgramPhaseId(phase.id)
                 com.example.notification.ShikhoNotificationManager.updateProgramAndPhase(
                     com.example.ShikhoApp.instance,
                     progId,

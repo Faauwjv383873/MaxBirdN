@@ -170,13 +170,34 @@ fun LiveClassPage(
     }
 
     var uiState by remember { mutableStateOf<LiveClassState>(LiveClassState.Loading) }
+    var canViewProfiles by remember {
+        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
+    val defaultProfileName = remember {
+        sessionManager.getUserFullName()?.takeIf { it.isNotBlank() } ?: "শিক্ষার্থী"
+    }
     var studentName by remember {
-        mutableStateOf(sessionManager.getLiveCustomStudentName() ?: sessionManager.getUserFullName() ?: "শিক্ষার্থী")
+        mutableStateOf(
+            if (com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+                sessionManager.getLiveCustomStudentName()?.takeIf { it.isNotBlank() } ?: defaultProfileName
+            } else {
+                defaultProfileName
+            }
+        )
     }
     var showNameChangeDialog by remember { mutableStateOf(false) }
-    var showJoinNameDialog by rememberSaveable(classId, lessonId) {
-        mutableStateOf(sessionManager.getLiveCustomStudentName().isNullOrBlank())
-    }
+    var showJoinNameDialog by remember { mutableStateOf(false) }
+    var isUpdatingNameInLiveClass by remember { mutableStateOf(false) }
+
+    // Pre-Join Lobby & Teacher Identity Join States
+    var hasUserClickedJoin by rememberSaveable(classId, lessonId) { mutableStateOf(false) }
+    var isJoiningClass by remember { mutableStateOf(false) }
+    var cachedRoomId by remember { mutableStateOf<String?>(null) }
+    var cachedPrimaryToken by remember { mutableStateOf<String?>(null) }
+    var cachedTeacherToken by remember { mutableStateOf<String?>(null) }
+    var joinWithTeacherIdMode by rememberSaveable(classId, lessonId) { mutableStateOf(true) }
+    var selectedTeacherForJoin by remember { mutableStateOf<DiscoveredRoomTeacher?>(null) }
+    var showTeacherIdentityDialog by remember { mutableStateOf(false) }
 
     // Live Delay state & Sync Trigger
     var liveDelaySeconds by remember { mutableIntStateOf(0) }
@@ -188,9 +209,6 @@ fun LiveClassPage(
     var videoPan by remember { mutableStateOf(Offset.Zero) }
 
     var selectedRole by remember { mutableStateOf("teacher") } // "teacher", "student", "all"
-    var canViewProfiles by remember {
-        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
-    }
 
     var lectureSlideUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var activeLiveSlideUrl by remember { mutableStateOf<String?>(null) }
@@ -205,6 +223,15 @@ fun LiveClassPage(
     val serverRoomTitle by wsManager.roomTitle.collectAsState()
     val isChatEnabled by wsManager.isChatEnabled.collectAsState()
     val isHandRaised by wsManager.isHandRaised.collectAsState()
+    val activeRoomTeacher by wsManager.activeRoomTeacher.collectAsState()
+    val discoveredTeachers by wsManager.discoveredTeachers.collectAsState()
+    val isJoinedAsTeacherIdentity by wsManager.isJoinedAsTeacherIdentity.collectAsState()
+
+    LaunchedEffect(activeRoomTeacher) {
+        if (selectedTeacherForJoin == null && activeRoomTeacher != null) {
+            selectedTeacherForJoin = activeRoomTeacher
+        }
+    }
 
     val effectiveLessonTitle = serverRoomTitle.ifBlank { lessonTitle }
 
@@ -259,6 +286,10 @@ fun LiveClassPage(
         if (!canViewProfiles) {
             selectedRole = "teacher"
             showViewMessagesDialog = false
+            showNameChangeDialog = false
+            showJoinNameDialog = false
+            showTeacherIdentityDialog = false
+            studentName = defaultProfileName
             chatMessages.removeAll { !it.isMine && !it.isTeacher }
         }
     }
@@ -274,6 +305,10 @@ fun LiveClassPage(
         if (!freshPerm) {
             selectedRole = "teacher"
             showViewMessagesDialog = false
+            showNameChangeDialog = false
+            showJoinNameDialog = false
+            showTeacherIdentityDialog = false
+            studentName = defaultProfileName
             chatMessages.removeAll { !it.isMine && !it.isTeacher }
         }
     }
@@ -328,7 +363,7 @@ fun LiveClassPage(
     // Auto-open active poll question dialog when teacher starts a new live poll
     LaunchedEffect(activePoll?.pollId, activePoll?.state) {
         val poll = activePoll
-        if (poll != null && poll.isLive && poll.userResponse == null && selectedPollIdForQuestion == null) {
+        if (uiState is LiveClassState.Playing && poll != null && poll.isLive && poll.userResponse == null && selectedPollIdForQuestion == null) {
             selectedPollIdForQuestion = poll.pollId
         }
     }
@@ -360,7 +395,15 @@ fun LiveClassPage(
             if (!latestPerm) {
                 selectedRole = "teacher"
                 showViewMessagesDialog = false
+                studentName = defaultProfileName
             }
+
+            // Provide initial teacher hint from GraphQL if available
+            wsManager.setInitialTeacherHint(
+                teacherId = academicInfo?.teacherId,
+                teacherName = academicInfo?.teacherName,
+                teacherAvatar = academicInfo?.teacherAvatar
+            )
 
             val discoveredUrls = mutableListOf<String>()
             academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }?.let { discoveredUrls.add(it) }
@@ -376,45 +419,69 @@ fun LiveClassPage(
             }
 
             wsManager.addCandidateUrls(cleanDiscovered)
+            cachedRoomId = roomId
 
-            // 1. Prioritize 100ms WebSocket Live Room Connection so no fallback/animated video plays before live stream!
             if (!roomId.isNullOrBlank()) {
-                val tokensResult = service.getHmsRoomTokens(roomId, userToken)
+                val tokensResult = service.getHmsRoomTokens(
+                    roomId = roomId,
+                    userToken = userToken,
+                    includeTeacherListener = latestPerm,
+                    teacherUserId = academicInfo?.teacherId,
+                    teacherName = academicInfo?.teacherName
+                )
                 val roomTokens = tokensResult.getOrNull()
                 val hmsToken = roomTokens?.primaryToken
+                cachedPrimaryToken = hmsToken
+                cachedTeacherToken = roomTokens?.teacherToken
+
                 if (!hmsToken.isNullOrBlank()) {
-                    wsManager.connect(
-                        token = hmsToken,
-                        studentName = studentName,
-                        teacherToken = if (latestPerm) roomTokens.teacherToken else null
-                    )
-                    if (academicInfo?.isOnGoing == false && !academicInfo.playbackUrl.isNullOrBlank()) {
-                        wsManager.setMasterUrl(academicInfo.playbackUrl)
-                        uiState = LiveClassState.Playing
+                    if (!hasUserClickedJoin) {
+                        // Probe room in the background while showing Pre-Join Lobby so active teacher ID, peer list & viewer count are ready!
+                        wsManager.probeRoomBeforeJoin(
+                            token = hmsToken,
+                            probeDisplayName = studentName
+                        )
+                        if (academicInfo?.isOnGoing == false && !academicInfo.playbackUrl.isNullOrBlank()) {
+                            wsManager.setMasterUrl(academicInfo.playbackUrl)
+                        }
+                        uiState = LiveClassState.Preview(viewerCount)
+                        return@launch
                     } else {
-                        // Safety fallback if WebSocket does not deliver a stream URL within 5 seconds
-                        coroutineScope.launch {
-                            kotlinx.coroutines.delay(5000L)
-                            if (wsManager.masterUrl.value.isNullOrBlank()) {
-                                val fallback = academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }
-                                    ?: cleanDiscovered.firstOrNull()
-                                if (!fallback.isNullOrBlank()) {
-                                    wsManager.setMasterUrl(fallback)
-                                    uiState = LiveClassState.Playing
+                        val chosenTeacher = selectedTeacherForJoin ?: activeRoomTeacher
+                        wsManager.connect(
+                            token = hmsToken,
+                            studentName = studentName,
+                            teacherToken = if (latestPerm) roomTokens.teacherToken else null,
+                            joinWithTeacherIdentity = latestPerm && joinWithTeacherIdMode,
+                            targetTeacher = chosenTeacher
+                        )
+                        if (academicInfo?.isOnGoing == false && !academicInfo.playbackUrl.isNullOrBlank()) {
+                            wsManager.setMasterUrl(academicInfo.playbackUrl)
+                            uiState = LiveClassState.Playing
+                        } else {
+                            coroutineScope.launch {
+                                kotlinx.coroutines.delay(5000L)
+                                if (wsManager.masterUrl.value.isNullOrBlank()) {
+                                    val fallback = academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }
+                                        ?: cleanDiscovered.firstOrNull()
+                                    if (!fallback.isNullOrBlank()) {
+                                        wsManager.setMasterUrl(fallback)
+                                        uiState = LiveClassState.Playing
+                                    }
                                 }
                             }
                         }
+                        return@launch
                     }
-                    return@launch
                 }
             }
 
-            // 2. If 100ms room/token is not active, use direct live/recorded stream URL if available
+            // Fallback when 100ms room/token is not active (e.g. recorded/fallback stream)
             val fallbackUrl = academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }
                 ?: cleanDiscovered.firstOrNull()
             if (!fallbackUrl.isNullOrBlank()) {
                 wsManager.setMasterUrl(fallbackUrl)
-                uiState = LiveClassState.Playing
+                uiState = if (hasUserClickedJoin) LiveClassState.Playing else LiveClassState.Preview(viewerCount)
                 return@launch
             }
 
@@ -424,11 +491,83 @@ fun LiveClassPage(
         }
     }
 
+    fun joinLiveClassNow(requestedDisplayName: String) {
+        if (isJoiningClass) return
+        isJoiningClass = true
+        coroutineScope.launch {
+            val userToken = sessionManager.getAccessToken()
+            val effectiveName = if (canViewProfiles) {
+                requestedDisplayName.trim().ifBlank { defaultProfileName }
+            } else {
+                defaultProfileName
+            }
+            studentName = effectiveName
+            if (canViewProfiles) {
+                sessionManager.setLiveCustomStudentName(effectiveName)
+            }
+
+            val targetTeacher = if (canViewProfiles) {
+                selectedTeacherForJoin ?: activeRoomTeacher
+            } else null
+
+            var primaryTokenToUse = cachedPrimaryToken
+            var teacherTokenToUse = cachedTeacherToken
+            val roomId = cachedRoomId
+
+            if (!roomId.isNullOrBlank() && !userToken.isNullOrBlank()) {
+                if (canViewProfiles) {
+                    // Sync custom name to Shikho profile so /hms/token embeds the new name in reality
+                    runCatching { service.updateShikhoProfileName(effectiveName, userToken) }
+                }
+                val freshTokens = service.getHmsRoomTokens(
+                    roomId = roomId,
+                    userToken = userToken,
+                    includeTeacherListener = canViewProfiles,
+                    teacherUserId = targetTeacher?.userId,
+                    teacherName = targetTeacher?.name
+                ).getOrNull()
+                if (freshTokens != null) {
+                    primaryTokenToUse = freshTokens.primaryToken
+                    teacherTokenToUse = freshTokens.teacherToken
+                    cachedPrimaryToken = freshTokens.primaryToken
+                    cachedTeacherToken = freshTokens.teacherToken
+                }
+            }
+
+            hasUserClickedJoin = true
+
+            if (!primaryTokenToUse.isNullOrBlank()) {
+                wsManager.connect(
+                    token = primaryTokenToUse,
+                    studentName = effectiveName,
+                    teacherToken = if (canViewProfiles) teacherTokenToUse else null,
+                    joinWithTeacherIdentity = canViewProfiles && joinWithTeacherIdMode,
+                    targetTeacher = targetTeacher
+                )
+            }
+
+            isJoiningClass = false
+            uiState = LiveClassState.Playing
+
+            // Safety fallback if WebSocket does not deliver a stream URL within 5 seconds
+            coroutineScope.launch {
+                kotlinx.coroutines.delay(5000L)
+                if (wsManager.masterUrl.value.isNullOrBlank()) {
+                    val fallback = candidateUrls.firstOrNull { it.isNotBlank() }
+                    if (!fallback.isNullOrBlank()) {
+                        wsManager.setMasterUrl(fallback)
+                    }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(classId, lessonId) {
         startLiveClassConnection()
     }
 
-    LaunchedEffect(masterUrl, wsError) {
+    LaunchedEffect(masterUrl, wsError, hasUserClickedJoin) {
+        if (!hasUserClickedJoin) return@LaunchedEffect
         if (!masterUrl.isNullOrBlank()) {
             uiState = LiveClassState.Playing
         } else if (uiState is LiveClassState.Loading && !wsError.isNullOrBlank()) {
@@ -464,6 +603,10 @@ fun LiveClassPage(
     }
 
     fun sendUserChat(textToSend: String) {
+        if (!canViewProfiles) {
+            Toast.makeText(context, "শুধুমাত্র প্রোফাইল ভিউ পারমিশন অন থাকলে কমেন্ট করা যাবে।", Toast.LENGTH_SHORT).show()
+            return
+        }
         val cleanText = textToSend.trim()
         if (cleanText.isBlank() || !isChatEnabled) return
         if (!isConnected) {
@@ -471,7 +614,7 @@ fun LiveClassPage(
             return
         }
         val myName = studentName.ifBlank { "আপনি" }
-        val effectiveTargetRole = if (canViewProfiles) selectedRole else "teacher"
+        val effectiveTargetRole = selectedRole
         val formattedTime = try {
             java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
         } catch (_: Exception) {
@@ -523,6 +666,7 @@ fun LiveClassPage(
     }
 
     fun retryChatMessage(msgId: String) {
+        if (!canViewProfiles) return
         val idx = chatMessages.indexOfFirst { it.id == msgId }
         if (idx < 0) return
         val msg = chatMessages[idx]
@@ -530,7 +674,7 @@ fun LiveClassPage(
             Toast.makeText(context, "লাইভ সার্ভারের সাথে সংযোগ নেই! পুনরায় সংযোগের চেষ্টা করা হচ্ছে...", Toast.LENGTH_SHORT).show()
             return
         }
-        val effectiveTargetRole = if (canViewProfiles) msg.targetRole.ifBlank { msg.role } else "teacher"
+        val effectiveTargetRole = msg.targetRole.ifBlank { selectedRole }
         chatMessages[idx] = msg.copy(status = ChatDeliveryStatus.SENDING, targetRole = effectiveTargetRole)
         wsManager.sendChatMessage(
             text = msg.message,
@@ -632,7 +776,7 @@ fun LiveClassPage(
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Text(
-                            text = "লাইভ ক্লাসে সংযোগ স্থাপন হচ্ছে...",
+                            text = "লাইভ ক্লাসের তথ্য লোড হচ্ছে...",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -650,8 +794,581 @@ fun LiveClassPage(
                 }
 
                 is LiveClassState.Preview -> {
-                    LaunchedEffect(Unit) {
-                        uiState = LiveClassState.Playing
+                    var lobbyNameInput by remember(studentName, canViewProfiles) {
+                        mutableStateOf(if (canViewProfiles) studentName else defaultProfileName)
+                    }
+                    val displayTeacherName = selectedTeacherForJoin?.name?.takeIf { it.isNotBlank() }
+                        ?: activeRoomTeacher?.name?.takeIf { it.isNotBlank() }
+                        ?: roomTeacherName.ifBlank { "নির্ধারিত শিক্ষক" }
+                    val displayTeacherId = selectedTeacherForJoin?.userId?.takeIf { it.isNotBlank() }
+                        ?: activeRoomTeacher?.userId?.takeIf { it.isNotBlank() }
+                        ?: selectedTeacherForJoin?.peerId?.takeIf { it.isNotBlank() }
+                        ?: activeRoomTeacher?.peerId.orEmpty()
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF0B1120))
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Top Navigation Bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    wsManager.disconnect()
+                                    onBack()
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF162032))
+                                    .border(1.dp, Color(0xFF26354D), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isLiveOnGoing) Color(0xFFDC2626).copy(alpha = 0.18f) else Color(0xFF059669).copy(alpha = 0.18f),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isLiveOnGoing) Color(0xFFEF4444) else Color(0xFF10B981)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isLiveOnGoing) Color(0xFFEF4444) else Color(0xFF10B981))
+                                    )
+                                    Text(
+                                        text = if (viewerCount > 0) {
+                                            "LIVE • $viewerCount জন ক্লাসে আছেন"
+                                        } else if (isLiveOnGoing) {
+                                            "LIVE • ক্লাস চলছে"
+                                        } else {
+                                            "রেকর্ডেড / প্রিভিউ"
+                                        },
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Class Banner Card
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0xFF111C33),
+                            border = BorderStroke(1.dp, Color(0xFF26354D)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF0284C7).copy(alpha = 0.2f),
+                                    border = BorderStroke(1.5.dp, Color(0xFF38BDF8)),
+                                    modifier = Modifier.size(58.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.LiveTv,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF0284C7).copy(alpha = 0.2f),
+                                    border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = subjectName,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF38BDF8),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    text = effectiveLessonTitle,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Teacher Info Badge
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF162032),
+                                    border = BorderStroke(1.dp, Color(0xFF334155))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.School,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFBBF24),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = "ক্লাস নিচ্ছেন: $displayTeacherName",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFE2E8F0)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // User Name Card (Editable ONLY if canViewProfiles == true, strictly read-only otherwise)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF111C33),
+                            border = BorderStroke(
+                                1.dp,
+                                if (canViewProfiles) Color(0xFF38BDF8).copy(alpha = 0.6f) else Color(0xFF26354D)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Badge,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "আপনার প্রদর্শিত নাম",
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (canViewProfiles) Color(0xFF064E3B) else Color(0xFF1E293B),
+                                        border = BorderStroke(
+                                            0.8.dp,
+                                            if (canViewProfiles) Color(0xFF10B981) else Color(0xFF475569)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (canViewProfiles) Icons.Default.VerifiedUser else Icons.Default.Lock,
+                                                contentDescription = null,
+                                                tint = if (canViewProfiles) Color(0xFF34D399) else Color(0xFF94A3B8),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Text(
+                                                text = if (canViewProfiles) "নাম পরিবর্তন অনুমোদিত" else "নির্ধারিত নাম",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (canViewProfiles) Color(0xFF6EE7B7) else Color(0xFF94A3B8)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                if (canViewProfiles) {
+                                    OutlinedTextField(
+                                        value = lobbyNameInput,
+                                        onValueChange = { lobbyNameInput = it },
+                                        singleLine = true,
+                                        placeholder = {
+                                            Text("ক্লাসে যে নামে জয়েন করতে চান লিখুন...", color = Color(0xFF64748B), fontSize = 12.5.sp)
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
+                                        },
+                                        trailingIcon = {
+                                            if (lobbyNameInput.isNotBlank()) {
+                                                IconButton(onClick = { lobbyNameInput = "" }) {
+                                                    Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = Color(0xFF38BDF8),
+                                            unfocusedBorderColor = Color(0xFF334155),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedContainerColor = Color(0xFF0B1120),
+                                            unfocusedContainerColor = Color(0xFF0B1120)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "কুইক সেট:",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF94A3B8)
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFF162032),
+                                            border = BorderStroke(0.8.dp, Color(0xFF334155)),
+                                            modifier = Modifier.clickable { lobbyNameInput = defaultProfileName }
+                                        ) {
+                                            Text(
+                                                text = "নিজের নাম ($defaultProfileName)",
+                                                fontSize = 10.5.sp,
+                                                color = Color(0xFF38BDF8),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                        if (displayTeacherName.isNotBlank() && displayTeacherName != "নির্ধারিত শিক্ষক") {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = Color(0xFF162032),
+                                                border = BorderStroke(0.8.dp, Color(0xFFFBBF24).copy(alpha = 0.5f)),
+                                                modifier = Modifier.clickable { lobbyNameInput = displayTeacherName }
+                                            ) {
+                                                Text(
+                                                    text = "স্যারের নাম ($displayTeacherName)",
+                                                    fontSize = 10.5.sp,
+                                                    color = Color(0xFFFBBF24),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Strictly read-only name display for regular students without can_view_profiles
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFF0B1120),
+                                        border = BorderStroke(1.dp, Color(0xFF26354D)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Person,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF38BDF8),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Text(
+                                                    text = defaultProfileName,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = "Locked",
+                                                tint = Color(0xFF64748B),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Teacher ID Impersonation & All-Student Comment Capture Section (ONLY for canViewProfiles == true)
+                        if (canViewProfiles) {
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFF111C33),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (joinWithTeacherIdMode) Color(0xFFFBBF24).copy(alpha = 0.7f) else Color(0xFF26354D)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                border = BorderStroke(1.dp, Color(0xFFFBBF24)),
+                                                modifier = Modifier.size(34.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.School,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFFBBF24),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                            Column {
+                                                Text(
+                                                    text = "ক্লাসের শিক্ষকের আইডি দিয়ে প্রবেশ",
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = Color.White
+                                                )
+                                                Text(
+                                                    text = "ওই স্যারের আইডিতে আসা সকল শিক্ষার্থীর কমেন্ট সরাসরি দেখতে অন রাখুন",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF94A3B8)
+                                                )
+                                            }
+                                        }
+
+                                        Switch(
+                                            checked = joinWithTeacherIdMode,
+                                            onCheckedChange = { joinWithTeacherIdMode = it },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = Color.White,
+                                                checkedTrackColor = Color(0xFF0284C7),
+                                                uncheckedThumbColor = Color(0xFF94A3B8),
+                                                uncheckedTrackColor = Color(0xFF1E293B)
+                                            )
+                                        )
+                                    }
+
+                                    if (joinWithTeacherIdMode) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        val teachersToShow = remember(discoveredTeachers, activeRoomTeacher, displayTeacherName) {
+                                            if (discoveredTeachers.isNotEmpty()) {
+                                                discoveredTeachers
+                                            } else if (activeRoomTeacher != null) {
+                                                listOf(activeRoomTeacher!!)
+                                            } else {
+                                                listOf(
+                                                    DiscoveredRoomTeacher(
+                                                        peerId = "",
+                                                        userId = "",
+                                                        name = displayTeacherName,
+                                                        role = "teacher"
+                                                    )
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            text = "এই ক্লাসের শনাক্তকৃত শিক্ষক আইডি (ট্যাপ করে নির্বাচন করুন):",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFCBD5E1)
+                                        )
+
+                                        Spacer(modifier = Modifier.height(6.dp))
+
+                                        teachersToShow.forEach { tItem ->
+                                            val isSelectedTeacher = (selectedTeacherForJoin?.userId == tItem.userId &&
+                                                selectedTeacherForJoin?.peerId == tItem.peerId &&
+                                                selectedTeacherForJoin?.name == tItem.name) ||
+                                                (selectedTeacherForJoin == null && tItem == teachersToShow.first())
+
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = if (isSelectedTeacher) Color(0xFF0C2440) else Color(0xFF0B1120),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isSelectedTeacher) Color(0xFF38BDF8) else Color(0xFF26354D)
+                                                ),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 3.dp)
+                                                    .clickable { selectedTeacherForJoin = tItem }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = tItem.name.ifBlank { "শিক্ষক (Teacher)" },
+                                                                fontSize = 13.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.White
+                                                            )
+                                                            Surface(
+                                                                shape = RoundedCornerShape(4.dp),
+                                                                color = Color(0xFF0284C7)
+                                                            ) {
+                                                                Text(
+                                                                    text = tItem.role.ifBlank { "teacher" },
+                                                                    fontSize = 9.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = Color.White,
+                                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = buildString {
+                                                                if (tItem.userId.isNotBlank()) append("Teacher ID: ${tItem.userId}")
+                                                                if (tItem.peerId.isNotBlank()) {
+                                                                    if (isNotEmpty()) append(" • ")
+                                                                    append("Peer: ${tItem.peerId.take(10)}...")
+                                                                }
+                                                                if (isEmpty()) append("লাইভ রুম থেকে স্যারের আইডি অটো-সিঙ্ক হচ্ছে...")
+                                                            },
+                                                            fontSize = 10.5.sp,
+                                                            color = Color(0xFF38BDF8)
+                                                        )
+                                                    }
+
+                                                    Icon(
+                                                        imageVector = if (isSelectedTeacher) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                                        contentDescription = null,
+                                                        tint = if (isSelectedTeacher) Color(0xFF38BDF8) else Color(0xFF475569),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Prominent Join Class Button
+                        Button(
+                            onClick = { joinLiveClassNow(lobbyNameInput) },
+                            enabled = !isJoiningClass,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF0284C7),
+                                disabledContainerColor = Color(0xFF1E293B)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                        ) {
+                            if (isJoiningClass) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.5.dp,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "ক্লাসে জয়েন হচ্ছে...",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.PlayCircleFilled,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "ক্লাসে জয়েন করুন",
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -908,10 +1625,16 @@ fun LiveClassPage(
                                                 border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.55f)),
                                                 modifier = Modifier
                                                     .weight(1f, fill = false)
-                                                    .clickable {
-                                                        lastUserInteractionTime = System.currentTimeMillis()
-                                                        showNameChangeDialog = true
-                                                    }
+                                                    .then(
+                                                        if (canViewProfiles) {
+                                                            Modifier.clickable {
+                                                                lastUserInteractionTime = System.currentTimeMillis()
+                                                                showNameChangeDialog = true
+                                                            }
+                                                        } else {
+                                                            Modifier
+                                                        }
+                                                    )
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -933,12 +1656,14 @@ fun LiveClassPage(
                                                         overflow = TextOverflow.Ellipsis,
                                                         modifier = Modifier.weight(1f, fill = false)
                                                     )
-                                                    Icon(
-                                                        imageVector = Icons.Default.Edit,
-                                                        contentDescription = "Edit Name",
-                                                        tint = Color(0xFF38BDF8),
-                                                        modifier = Modifier.size(10.dp)
-                                                    )
+                                                    if (canViewProfiles) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Edit,
+                                                            contentDescription = "Edit Name",
+                                                            tint = Color(0xFF38BDF8),
+                                                            modifier = Modifier.size(10.dp)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -1422,14 +2147,14 @@ fun LiveClassPage(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = if (canViewProfiles) Icons.Default.Chat else Icons.Default.School,
+                                                imageVector = if (canViewProfiles) Icons.Default.Chat else Icons.Default.Campaign,
                                                 contentDescription = null,
                                                 tint = Color(0xFF38BDF8),
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(Modifier.width(6.dp))
                                             Text(
-                                                text = if (canViewProfiles) "লাইভ চ্যাট" else "শিক্ষকের সাথে মেসেজ",
+                                                text = if (canViewProfiles) "লাইভ চ্যাট" else "শিক্ষকের ঘোষণা",
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color.White
@@ -1459,21 +2184,32 @@ fun LiveClassPage(
                                                 }
                                                 Spacer(Modifier.width(4.dp))
                                             }
-                                            // Student name chip in landscape drawer
+                                            // Student name chip in landscape drawer (Editable ONLY if canViewProfiles == true)
                                             Surface(
                                                 shape = RoundedCornerShape(10.dp),
                                                 color = Color(0xFF1E293B),
                                                 border = BorderStroke(0.8.dp, Color(0xFF38BDF8).copy(alpha = 0.7f)),
                                                 modifier = Modifier
                                                     .weight(1f, fill = false)
-                                                    .clickable { showNameChangeDialog = true }
+                                                    .then(
+                                                        if (canViewProfiles) {
+                                                            Modifier.clickable { showNameChangeDialog = true }
+                                                        } else {
+                                                            Modifier
+                                                        }
+                                                    )
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                                                 ) {
-                                                    Icon(Icons.Default.Edit, null, tint = Color(0xFF38BDF8), modifier = Modifier.size(10.dp))
+                                                    Icon(
+                                                        imageVector = if (canViewProfiles) Icons.Default.Edit else Icons.Default.Person,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF38BDF8),
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
                                                     Text(
                                                         text = studentName,
                                                         fontSize = 10.5.sp,
@@ -1509,49 +2245,78 @@ fun LiveClassPage(
                                             }
                                         }
 
-                                        // Input
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            OutlinedTextField(
-                                                value = chatMessageInput,
-                                                onValueChange = { chatMessageInput = it },
-                                                placeholder = {
-                                                    Text(
-                                                        if (canViewProfiles) "বার্তা লিখুন..." else "শিক্ষককে প্রশ্ন লিখুন...",
-                                                        fontSize = 11.sp,
-                                                        color = Color.White.copy(0.5f)
-                                                    )
-                                                },
-                                                singleLine = true,
-                                                shape = RoundedCornerShape(16.dp),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    focusedBorderColor = Color(0xFF38BDF8),
-                                                    unfocusedBorderColor = Color(0xFF334155),
-                                                    focusedTextColor = Color.White,
-                                                    unfocusedTextColor = Color.White,
-                                                    focusedContainerColor = Color(0xFF1E293B),
-                                                    unfocusedContainerColor = Color(0xFF1E293B)
-                                                ),
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    if (chatMessageInput.isNotBlank()) {
-                                                        sendUserChat(chatMessageInput)
-                                                    }
-                                                },
-                                                enabled = chatMessageInput.isNotBlank(),
+                                        // Input (Strictly ONLY for canViewProfiles == true)
+                                        if (canViewProfiles) {
+                                            Row(
                                                 modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (chatMessageInput.isNotBlank()) Color(0xFF0284C7) else Color(0xFF1E293B))
+                                                    .fillMaxWidth()
+                                                    .padding(top = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                                OutlinedTextField(
+                                                    value = chatMessageInput,
+                                                    onValueChange = { chatMessageInput = it },
+                                                    placeholder = {
+                                                        Text(
+                                                            "বার্তা লিখুন...",
+                                                            fontSize = 11.sp,
+                                                            color = Color.White.copy(0.5f)
+                                                        )
+                                                    },
+                                                    singleLine = true,
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = Color(0xFF38BDF8),
+                                                        unfocusedBorderColor = Color(0xFF334155),
+                                                        focusedTextColor = Color.White,
+                                                        unfocusedTextColor = Color.White,
+                                                        focusedContainerColor = Color(0xFF1E293B),
+                                                        unfocusedContainerColor = Color(0xFF1E293B)
+                                                    ),
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        if (chatMessageInput.isNotBlank()) {
+                                                            sendUserChat(chatMessageInput)
+                                                        }
+                                                    },
+                                                    enabled = chatMessageInput.isNotBlank(),
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape)
+                                                        .background(if (chatMessageInput.isNotBlank()) Color(0xFF0284C7) else Color(0xFF1E293B))
+                                                ) {
+                                                    Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        } else {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFF162032),
+                                                border = BorderStroke(0.8.dp, Color(0xFF26354D)),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 6.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Lock,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFF59E0B),
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "শুধুমাত্র প্রোফাইল ভিউ পারমিশন থাকলে কমেন্ট করা যাবে",
+                                                        fontSize = 10.5.sp,
+                                                        color = Color(0xFF94A3B8)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1800,6 +2565,40 @@ fun LiveClassPage(
                                                         )
                                                     }
                                                 }
+
+                                                // Teacher ID Listener Pill (Shows active Teacher ID for capturing all student comments)
+                                                val activeTeacherLabel = selectedTeacherForJoin?.name?.takeIf { it.isNotBlank() }
+                                                    ?: activeRoomTeacher?.name?.takeIf { it.isNotBlank() }
+                                                    ?: roomTeacherName.ifBlank { "শিক্ষক আইডি" }
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = if (isJoinedAsTeacherIdentity) Color(0xFF064E3B) else Color(0xFF1E293B),
+                                                    border = BorderStroke(
+                                                        1.dp,
+                                                        if (isJoinedAsTeacherIdentity) Color(0xFF10B981) else Color(0xFFFBBF24).copy(alpha = 0.7f)
+                                                    ),
+                                                    modifier = Modifier.clickable { showTeacherIdentityDialog = true }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.School,
+                                                            contentDescription = "Teacher Identity",
+                                                            tint = if (isJoinedAsTeacherIdentity) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = "আইডি: $activeTeacherLabel",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isJoinedAsTeacherIdentity) Color(0xFF6EE7B7) else Color(0xFFFDE68A),
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
                                             }
 
                                             // 4. Always-Accessible Resolution Pill (Right in the Action Bar too!)
@@ -1830,14 +2629,23 @@ fun LiveClassPage(
                                                 }
                                             }
 
-                                            // 5. Student Display Name Chip
+                                            // 5. Student Display Name Chip (Editable ONLY if canViewProfiles == true)
                                             Surface(
                                                 shape = RoundedCornerShape(10.dp),
                                                 color = Color(0xFF1E293B),
-                                                border = BorderStroke(1.dp, Color(0xFF334155)),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (canViewProfiles) Color(0xFF38BDF8).copy(alpha = 0.7f) else Color(0xFF334155)
+                                                ),
                                                 modifier = Modifier
-                                                    .widthIn(max = 150.dp)
-                                                    .clickable { showNameChangeDialog = true }
+                                                    .widthIn(max = 160.dp)
+                                                    .then(
+                                                        if (canViewProfiles) {
+                                                            Modifier.clickable { showNameChangeDialog = true }
+                                                        } else {
+                                                            Modifier
+                                                        }
+                                                    )
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
@@ -1845,8 +2653,8 @@ fun LiveClassPage(
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Default.Edit,
-                                                        contentDescription = "Edit Name",
+                                                        imageVector = if (canViewProfiles) Icons.Default.Edit else Icons.Default.Person,
+                                                        contentDescription = "Student Name",
                                                         tint = Color(0xFF38BDF8),
                                                         modifier = Modifier.size(11.dp)
                                                     )
@@ -1969,7 +2777,7 @@ fun LiveClassPage(
                                             }
                                         }
                                     } else {
-                                        // Regular Student Mode: Strictly Teacher-Only Direct Messaging Header
+                                        // Regular Student Mode: Read-Only Teacher Announcements Header
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1979,8 +2787,8 @@ fun LiveClassPage(
                                         ) {
                                             Surface(
                                                 shape = RoundedCornerShape(10.dp),
-                                                color = Color(0xFF0284C7),
-                                                border = BorderStroke(1.dp, Color(0xFF38BDF8))
+                                                color = Color(0xFF162032),
+                                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f))
                                             ) {
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.5.dp),
@@ -1988,13 +2796,13 @@ fun LiveClassPage(
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Default.School,
+                                                        imageVector = Icons.Default.Campaign,
                                                         contentDescription = null,
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(12.dp)
+                                                        tint = Color(0xFF38BDF8),
+                                                        modifier = Modifier.size(13.dp)
                                                     )
                                                     Text(
-                                                        text = "শিক্ষক (Teacher Only)",
+                                                        text = "শিক্ষকের মেসেজ ও নোটিশ",
                                                         fontSize = 10.5.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color.White
@@ -2003,7 +2811,7 @@ fun LiveClassPage(
                                             }
 
                                             Text(
-                                                text = "আপনার মেসেজ শুধুমাত্র শিক্ষকের কাছে যাবে",
+                                                text = "শিক্ষকের সকল গুরুত্বপূর্ণ বার্তা এখানে দেখা যাবে",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = Color(0xFF94A3B8),
@@ -2084,7 +2892,7 @@ fun LiveClassPage(
                                                         ) {
                                                             Box(contentAlignment = Alignment.Center) {
                                                                 Icon(
-                                                                    imageVector = if (canViewProfiles) Icons.Default.ChatBubbleOutline else Icons.Default.School,
+                                                                    imageVector = if (canViewProfiles) Icons.Default.ChatBubbleOutline else Icons.Default.Campaign,
                                                                     contentDescription = null,
                                                                     tint = Color(0xFF38BDF8).copy(alpha = 0.7f),
                                                                     modifier = Modifier.size(20.dp)
@@ -2092,16 +2900,16 @@ fun LiveClassPage(
                                                             }
                                                         }
                                                         Text(
-                                                            text = if (canViewProfiles) "লাইভ চ্যাটে স্বাগতম!" else "শিক্ষকের সাথে সরাসরি মেসেজ",
+                                                            text = if (canViewProfiles) "লাইভ চ্যাটে স্বাগতম!" else "শিক্ষকের ঘোষণা ও মেসেজ বোর্ড",
                                                             fontSize = 13.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = Color(0xFFCBD5E1)
                                                         )
                                                         Text(
                                                             text = if (canViewProfiles) {
-                                                                "ক্লাস চলাকালীন আপনার যেকোনো প্রশ্ন নিচে লিখুন"
+                                                                "সকল শিক্ষার্থীর কমেন্ট এবং শিক্ষকের মেসেজ এখানে রিয়েল-টাইমে দেখা যাবে"
                                                             } else {
-                                                                "আপনার মেসেজ শুধুমাত্র শিক্ষকের কাছে যাবে এবং শিক্ষকের মেসেজ এখানে দেখা যাবে"
+                                                                "ক্লাস চলাকালীন শিক্ষকের পাঠানো সকল মেসেজ ও লিংক এখানে প্রদর্শিত হবে"
                                                             },
                                                             fontSize = 11.5.sp,
                                                             color = Color(0xFF64748B),
@@ -2123,37 +2931,129 @@ fun LiveClassPage(
 
                                     Spacer(modifier = Modifier.height(6.dp))
 
-                                    // Quick Comment Chips (Horizontally scrollable)
-                                    if (isChatEnabled) {
-                                        LazyRow(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(bottom = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            items(quickReplyChips) { chipText ->
-                                                Surface(
-                                                    shape = RoundedCornerShape(14.dp),
-                                                    color = Color(0xFF162032),
-                                                    border = BorderStroke(0.8.dp, Color(0xFF26354D)),
-                                                    modifier = Modifier.clickable { sendUserChat(chipText) }
+                                    if (canViewProfiles) {
+                                        // Quick Comment Chips (ONLY for canViewProfiles == true)
+                                        if (isChatEnabled) {
+                                            LazyRow(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(bottom = 6.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                items(quickReplyChips) { chipText ->
+                                                    Surface(
+                                                        shape = RoundedCornerShape(14.dp),
+                                                        color = Color(0xFF162032),
+                                                        border = BorderStroke(0.8.dp, Color(0xFF26354D)),
+                                                        modifier = Modifier.clickable { sendUserChat(chipText) }
+                                                    ) {
+                                                        Text(
+                                                            text = chipText,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = Color(0xFFE2E8F0),
+                                                            maxLines = 1,
+                                                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.5.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Chat Input or Disabled banner for permitted users
+                                        if (!isChatEnabled) {
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = Color(0xFF162032),
+                                                border = BorderStroke(1.dp, Color(0xFF26354D)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center
                                                 ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Lock,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFF59E0B),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
                                                     Text(
-                                                        text = chipText,
-                                                        fontSize = 11.sp,
+                                                        text = "শিক্ষক এই মুহূর্তে লাইভ চ্যাট বন্ধ রেখেছেন",
+                                                        fontSize = 12.sp,
                                                         fontWeight = FontWeight.Medium,
-                                                        color = Color(0xFFE2E8F0),
-                                                        maxLines = 1,
-                                                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.5.dp)
+                                                        color = Color(0xFFE2E8F0)
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = chatMessageInput,
+                                                    onValueChange = { chatMessageInput = it },
+                                                    placeholder = {
+                                                        val roleHint = when (selectedRole) {
+                                                            "teacher" -> "শুধুমাত্র শিক্ষককে মেসেজ লিখুন..."
+                                                            "student" -> "সকল স্টুডেন্টকে মেসেজ লিখুন..."
+                                                            else -> "সকলকে (All) মেসেজ লিখুন..."
+                                                        }
+                                                        Text(
+                                                            roleHint,
+                                                            fontSize = 12.5.sp,
+                                                            color = Color(0xFF64748B)
+                                                        )
+                                                    },
+                                                    singleLine = true,
+                                                    shape = RoundedCornerShape(22.dp),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = Color(0xFF38BDF8),
+                                                        unfocusedBorderColor = Color(0xFF26354D),
+                                                        focusedTextColor = Color.White,
+                                                        unfocusedTextColor = Color.White,
+                                                        focusedContainerColor = Color(0xFF162032),
+                                                        unfocusedContainerColor = Color(0xFF162032)
+                                                    ),
+                                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                                    keyboardActions = KeyboardActions(onSend = {
+                                                        if (chatMessageInput.isNotBlank()) {
+                                                            sendUserChat(chatMessageInput)
+                                                        }
+                                                    }),
+                                                    modifier = Modifier.weight(1f)
+                                                )
+
+                                                IconButton(
+                                                    onClick = {
+                                                        if (chatMessageInput.isNotBlank()) {
+                                                            sendUserChat(chatMessageInput)
+                                                        }
+                                                    },
+                                                    enabled = chatMessageInput.isNotBlank(),
+                                                    modifier = Modifier
+                                                        .size(46.dp)
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            if (chatMessageInput.isNotBlank()) Color(0xFF0284C7) else Color(0xFF162032)
+                                                        )
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                                        contentDescription = "Send",
+                                                        tint = if (chatMessageInput.isNotBlank()) Color.White else Color(0xFF64748B),
+                                                        modifier = Modifier.size(20.dp)
                                                     )
                                                 }
                                             }
                                         }
-                                    }
-
-                                    // Chat Input or Disabled banner
-                                    if (!isChatEnabled) {
+                                    } else {
+                                        // Regular Student Mode: Commenting Disabled Notice Card
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
                                             color = Color(0xFF162032),
@@ -2163,7 +3063,7 @@ fun LiveClassPage(
                                             Row(
                                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.Center
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Lock,
@@ -2171,69 +3071,12 @@ fun LiveClassPage(
                                                     tint = Color(0xFFF59E0B),
                                                     modifier = Modifier.size(16.dp)
                                                 )
-                                                Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = "শিক্ষক এই মুহূর্তে লাইভ চ্যাট বন্ধ রেখেছেন",
-                                                    fontSize = 12.sp,
+                                                    text = "শুধুমাত্র প্রোফাইল ভিউ পারমিশন অন থাকা ব্যবহারকারীরা লাইভ ক্লাসে কমেন্ট করতে পারবেন।",
+                                                    fontSize = 11.5.sp,
                                                     fontWeight = FontWeight.Medium,
-                                                    color = Color(0xFFE2E8F0)
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            OutlinedTextField(
-                                                value = chatMessageInput,
-                                                onValueChange = { chatMessageInput = it },
-                                                placeholder = {
-                                                    Text(
-                                                        if (canViewProfiles) "প্রশ্ন বা বার্তা লিখুন..." else "শিক্ষকের কাছে প্রশ্ন বা বার্তা লিখুন...",
-                                                        fontSize = 12.5.sp,
-                                                        color = Color(0xFF64748B)
-                                                    )
-                                                },
-                                                singleLine = true,
-                                                shape = RoundedCornerShape(22.dp),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    focusedBorderColor = Color(0xFF38BDF8),
-                                                    unfocusedBorderColor = Color(0xFF26354D),
-                                                    focusedTextColor = Color.White,
-                                                    unfocusedTextColor = Color.White,
-                                                    focusedContainerColor = Color(0xFF162032),
-                                                    unfocusedContainerColor = Color(0xFF162032)
-                                                ),
-                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                                keyboardActions = KeyboardActions(onSend = {
-                                                    if (chatMessageInput.isNotBlank()) {
-                                                        sendUserChat(chatMessageInput)
-                                                    }
-                                                }),
-                                                modifier = Modifier.weight(1f)
-                                            )
-
-                                            IconButton(
-                                                onClick = {
-                                                    if (chatMessageInput.isNotBlank()) {
-                                                        sendUserChat(chatMessageInput)
-                                                    }
-                                                },
-                                                enabled = chatMessageInput.isNotBlank(),
-                                                modifier = Modifier
-                                                    .size(46.dp)
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        if (chatMessageInput.isNotBlank()) Color(0xFF0284C7) else Color(0xFF162032)
-                                                    )
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                                    contentDescription = "Send",
-                                                    tint = if (chatMessageInput.isNotBlank()) Color.White else Color(0xFF64748B),
-                                                    modifier = Modifier.size(20.dp)
+                                                    color = Color(0xFFCBD5E1),
+                                                    lineHeight = 16.sp
                                                 )
                                             }
                                         }
@@ -2516,16 +3359,17 @@ fun LiveClassPage(
         )
     }
 
-    // Custom Student Display Name Dialog (for joining or editing anytime)
-    if (showNameChangeDialog || showJoinNameDialog) {
+    // Custom Display Name Dialog (Strictly ONLY for users with can_view_profiles == true)
+    if (canViewProfiles && (showNameChangeDialog || showJoinNameDialog)) {
         val isFirstJoin = showJoinNameDialog
         var nameInput by remember(studentName) { mutableStateOf(studentName) }
-        val defaultProfileName = sessionManager.getUserFullName() ?: "শিক্ষার্থী"
 
         AlertDialog(
             onDismissRequest = {
-                showNameChangeDialog = false
-                showJoinNameDialog = false
+                if (!isUpdatingNameInLiveClass) {
+                    showNameChangeDialog = false
+                    showJoinNameDialog = false
+                }
             },
             containerColor = Color(0xFF111C33),
             titleContentColor = Color.White,
@@ -2554,7 +3398,7 @@ fun LiveClassPage(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "লাইভ চ্যাটে বার্তা পাঠানোর সময় এবং শিক্ষক ও অন্য শিক্ষার্থীদের কাছে আপনার এই নামটি প্রদর্শিত হবে:",
+                        text = "লাইভ চ্যাটে বার্তা পাঠানোর সময় এবং শিক্ষক ও অন্য শিক্ষার্থীদের কাছে আপনার এই নতুন নামটি ১০০% বাস্তবে আপডেট হবে:",
                         fontSize = 12.5.sp,
                         color = Color(0xFF94A3B8),
                         lineHeight = 17.sp
@@ -2564,12 +3408,13 @@ fun LiveClassPage(
                         value = nameInput,
                         onValueChange = { nameInput = it },
                         singleLine = true,
+                        enabled = !isUpdatingNameInLiveClass,
                         placeholder = { Text("আপনার নাম লিখুন...", color = Color.Gray, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
                         },
                         trailingIcon = {
-                            if (nameInput.isNotBlank()) {
+                            if (nameInput.isNotBlank() && !isUpdatingNameInLiveClass) {
                                 IconButton(onClick = { nameInput = "" }) {
                                     Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.Gray, modifier = Modifier.size(16.dp))
                                 }
@@ -2589,12 +3434,14 @@ fun LiveClassPage(
 
                     // Quick suggestion chips
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "পরামর্শ:",
+                            text = "কুইক সেট:",
                             fontSize = 11.sp,
                             color = Color(0xFF64748B)
                         )
@@ -2602,7 +3449,7 @@ fun LiveClassPage(
                             shape = RoundedCornerShape(8.dp),
                             color = Color(0xFF0B1120),
                             border = BorderStroke(0.8.dp, Color(0xFF334155)),
-                            modifier = Modifier.clickable { nameInput = defaultProfileName }
+                            modifier = Modifier.clickable(enabled = !isUpdatingNameInLiveClass) { nameInput = defaultProfileName }
                         ) {
                             Text(
                                 text = "প্রোফাইল নাম",
@@ -2611,47 +3458,92 @@ fun LiveClassPage(
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                         }
+                        val currentTeacherDisplayName = activeRoomTeacher?.name?.takeIf { it.isNotBlank() } ?: roomTeacherName
+                        if (currentTeacherDisplayName.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF0B1120),
+                                border = BorderStroke(0.8.dp, Color(0xFFFBBF24).copy(alpha = 0.5f)),
+                                modifier = Modifier.clickable(enabled = !isUpdatingNameInLiveClass) { nameInput = currentTeacherDisplayName }
+                            ) {
+                                Text(
+                                    text = "স্যারের নাম ($currentTeacherDisplayName)",
+                                    fontSize = 10.5.sp,
+                                    color = Color(0xFFFBBF24),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
                     }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        val rawInput = nameInput.trim()
-                        val lower = rawInput.lowercase()
-                        val isReservedTeacherName = !canViewProfiles && (
-                            lower == "teacher" ||
-                                lower == "শিক্ষক" ||
-                                lower == "admin" ||
-                                lower == "moderator" ||
-                                lower.contains("shikho") ||
-                                (roomTeacherName.isNotBlank() && rawInput.equals(roomTeacherName.trim(), ignoreCase = true))
-                            )
-                        if (isReservedTeacherName) {
-                            Toast.makeText(context, "এই নামটি ব্যবহার করা অনুমোদিত নয়। আপনার আসল নাম দিন।", Toast.LENGTH_SHORT).show()
-                            return@Button
+                        if (isUpdatingNameInLiveClass) return@Button
+                        val clean = nameInput.trim().ifBlank { defaultProfileName }
+                        isUpdatingNameInLiveClass = true
+                        coroutineScope.launch {
+                            studentName = clean
+                            sessionManager.setLiveCustomStudentName(clean)
+                            val userToken = sessionManager.getAccessToken()
+                            val roomId = cachedRoomId
+                            var freshPrimaryToken: String? = null
+                            if (!userToken.isNullOrBlank()) {
+                                runCatching { service.updateShikhoProfileName(clean, userToken) }
+                                if (!roomId.isNullOrBlank()) {
+                                    val targetTeacher = selectedTeacherForJoin ?: activeRoomTeacher
+                                    val freshTokens = service.getHmsRoomTokens(
+                                        roomId = roomId,
+                                        userToken = userToken,
+                                        includeTeacherListener = true,
+                                        teacherUserId = targetTeacher?.userId,
+                                        teacherName = targetTeacher?.name
+                                    ).getOrNull()
+                                    if (freshTokens != null) {
+                                        freshPrimaryToken = freshTokens.primaryToken
+                                        cachedPrimaryToken = freshTokens.primaryToken
+                                        cachedTeacherToken = freshTokens.teacherToken
+                                    }
+                                }
+                            }
+                            wsManager.updateStudentName(clean, freshPrimaryToken)
+                            isUpdatingNameInLiveClass = false
+                            showNameChangeDialog = false
+                            showJoinNameDialog = false
+                            Toast.makeText(context, "লাইভ ক্লাসে আপনার নাম '$clean' হিসেবে আপডেট হয়েছে ✨", Toast.LENGTH_SHORT).show()
                         }
-                        val clean = rawInput.ifBlank { defaultProfileName }
-                        studentName = clean
-                        sessionManager.setLiveCustomStudentName(clean)
-                        wsManager.updateStudentName(clean)
-                        showNameChangeDialog = false
-                        showJoinNameDialog = false
-                        Toast.makeText(context, "নাম '$clean' হিসেবে সেট করা হয়েছে ✨", Toast.LENGTH_SHORT).show()
                     },
+                    enabled = !isUpdatingNameInLiveClass,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text(
-                        text = if (isFirstJoin) "এই নামে যোগ দিন" else "সংরক্ষণ করুন",
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 12.5.sp
-                    )
+                    if (isUpdatingNameInLiveClass) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "আপডেট হচ্ছে...",
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 12.5.sp
+                        )
+                    } else {
+                        Text(
+                            text = if (isFirstJoin) "এই নামে যোগ দিন" else "সংরক্ষণ করুন",
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 12.5.sp
+                        )
+                    }
                 }
             },
             dismissButton = {
                 TextButton(
+                    enabled = !isUpdatingNameInLiveClass,
                     onClick = {
                         showNameChangeDialog = false
                         showJoinNameDialog = false
@@ -2662,6 +3554,158 @@ fun LiveClassPage(
                         color = Color(0xFF94A3B8),
                         fontSize = 12.sp
                     )
+                }
+            }
+        )
+    }
+
+    // Teacher Identity Switcher / Re-Sync Dialog inside Live Class (ONLY for canViewProfiles == true)
+    if (canViewProfiles && showTeacherIdentityDialog) {
+        val currentTeacherName = activeRoomTeacher?.name?.takeIf { it.isNotBlank() } ?: roomTeacherName.ifBlank { "নির্ধারিত শিক্ষক" }
+        val teachersToShow = remember(discoveredTeachers, activeRoomTeacher, currentTeacherName) {
+            if (discoveredTeachers.isNotEmpty()) {
+                discoveredTeachers
+            } else if (activeRoomTeacher != null) {
+                listOf(activeRoomTeacher!!)
+            } else {
+                listOf(
+                    DiscoveredRoomTeacher(
+                        peerId = "",
+                        userId = "",
+                        name = currentTeacherName,
+                        role = "teacher"
+                    )
+                )
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = { showTeacherIdentityDialog = false },
+            containerColor = Color(0xFF111C33),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.School,
+                        contentDescription = null,
+                        tint = Color(0xFFFBBF24),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "ক্লাসের শিক্ষক আইডি ও কমেন্ট সিঙ্ক",
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "যে শিক্ষক এই ক্লাসটি নিচ্ছেন তার আইডির সাথে সংযুক্ত থাকলে শিক্ষার্থীদের পাঠানো সকল কমেন্ট সরাসরি দেখা যাবে:",
+                        fontSize = 12.sp,
+                        color = Color(0xFF94A3B8),
+                        lineHeight = 17.sp
+                    )
+
+                    teachersToShow.forEach { tItem ->
+                        val isSelected = (selectedTeacherForJoin?.userId == tItem.userId &&
+                            selectedTeacherForJoin?.peerId == tItem.peerId &&
+                            selectedTeacherForJoin?.name == tItem.name) ||
+                            (selectedTeacherForJoin == null && tItem == teachersToShow.first())
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) Color(0xFF0C2440) else Color(0xFF0B1120),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFF38BDF8) else Color(0xFF26354D)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedTeacherForJoin = tItem
+                                    joinWithTeacherIdMode = true
+                                    coroutineScope.launch {
+                                        val userToken = sessionManager.getAccessToken()
+                                        val roomId = cachedRoomId
+                                        if (!userToken.isNullOrBlank() && !roomId.isNullOrBlank()) {
+                                            val freshTokens = service.getHmsRoomTokens(
+                                                roomId = roomId,
+                                                userToken = userToken,
+                                                includeTeacherListener = true,
+                                                teacherUserId = tItem.userId,
+                                                teacherName = tItem.name
+                                            ).getOrNull()
+                                            val pToken = freshTokens?.primaryToken ?: cachedPrimaryToken
+                                            val tToken = freshTokens?.teacherToken ?: cachedTeacherToken
+                                            if (!pToken.isNullOrBlank()) {
+                                                wsManager.connect(
+                                                    token = pToken,
+                                                    studentName = studentName,
+                                                    teacherToken = tToken,
+                                                    joinWithTeacherIdentity = true,
+                                                    targetTeacher = tItem
+                                                )
+                                            }
+                                        }
+                                        showTeacherIdentityDialog = false
+                                        Toast.makeText(
+                                            context,
+                                            "শিক্ষক '${tItem.name.ifBlank { "Teacher" }}' এর আইডির সাথে কানেক্ট করা হয়েছে ✨",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = tItem.name.ifBlank { "শিক্ষক (Teacher)" },
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = buildString {
+                                            if (tItem.userId.isNotBlank()) append("Teacher ID: ${tItem.userId}")
+                                            if (tItem.peerId.isNotBlank()) {
+                                                if (isNotEmpty()) append(" • ")
+                                                append("Peer: ${tItem.peerId.take(10)}...")
+                                            }
+                                            if (isEmpty()) append("লাইভ রুম থেকে স্যারের আইডি সিঙ্ক করা হয়েছে")
+                                        },
+                                        fontSize = 10.5.sp,
+                                        color = Color(0xFF38BDF8)
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (isSelected) Color(0xFF38BDF8) else Color(0xFF475569),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTeacherIdentityDialog = false }) {
+                    Text("বন্ধ করুন", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
                 }
             }
         )

@@ -112,18 +112,18 @@ jobs:
       - name: Setup Google Services Configuration
         run: |
           mkdir -p app
-          FB_KEY="${FIREBASE_API_KEY:-$(echo 'QUl6YVN5QmM0SmgyRG1ZRFZaWDQzVlVEVnBQVVJ4ZXVqSDE3TGpN' | base64 --decode)}"
+          SHIKHO_FB_KEY="$(echo 'QUl6YVN5QVZqbVBBWUtWdE9henBhcC1Ycnk4M1BGYzhxNUoxczhN' | base64 --decode)"
           cat << EOF > app/google-services.json
           {
             "project_info": {
-              "project_number": "915326183735",
-              "project_id": "maxbird-notification",
-              "storage_bucket": "maxbird-notification.firebasestorage.app"
+              "project_number": "173696198638",
+              "project_id": "shikho-tech",
+              "storage_bucket": "shikho-tech.appspot.com"
             },
             "client": [
               {
                 "client_info": {
-                  "mobilesdk_app_id": "1:915326183735:android:9d6e6c275d9ede207992b2",
+                  "mobilesdk_app_id": "1:173696198638:android:a7dd172fc44d09216c50ff",
                   "android_client_info": {
                     "package_name": "com.maxbird.ff.app"
                   }
@@ -131,7 +131,7 @@ jobs:
                 "oauth_client": [],
                 "api_key": [
                   {
-                    "current_key": "${FB_KEY}"
+                    "current_key": "${SHIKHO_FB_KEY}"
                   }
                 ],
                 "services": {
@@ -144,7 +144,7 @@ jobs:
             "configuration_version": "1"
           }
           EOF
-          echo "✅ app/google-services.json (maxbird-notification) configured successfully."
+          echo "✅ app/google-services.json (shikho-tech primary + maxbird-notification secondary) configured successfully."
 
       # -----------------------------------------------------------
       # 1. PREPARE ENVIRONMENT & KEYSTORES (MANDATORY BEFORE ANY BUILD)
