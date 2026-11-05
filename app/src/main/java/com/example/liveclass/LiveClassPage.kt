@@ -201,9 +201,12 @@ fun LiveClassPage(
     var showTeacherIdentityDialog by remember { mutableStateOf(false) }
     var showAutoPollDialog by remember { mutableStateOf(false) }
 
-    // Live Delay state & Sync Trigger
+    // Live Delay state, Play/Pause state & Sync Trigger
     var liveDelaySeconds by remember { mutableIntStateOf(0) }
     var syncToLiveTrigger by remember { mutableLongStateOf(0L) }
+    var isPausedByUser by remember { mutableStateOf(false) }
+    var isLiveVideoPlaying by remember { mutableStateOf(true) }
+    var isLiveVideoBuffering by remember { mutableStateOf(false) }
 
     // Video aspect ratio, zoom scale, and pan
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -1457,6 +1460,9 @@ fun LiveClassPage(
                                     videoScale = videoScale,
                                     videoPan = videoPan,
                                     syncToLiveTrigger = syncToLiveTrigger,
+                                    isPausedByUser = isPausedByUser,
+                                    onIsPlayingChanged = { isLiveVideoPlaying = it },
+                                    onBufferingChanged = { isLiveVideoBuffering = it },
                                     onLiveDelayChanged = { liveDelaySeconds = it },
                                     onAvailableResolutionsChanged = { availableResolutions = it },
                                     onCurrentPlayingResolutionChanged = { currentPlayingResolution = it },
@@ -1516,6 +1522,42 @@ fun LiveClassPage(
                                     }
                             )
 
+                            // Center Play / Pause Button Overlay (Visible when controls are shown or when paused)
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = (showPlayerControls || isPausedByUser) && videoScale <= 1.05f && !isLiveVideoBuffering,
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                                modifier = Modifier.align(Alignment.Center)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.Black.copy(alpha = 0.68f),
+                                    border = BorderStroke(
+                                        1.5.dp,
+                                        if (isPausedByUser) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.75f)
+                                    ),
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            lastUserInteractionTime = System.currentTimeMillis()
+                                            isPausedByUser = !isPausedByUser
+                                        }
+                                ) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPausedByUser) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                            contentDescription = if (isPausedByUser) "Play Live Class" else "Pause Live Class",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             // Quick Reset Pill when video is zoomed in
                             if (videoScale > 1.05f) {
                                 Surface(
@@ -1556,6 +1598,8 @@ fun LiveClassPage(
                             // Uses weighted Left Container + Unweighted Fixed Right Container
                             // so Resolution Switcher is 100% GUARANTEED to stay visible even if studentName is 200+ chars!
                             // ----------------------------------------------------
+                            val isBehindLiveEdge = isPausedByUser || liveDelaySeconds > 15
+
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = showPlayerControls,
                                 enter = fadeIn(),
@@ -1614,11 +1658,12 @@ fun LiveClassPage(
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
                                                 color = if (effectiveIsLive) {
-                                                    if (liveDelaySeconds > 3) Color(0xFFE11D48) else Color(0xFFDC2626)
+                                                    if (isBehindLiveEdge) Color(0xFFE11D48) else Color(0xFFDC2626)
                                                 } else Color(0xFF059669),
                                                 modifier = Modifier.clickable {
                                                     if (effectiveIsLive) {
                                                         lastUserInteractionTime = System.currentTimeMillis()
+                                                        isPausedByUser = false
                                                         syncToLiveTrigger = System.currentTimeMillis()
                                                     }
                                                 }
@@ -1636,7 +1681,11 @@ fun LiveClassPage(
                                                     )
                                                     Text(
                                                         text = if (effectiveIsLive) {
-                                                            if (liveDelaySeconds > 3) "LIVE (-${liveDelaySeconds}s)" else "LIVE"
+                                                            when {
+                                                                isPausedByUser -> "LIVE (PAUSED)"
+                                                                isBehindLiveEdge -> "LIVE (-${liveDelaySeconds}s)"
+                                                                else -> "LIVE"
+                                                            }
                                                         } else "REC",
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.ExtraBold,
@@ -1797,7 +1846,7 @@ fun LiveClassPage(
                             }
 
                             // ----------------------------------------------------
-                            // BOTTOM CONTROLS OVERLAY (Live Sync, Fit/Zoom, PiP, Slides, Fullscreen)
+                            // BOTTOM CONTROLS OVERLAY (Play/Pause, Live Sync, Fit/Zoom, PiP, Slides, Fullscreen)
                             // ----------------------------------------------------
                             androidx.compose.animation.AnimatedVisibility(
                                 visible = showPlayerControls,
@@ -1822,7 +1871,7 @@ fun LiveClassPage(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        // Left Live Edge Sync Indicator
+                                        // Left Play/Pause + Live Edge Sync Indicator
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1830,17 +1879,55 @@ fun LiveClassPage(
                                                 .weight(1f, fill = false)
                                                 .padding(end = 6.dp)
                                         ) {
+                                            // Live Play / Pause Pill Button
                                             Surface(
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = if (liveDelaySeconds > 3) Color(0xFFE11D48).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.6f),
+                                                color = if (isPausedByUser) Color(0xFF10B981).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.65f),
                                                 border = BorderStroke(
                                                     1.dp,
-                                                    if (liveDelaySeconds > 3) Color(0xFFF43F5E) else Color(0xFF10B981).copy(alpha = 0.7f)
+                                                    if (isPausedByUser) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.7f)
                                                 ),
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
                                                         lastUserInteractionTime = System.currentTimeMillis()
+                                                        isPausedByUser = !isPausedByUser
+                                                    }
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isPausedByUser) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                                        contentDescription = if (isPausedByUser) "Play" else "Pause",
+                                                        tint = if (isPausedByUser) Color(0xFF34D399) else Color(0xFF38BDF8),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Text(
+                                                        text = if (isPausedByUser) "প্লে" else "পজ",
+                                                        fontSize = 10.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                            }
+
+                                            // Live Edge Sync Pill
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isBehindLiveEdge) Color(0xFFE11D48).copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.6f),
+                                                border = BorderStroke(
+                                                    1.dp,
+                                                    if (isBehindLiveEdge) Color(0xFFF43F5E) else Color(0xFF10B981).copy(alpha = 0.7f)
+                                                ),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        lastUserInteractionTime = System.currentTimeMillis()
+                                                        isPausedByUser = false
                                                         syncToLiveTrigger = System.currentTimeMillis()
                                                     }
                                             ) {
@@ -1853,13 +1940,13 @@ fun LiveClassPage(
                                                         modifier = Modifier
                                                             .size(6.5.dp)
                                                             .clip(CircleShape)
-                                                            .background(if (liveDelaySeconds > 3) Color(0xFFF43F5E) else Color(0xFF10B981))
+                                                            .background(if (isBehindLiveEdge) Color(0xFFF43F5E) else Color(0xFF10B981))
                                                     )
                                                     Text(
-                                                        text = if (liveDelaySeconds > 3) {
-                                                            "⚡ ${liveDelaySeconds}s পিছিয়ে • সিঙ্ক করুন"
-                                                        } else {
-                                                            "লাইভ সিঙ্কড"
+                                                        text = when {
+                                                            isPausedByUser -> "⚡ লাইভে ফিরুন"
+                                                            isBehindLiveEdge -> "⚡ ${liveDelaySeconds}s পিছিয়ে • সিঙ্ক করুন"
+                                                            else -> "লাইভ সিঙ্কড"
                                                         },
                                                         fontSize = 10.5.sp,
                                                         fontWeight = FontWeight.Bold,

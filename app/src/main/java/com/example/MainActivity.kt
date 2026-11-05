@@ -75,9 +75,10 @@ class MainActivity : ComponentActivity() {
         ClassAlarmScheduler.createNotificationChannel(this)
         ShikhoNotificationManager.createNotificationChannels(this)
 
-        // 1.1 Purge any bloated cache on background IO thread to prevent startup UI freeze
+        // 1.1 Purge any installed/stale APK files and bloated cache on background IO thread
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
+                com.example.update.InAppApkUpdater.cleanupInstalledOrStaleApks(applicationContext)
                 com.example.utils.AppCacheManager.autoTrimExcessiveCache(applicationContext)
             } catch (_: Throwable) {}
         }
@@ -136,6 +137,9 @@ class MainActivity : ComponentActivity() {
                         requiredUpdateState.value = info
                     } else if (info != null) {
                         requiredUpdateState.value = null
+                        withContext(Dispatchers.IO) {
+                            com.example.update.InAppApkUpdater.clearAllDownloadedApks(applicationContext)
+                        }
                     }
                     delay(15_000L)
                 }
@@ -342,12 +346,14 @@ class MainActivity : ComponentActivity() {
             com.example.notification.OneSignalPushManager.triggerSyncAsync(applicationContext)
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 try {
+                    com.example.update.InAppApkUpdater.cleanupInstalledOrStaleApks(applicationContext)
                     val info = AppUpdateRepository.fetchLatestUpdate()
                     if (info != null && AppUpdateRepository.shouldBlockApp(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             requiredUpdateState.value = info
                         }
                     } else if (info != null) {
+                        com.example.update.InAppApkUpdater.clearAllDownloadedApks(applicationContext)
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             requiredUpdateState.value = null
                         }

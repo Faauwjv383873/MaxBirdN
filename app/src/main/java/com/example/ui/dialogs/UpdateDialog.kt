@@ -261,6 +261,11 @@ fun UpdateDialog(
     val isDowngrade = AppUpdateRepository.isDowngradeRequired(updateInfo, BuildConfig.VERSION_CODE)
     val downloadState by InAppApkUpdater.downloadState.collectAsState()
 
+    // Ensure state is synchronized with the current target version & URL and verify cached APK still exists
+    LaunchedEffect(updateInfo.versionCode, updateInfo.versionName, updateInfo.downloadUrl) {
+        InAppApkUpdater.syncDialogForTarget(context, updateInfo)
+    }
+
     // Resume installation automatically when returning from Android "Install Unknown Apps" settings
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -268,6 +273,8 @@ fun UpdateDialog(
                 val current = InAppApkUpdater.downloadState.value
                 if (current is ApkUpdateDownloadState.PermissionRequired && InAppApkUpdater.canInstallPackages(context)) {
                     InAppApkUpdater.triggerInstallOrRequestPermission(context, current.apkFile)
+                } else {
+                    InAppApkUpdater.syncDialogForTarget(context, updateInfo)
                 }
             }
         }
@@ -352,11 +359,11 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(5.dp))
 
                 Text(
-                    text = "অ্যাপের ভেতরেই সরাসরি নতুন সংস্করণ ডাউনলোড হয়ে স্বয়ংক্রিয়ভাবে আপডেট হয়ে যাবে।",
-                    fontSize = 12.5.sp,
+                    text = "অ্যাপের ভেতরেই সরাসরি নতুন সংস্করণ ডাউনলোড হয়ে স্বয়ংক্রিয়ভাবে আপডেট হয়ে যাবে এবং আপডেট শেষে APK ক্যাশ নিজে থেকেই ক্লিয়ার হয়ে যাবে।",
+                    fontSize = 12.sp,
                     color = secondaryText,
                     textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
+                    lineHeight = 17.5.sp
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -467,7 +474,7 @@ fun UpdateDialog(
                     is ApkUpdateDownloadState.Idle -> {
                         Button(
                             onClick = {
-                                InAppApkUpdater.startDownloadAndInstall(context, updateInfo)
+                                InAppApkUpdater.startDownloadAndInstall(context, updateInfo, forceRedownload = false)
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -664,7 +671,7 @@ fun UpdateDialog(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "ডাউনলোড সম্পন্ন! ইনস্টলার চালু হয়েছে।",
+                                    text = "ডাউনলোড সম্পন্ন! ইনস্টল বাটনে ট্যাপ করুন:",
                                     fontSize = 12.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF10B981)
@@ -673,8 +680,10 @@ fun UpdateDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = {
-                                    if (apkFile != null) {
+                                    if (apkFile != null && apkFile.exists()) {
                                         InAppApkUpdater.triggerInstallOrRequestPermission(context, apkFile)
+                                    } else {
+                                        InAppApkUpdater.startDownloadAndInstall(context, updateInfo, forceRedownload = true)
                                     }
                                 },
                                 modifier = Modifier
@@ -690,6 +699,31 @@ fun UpdateDialog(
                                     fontSize = 14.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    InAppApkUpdater.startDownloadAndInstall(context, updateInfo, forceRedownload = true)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.6f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "নতুন করে আবার ডাউনলোড করুন",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0284C7)
                                 )
                             }
                         }
@@ -722,7 +756,7 @@ fun UpdateDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = {
-                                    InAppApkUpdater.startDownloadAndInstall(context, updateInfo)
+                                    InAppApkUpdater.startDownloadAndInstall(context, updateInfo, forceRedownload = true)
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()

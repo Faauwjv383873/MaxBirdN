@@ -188,6 +188,9 @@ fun LivePlayer(
     videoScale: Float = 1.0f,
     videoPan: Offset = Offset.Zero,
     syncToLiveTrigger: Long = 0L,
+    isPausedByUser: Boolean = false,
+    onIsPlayingChanged: ((Boolean) -> Unit)? = null,
+    onBufferingChanged: ((Boolean) -> Unit)? = null,
     onLiveDelayChanged: ((seconds: Int) -> Unit)? = null,
     onAvailableResolutionsChanged: ((List<LiveResolutionOption>) -> Unit)? = null,
     onCurrentPlayingResolutionChanged: ((String) -> Unit)? = null,
@@ -206,8 +209,9 @@ fun LivePlayer(
     }
 
     var isEnded by remember(activeStreamUrl) { mutableStateOf(false) }
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(!isPausedByUser) }
     var isBuffering by remember(activeStreamUrl) { mutableStateOf(true) }
+    var showBufferingSpinner by remember(activeStreamUrl) { mutableStateOf(false) }
     var isPlayerError by remember(activeStreamUrl) { mutableStateOf(false) }
     var playerErrorMessage by remember(activeStreamUrl) { mutableStateOf("") }
     var retryCount by remember(activeStreamUrl) { mutableIntStateOf(0) }
@@ -219,8 +223,50 @@ fun LivePlayer(
     var currentPlayingResLabel by remember(activeStreamUrl) { mutableStateOf("") }
 
     val currentSelectedResState = rememberUpdatedState(selectedResolution)
+    val isPausedByUserState = rememberUpdatedState(isPausedByUser)
+    val isPlayingCallbackState = rememberUpdatedState(onIsPlayingChanged)
+    val bufferingCallbackState = rememberUpdatedState(onBufferingChanged)
     val availableResCallbackState = rememberUpdatedState(onAvailableResolutionsChanged)
     val playingResCallbackState = rememberUpdatedState(onCurrentPlayingResolutionChanged)
+
+    // Debounce buffering spinner by 400ms so micro-transitions never flash a spinner on screen
+    LaunchedEffect(isBuffering, isPausedByUser) {
+        bufferingCallbackState.value?.invoke(isBuffering && !isPausedByUser)
+        if (isBuffering && !isPausedByUser) {
+            delay(400L)
+            showBufferingSpinner = true
+        } else {
+            showBufferingSpinner = false
+        }
+    }
+
+    // Acquire High-Performance Low-Latency Radio/Wi-Fi Lock during Live Class streaming
+    DisposableEffect(Unit) {
+        val wifiLock = try {
+            val wifiManager = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val lockMode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                @Suppress("DEPRECATION")
+                android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wifiManager?.createWifiLock(lockMode, "ShikhoLiveClass:HighPowerStreamLock")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+        onDispose {
+            try {
+                if (wifiLock?.isHeld == true) {
+                    wifiLock.release()
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     // Merge HLS manifest resolutions & ExoPlayer track resolutions into a single 100% real list
     LaunchedEffect(hlsManifestResolutions, exoTrackResolutions, currentPlayingResLabel) {
@@ -264,7 +310,7 @@ fun LivePlayer(
         }
     }
 
-    // Initialize ExoPlayer with resilient load control
+    // Initialize ExoPlayer with high-speed Live LoadControl
     val exoPlayer = remember(activeStreamUrl) {
         com.example.player.ShikhoPlayerManager.buildExoPlayer(
             context = context,
@@ -282,7 +328,7 @@ fun LivePlayer(
 
             setMediaSource(mediaSource)
             prepare()
-            playWhenReady = true
+            playWhenReady = !isPausedByUser
             volume = if (isMuted) 0f else 1f
             setPlaybackSpeed(playbackSpeed)
         }
@@ -414,6 +460,13 @@ fun LivePlayer(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                isPlayingCallbackState.value?.invoke(playing)
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                val activelyPlaying = playWhenReady && exoPlayer.playbackState == Player.STATE_READY
+                isPlaying = activelyPlaying || playWhenReady
+                isPlayingCallbackState.value?.invoke(isPlaying)
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -477,11 +530,14 @@ fun LivePlayer(
                     error.cause is BehindLiveWindowException
                 ) {
                     Log.d(TAG, "BehindLiveWindowException encountered; syncing to live window...")
-                    if (retryCount < 2) {
+                    if (retryCount < 3) {
                         retryCount++
                         exoPlayer.seekToDefaultPosition()
                         exoPlayer.prepare()
-                        exoPlayer.play()
+                        if (!isPausedByUserState.value) {
+                            exoPlayer.playWhenReady = true
+                            exoPlayer.play()
+                        }
                         return
                     } else {
                         if (currentUrlIndex + 1 < allUrls.size) {
@@ -519,14 +575,17 @@ fun LivePlayer(
                 }
 
                 // 3. Transient errors auto-retry
-                if (retryCount < 3) {
+                if (retryCount < 4) {
                     retryCount++
                     coroutineScope.launch {
-                        delay(1200L * retryCount)
+                        delay(900L * retryCount)
                         try {
                             exoPlayer.seekToDefaultPosition()
                             exoPlayer.prepare()
-                            exoPlayer.play()
+                            if (!isPausedByUserState.value) {
+                                exoPlayer.playWhenReady = true
+                                exoPlayer.play()
+                            }
                         } catch (_: Exception) {
                         }
                     }
@@ -568,6 +627,27 @@ fun LivePlayer(
         }
     }
 
+    // Apply user Play/Pause state cleanly
+    LaunchedEffect(isPausedByUser, exoPlayer) {
+        try {
+            if (isPausedByUser) {
+                exoPlayer.playWhenReady = false
+                exoPlayer.pause()
+                isPlaying = false
+                isPlayingCallbackState.value?.invoke(false)
+            } else {
+                if (exoPlayer.playbackState == Player.STATE_IDLE) {
+                    exoPlayer.prepare()
+                }
+                exoPlayer.playWhenReady = true
+                exoPlayer.play()
+                isPlaying = true
+                isPlayingCallbackState.value?.invoke(true)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     // Apply mute state
     LaunchedEffect(isMuted, exoPlayer) {
         try {
@@ -592,23 +672,25 @@ fun LivePlayer(
     // Connect PiP Controller
     com.example.utils.SetupPipController(player = exoPlayer, isPlaying = isPlaying)
 
-    // Sync to live edge trigger
+    // Sync to live edge trigger (seeks to safe 2-segment buffered live window instead of 0ms unbuffered edge)
     LaunchedEffect(syncToLiveTrigger) {
         if (syncToLiveTrigger > 0L) {
             try {
                 if (exoPlayer.isCurrentMediaItemLive) {
+                    exoPlayer.seekToDefaultPosition()
+                } else {
                     val duration = exoPlayer.duration
-                    if (duration != C.TIME_UNSET && duration > 0L) {
-                        exoPlayer.seekTo(duration)
+                    if (duration != C.TIME_UNSET && duration > 5000L) {
+                        exoPlayer.seekTo((duration - 4500L).coerceAtLeast(0L))
                     } else {
                         exoPlayer.seekToDefaultPosition()
                     }
-                } else {
-                    exoPlayer.seekToDefaultPosition()
                 }
                 exoPlayer.setPlaybackSpeed(1.0f)
                 exoPlayer.playWhenReady = true
                 exoPlayer.play()
+                isPlaying = true
+                isPlayingCallbackState.value?.invoke(true)
                 Toast.makeText(context, "লাইভ স্ট্রিমে সিঙ্ক করা হয়েছে ✨", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.w(TAG, "Error seeking to live: ${e.message}")
@@ -677,8 +759,8 @@ fun LivePlayer(
             )
         }
 
-        // Smooth Buffering Indicator Overlay
-        if (isBuffering && !isEnded && !isPlayerError && !isPipActive) {
+        // Smooth Debounced Buffering Indicator Overlay
+        if (showBufferingSpinner && !isEnded && !isPlayerError && !isPipActive && !isPausedByUser) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center

@@ -101,6 +101,11 @@ object AppCacheManager {
      */
     fun clearAllAppCache(context: Context): Boolean {
         return try {
+            // 0. Wipe any downloaded APK update files
+            try {
+                com.example.update.InAppApkUpdater.clearAllDownloadedApks(context)
+            } catch (_: Throwable) {}
+
             // 1. Release ExoPlayer SimpleCache first
             ShikhoPlayerManager.clearMediaCache(context)
 
@@ -188,9 +193,11 @@ object AppCacheManager {
     /**
      * Auto-trims cache if it grows beyond a reasonable threshold (250MB),
      * while preserving ExoPlayer media cache and PDF preview cache.
+     * Always purges installed or stale APK files first.
      */
     fun autoTrimExcessiveCache(context: Context) {
         try {
+            com.example.update.InAppApkUpdater.cleanupInstalledOrStaleApks(context)
             val totalBytes = getTotalCacheSizeBytes(context)
             if (totalBytes > 250L * 1024L * 1024L) {
                 Log.w(TAG, "Cache size exceeded threshold (${totalBytes / (1024 * 1024)}MB). Auto-trimming non-essential temporary items...")

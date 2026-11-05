@@ -160,19 +160,55 @@ object ShikhoPlayerManager {
         }
     }
 
-    // High-performance streaming HTTP client with large connection pool and keep-alive
+    // High-performance streaming HTTP client with custom Turbo SocketFactory, large connection pool, and keep-alive
     val streamingHttpClient: OkHttpClient by lazy {
         val dispatcher = Dispatcher().apply {
             maxRequests = 128
             maxRequestsPerHost = 64
         }
+        val highThroughputSocketFactory = object : javax.net.SocketFactory() {
+            private val delegate = javax.net.SocketFactory.getDefault()
+            private fun tuneSocket(socket: java.net.Socket): java.net.Socket {
+                try {
+                    android.net.TrafficStats.setThreadStatsTag(0xF100)
+                    socket.tcpNoDelay = true
+                    socket.keepAlive = true
+                    socket.receiveBufferSize = 512 * 1024 // 512KB receive window for maximum mobile/Wi-Fi throughput
+                    socket.sendBufferSize = 128 * 1024
+                    socket.setPerformancePreferences(0, 2, 1) // Low latency + High bandwidth priority
+                    socket.trafficClass = 0x10 or 0x08 // IPTOS_LOWDELAY | IPTOS_THROUGHPUT
+                } catch (_: Exception) {
+                }
+                return socket
+            }
+
+            override fun createSocket(): java.net.Socket = tuneSocket(delegate.createSocket())
+            override fun createSocket(host: String?, port: Int): java.net.Socket =
+                tuneSocket(delegate.createSocket(host, port))
+            override fun createSocket(
+                host: String?,
+                port: Int,
+                localHost: java.net.InetAddress?,
+                localPort: Int
+            ): java.net.Socket = tuneSocket(delegate.createSocket(host, port, localHost, localPort))
+            override fun createSocket(host: java.net.InetAddress?, port: Int): java.net.Socket =
+                tuneSocket(delegate.createSocket(host, port))
+            override fun createSocket(
+                address: java.net.InetAddress?,
+                port: Int,
+                localAddress: java.net.InetAddress?,
+                localPort: Int
+            ): java.net.Socket = tuneSocket(delegate.createSocket(address, port, localAddress, localPort))
+        }
+
         OkHttpClient.Builder()
             .apply { com.example.security.AntiTamperSecurity.applyToOkHttpBuilder(this) }
+            .socketFactory(highThroughputSocketFactory)
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(64, 5, TimeUnit.MINUTES))
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .writeTimeout(25, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
@@ -195,7 +231,8 @@ object ShikhoPlayerManager {
                     "Referer" to referer,
                     "Origin" to "https://shikho.com",
                     "Accept-Encoding" to "identity",
-                    "Connection" to "Keep-Alive"
+                    "Connection" to "Keep-Alive",
+                    "Cache-Control" to "no-transform"
                 )
             )
     }
@@ -216,14 +253,12 @@ object ShikhoPlayerManager {
     }
 
     /**
-     * Ultra-Smooth Zero-Buffering LoadControl:
-     * - minBufferMs: 65,000ms (65s minimum floor). Even at 2X speed, the moment remaining buffer
-     *   reaches ~1 minute, ExoPlayer instantly triggers aggressive loading back up to 3 minutes!
+     * Ultra-Smooth Zero-Buffering LoadControl for Recorded/Animated classes:
+     * - minBufferMs: 65,000ms (65s minimum floor).
      * - maxBufferMs: 180,000ms (3 minutes continuous pre-buffer).
      * - bufferForPlaybackMs: 600ms for instantaneous video start.
      * - bufferForPlaybackAfterRebufferMs: 1,200ms for rapid error recovery.
      * - backBufferDurationMs: 60,000ms (1 minute) retained for instant rewind without re-buffering.
-     * - prioritizeTimeOverSizeThresholds: true, with 64MB buffer memory allocation to prevent byte throttling on 720p/1080p.
      */
     fun createAggressiveLoadControl(): DefaultLoadControl {
         return DefaultLoadControl.Builder()
@@ -243,41 +278,64 @@ object ShikhoPlayerManager {
     }
 
     /**
-     * Dynamic Adaptive Bitrate (ABR) BandwidthMeter seeded with 3.0 Mbps estimate (~720p HD ready)
-     * so video opens instantly in high quality without initial pixelation or stalls.
+     * Dedicated High-Power Live Stream LoadControl:
+     * - Eliminates repeated micro-buffering on mobile data (4G/5G/Wi-Fi) by maintaining a
+     *   rock-solid 2.2s initial playback cushion and 3.8s post-rebuffer cushion before resuming,
+     *   while aggressively pre-fetching up to 60s of live segments with 6x memory headroom.
      */
-    fun createBandwidthMeter(context: Context): DefaultBandwidthMeter {
-        return DefaultBandwidthMeter.Builder(context)
-            .setInitialBitrateEstimate(3_000_000L) // 3.0 Mbps initial estimate (~720p HD ready)
+    fun createLiveHighSpeedLoadControl(): DefaultLoadControl {
+        return DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 16_000,
+                /* maxBufferMs = */ 60_000,
+                /* bufferForPlaybackMs = */ 2_200,
+                /* bufferForPlaybackAfterRebufferMs = */ 3_800
+            )
+            .setBackBuffer(
+                /* backBufferDurationMs = */ 30_000,
+                /* retainBackBufferFromKeyframe = */ true
+            )
+            .setTargetBufferBytes(DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES * 6)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
     }
 
     /**
-     * Adaptive Track Selection Factory configured for smooth, continuous bitrate scaling:
-     * - 6s requirement before stepping up quality (stable HD playback).
-     * - 1.5s rapid response to step down quality on network drops (prevents buffering stalls).
-     * - 0.85 bandwidth fraction for maximum smooth utilization.
+     * Dynamic Adaptive Bitrate (ABR) BandwidthMeter seeded with 3.5 Mbps estimate (~720p HD ready)
+     * and automatic network-type reset so mobile data & Wi-Fi bandwidth are utilized at maximum power.
+     */
+    fun createBandwidthMeter(context: Context): DefaultBandwidthMeter {
+        return DefaultBandwidthMeter.Builder(context)
+            .setInitialBitrateEstimate(3_500_000L) // 3.5 Mbps initial estimate
+            .setResetOnNetworkTypeChange(true)
+            .build()
+    }
+
+    /**
+     * Adaptive Track Selection Factory configured to harness 92% of mobile internet speed:
+     * - 4.5s requirement before stepping up quality (fast HD lock).
+     * - 1.0s rapid response to step down quality on temporary mobile signal drops (prevents buffering stalls).
+     * - 0.92f bandwidth fraction for maximum mobile internet utilization.
      */
     fun createAdaptiveTrackSelectionFactory(): AdaptiveTrackSelection.Factory {
         return AdaptiveTrackSelection.Factory(
-            /* minDurationForQualityIncreaseMs = */ 6_000,
-            /* maxDurationForQualityDecreaseMs = */ 1_500,
-            /* minDurationToRetainAfterDiscardMs = */ 30_000,
-            /* bandwidthFraction = */ 0.85f
+            /* minDurationForQualityIncreaseMs = */ 4_500,
+            /* maxDurationForQualityDecreaseMs = */ 1_000,
+            /* minDurationToRetainAfterDiscardMs = */ 25_000,
+            /* bandwidthFraction = */ 0.92f
         )
     }
 
     /**
-     * Resilient LoadErrorHandlingPolicy: Automatically retries up to 12 times with progressive
-     * backoff during temporary network dips, Wi-Fi glitches, or cellular handshakes so
-     * 2-3 hour long lecture classes run smoothly without fatal buffering aborts.
+     * Resilient LoadErrorHandlingPolicy: Automatically retries up to 16 times with fast
+     * recovery during temporary mobile network handshakes or cellular tower switches.
      */
     fun createResilientLoadErrorHandlingPolicy(): androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy {
-        return object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(12) {
+        return object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(16) {
             override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                return (loadErrorInfo.errorCount * 500L).coerceIn(300L, 2500L)
+                return (loadErrorInfo.errorCount * 350L).coerceIn(250L, 2000L)
             }
-            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 12
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 16
         }
     }
 
@@ -308,13 +366,14 @@ object ShikhoPlayerManager {
                     setMimeType(MimeTypes.APPLICATION_M3U8)
                 }
                 if (isLive || classType == PlayerClassType.LIVE) {
+                    // 7.5s target offset provides a ~2 HLS segment cushion so mobile data fluctuations never stall playback
                     setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(3000L)
-                            .setMinOffsetMs(1000L)
-                            .setMaxOffsetMs(15000L)
-                            .setMaxPlaybackSpeed(1.04f)
-                            .setMinPlaybackSpeed(0.96f)
+                            .setTargetOffsetMs(7500L)
+                            .setMinOffsetMs(3500L)
+                            .setMaxOffsetMs(25000L)
+                            .setMaxPlaybackSpeed(1.03f)
+                            .setMinPlaybackSpeed(0.97f)
                             .build()
                     )
                 }
@@ -326,7 +385,7 @@ object ShikhoPlayerManager {
         } else if (dataSourceFactory != null) {
             dataSourceFactory
         } else if (isLive || classType == PlayerClassType.LIVE) {
-            // CRITICAL FIX: Never cache live stream segments to prevent 20-second freezes and stale cache playback
+            // Never disk-cache live stream segments; use direct high-throughput OkHttp sockets
             createHttpDataSourceFactory()
         } else if (context != null) {
             createCacheDataSourceFactory(context)
@@ -349,9 +408,8 @@ object ShikhoPlayerManager {
     }
 
     /**
-     * Builds and configures an ExoPlayer instance with YouTube-level zero-buffering LoadControl,
-     * 512MB SimpleCache disk backing, BandwidthMeter, AdaptiveTrackSelector (480p seed),
-     * OkHttp connection pooling, and full AudioAttributes.
+     * Builds and configures an ExoPlayer instance with zero-buffering LoadControl,
+     * high-throughput OkHttp connection pooling, BandwidthMeter, and AdaptiveTrackSelector.
      */
     fun buildExoPlayer(
         context: Context,
@@ -360,7 +418,11 @@ object ShikhoPlayerManager {
         dataSourceFactory: DataSource.Factory? = null
     ): ExoPlayer {
         val retryPolicy = createResilientLoadErrorHandlingPolicy()
-        val effectiveDataSourceFactory = dataSourceFactory ?: createCacheDataSourceFactory(context)
+        val effectiveDataSourceFactory = dataSourceFactory ?: if (classType == PlayerClassType.LIVE) {
+            createHttpDataSourceFactory()
+        } else {
+            createCacheDataSourceFactory(context)
+        }
         val mediaSourceFactory = DefaultMediaSourceFactory(effectiveDataSourceFactory)
             .setLoadErrorHandlingPolicy(retryPolicy)
         val seekIncrement = if (classType == PlayerClassType.ANIMATED) 5000L else 10000L
@@ -370,7 +432,11 @@ object ShikhoPlayerManager {
             .build()
 
         val bandwidthMeter = createBandwidthMeter(context)
-        val loadControl = createAggressiveLoadControl()
+        val loadControl = if (classType == PlayerClassType.LIVE) {
+            createLiveHighSpeedLoadControl()
+        } else {
+            createAggressiveLoadControl()
+        }
         val effectiveTrackSelector = trackSelector ?: DefaultTrackSelector(context, createAdaptiveTrackSelectionFactory())
 
         val builder = ExoPlayer.Builder(context)
