@@ -22,7 +22,11 @@ data class AppUpdateInfo(
     val changelogBn: String,
     val downloadUrl: String,
     val buttonText: String,
-    val signatureHash: String?
+    val signatureHash: String?,
+    val isKillSwitchActive: Boolean = false,
+    val killSwitchTitleBn: String = "অ্যাপ আপডেটের কাজ চলছে",
+    val killSwitchMessageBn: String = "অ্যাপটিকে আরও উন্নত, দ্রুত ও নিরাপদ করতে বর্তমানে সার্ভার ও সিস্টেম আপডেটের কাজ চলছে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত। কাজ শেষ হওয়া মাত্রই অ্যাপটি পুনরায় চালু হবে।",
+    val estimatedBackTimeBn: String? = null
 )
 
 object AppUpdateRepository {
@@ -32,6 +36,21 @@ object AppUpdateRepository {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * Checks whether the app should be blocked due to either:
+     * 1. Global Kill Switch / Maintenance Mode (`info.isKillSwitchActive == true`), OR
+     * 2. Version mismatch (`isUpdateRequired == true`).
+     */
+    fun shouldBlockApp(
+        info: AppUpdateInfo?,
+        installedVersionCode: Int = BuildConfig.VERSION_CODE,
+        installedVersionName: String = BuildConfig.VERSION_NAME
+    ): Boolean {
+        if (info == null) return false
+        if (info.isKillSwitchActive) return true
+        return isUpdateRequired(info, installedVersionCode, installedVersionName)
+    }
 
     /**
      * Checks whether the installed app version differs from the required version in the database.
@@ -74,9 +93,8 @@ object AppUpdateRepository {
                 return@withContext null
             }
 
-            // Order by created_at.desc so if admin sets a lower required version (e.g. 7 after 8),
-            // the newest active configuration is always fetched.
-            val endpoint = "${supabaseUrl.trimEnd('/')}/rest/v1/app_updates?select=*&is_active=eq.true&order=created_at.desc&limit=1"
+            // Order by updated_at.desc,created_at.desc so the newest active configuration is always fetched.
+            val endpoint = "${supabaseUrl.trimEnd('/')}/rest/v1/app_updates?select=*&is_active=eq.true&order=updated_at.desc,created_at.desc&limit=1"
             val request = Request.Builder()
                 .url(endpoint)
                 .addHeader("apikey", anonKey)
@@ -95,16 +113,27 @@ object AppUpdateRepository {
                 if (jsonArray.length() == 0) return@withContext null
 
                 val obj = jsonArray.getJSONObject(0)
-                val versionCode = obj.optInt("latest_version_code", 0)
-                val versionName = obj.optString("latest_version_name", "1.0.0")
+                val versionCode = obj.optInt("latest_version_code", obj.optInt("version_code", 0))
+                val versionName = obj.optString("latest_version_name", obj.optString("version_name", "1.0.0"))
                 val minSupportedCode = obj.optInt("min_supported_version_code", versionCode)
-                // Strict version enforcement: only the exact active version in the database is allowed
                 val isForce = true
                 val titleBn = obj.optString("title", "নির্ধারিত সংস্করণ ইনস্টল করুন")
-                val changelogBn = obj.optString("changelog", "অ্যাপে নতুন ফিচার এবং সিকিউরিটি আপডেট যুক্ত করা হয়েছে।")
-                val downloadUrl = obj.optString("download_url", "https://t.me/")
-                val buttonText = obj.optString("button_text", "এখনই ডাউনলোড ও ইনস্টল করুন")
-                val signatureHash = obj.optString("apk_checksum_sha256", null)
+                val changelogBn = obj.optString("changelog", obj.optString("release_notes", "অ্যাপে নতুন ফিচার এবং সিকিউরিটি আপডেট যুক্ত করা হয়েছে।"))
+                val downloadUrl = obj.optString("download_url", obj.optString("apk_url", "")).trim()
+                val buttonText = obj.optString("button_text", "এখনই ডাউনলোড ও আপডেট করুন")
+                val signatureHash = obj.optString("apk_checksum_sha256", obj.optString("sha256_checksum", "")).takeIf { it.isNotBlank() }
+
+                val isKillSwitchActive = obj.optBoolean("is_kill_switch", false) ||
+                    obj.optBoolean("is_maintenance", false) ||
+                    obj.optBoolean("kill_switch", false)
+
+                val killSwitchTitleBn = obj.optString("kill_switch_title", "").trim().ifBlank {
+                    "অ্যাপ আপডেটের কাজ চলছে"
+                }
+                val killSwitchMessageBn = obj.optString("kill_switch_message", "").trim().ifBlank {
+                    "অ্যাপটিকে আরও উন্নত, দ্রুত ও নিরাপদ করতে বর্তমানে সার্ভার ও সিস্টেম আপডেটের কাজ চলছে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত। কাজ শেষ হওয়া মাত্রই অ্যাপটি পুনরায় চালু হবে।"
+                }
+                val estimatedBackTimeBn = obj.optString("estimated_back_time", "").trim().takeIf { it.isNotBlank() }
 
                 return@withContext AppUpdateInfo(
                     versionCode = versionCode,
@@ -115,7 +144,11 @@ object AppUpdateRepository {
                     changelogBn = changelogBn,
                     downloadUrl = downloadUrl,
                     buttonText = buttonText,
-                    signatureHash = signatureHash
+                    signatureHash = signatureHash,
+                    isKillSwitchActive = isKillSwitchActive,
+                    killSwitchTitleBn = killSwitchTitleBn,
+                    killSwitchMessageBn = killSwitchMessageBn,
+                    estimatedBackTimeBn = estimatedBackTimeBn
                 )
             }
         } catch (e: Throwable) {

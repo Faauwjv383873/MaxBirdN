@@ -248,11 +248,6 @@ fun HomeScreen(
                 unreadNotificationCount = activeNoticesCount,
                 onNotificationClick = {
                     onNavigateToNotificationHistory()
-                    Toast.makeText(
-                        context,
-                        "আগামী ৭ দিনের ক্লাসের এলার্ম ও নোটিফিকেশন সেট করা আছে!",
-                        Toast.LENGTH_SHORT
-                    ).show()
                 },
                 wallpaperConfig = wallpaperConfig
             )
@@ -262,8 +257,8 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .offset(y = (-14).dp)
-                    .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)),
-                shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+                    .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)),
+                shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
                 color = MaterialTheme.colorScheme.background,
                 border = BorderStroke(
                     width = 1.dp,
@@ -279,23 +274,14 @@ fun HomeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 12.dp)
+                        .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 12.dp)
                         .graphicsLayer {
                             alpha = contentAlpha
                             translationY = contentTranslation
                         },
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Subtle top drag-handle aesthetic pill
-                    Box(
-                        modifier = Modifier
-                            .width(42.dp)
-                            .height(4.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                    )
-
                     // ===== LOGIC: Banner condition (unchanged) =====
                     if (displayName == "শিক্ষার্থী" || uiState.userFirstName.isBlank()) {
                         AccountCompletionBanner(onCompleteClick = onNavigateToEditProfile)
