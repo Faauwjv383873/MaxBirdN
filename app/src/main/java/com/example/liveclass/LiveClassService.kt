@@ -267,24 +267,28 @@ class LiveClassService(
         var resolvedTeacherToken: String? = null
         if (includeTeacherListener && !token.isNullOrBlank()) {
             val candidatePayloads = mutableListOf<JSONObject>()
+            // Request a Co-Session teacher token WITHOUT colliding with the real teacher's raw user_id
+            // so 100ms SFU never kicks/disconnects the active teacher from the live class!
+            candidatePayloads.add(
+                JSONObject().apply {
+                    put("room_id", cleanRoomId)
+                    put("role", "teacher")
+                    if (!teacherName.isNullOrBlank()) put("user_name", teacherName.trim())
+                    put("type", "web")
+                }
+            )
             if (!teacherUserId.isNullOrBlank()) {
+                val coSessionTeacherUserId = "${teacherUserId.trim()}_co_${System.currentTimeMillis() % 10000}"
                 candidatePayloads.add(
                     JSONObject().apply {
                         put("room_id", cleanRoomId)
-                        put("user_id", teacherUserId.trim())
+                        put("user_id", coSessionTeacherUserId)
                         put("role", "teacher")
                         if (!teacherName.isNullOrBlank()) put("user_name", teacherName.trim())
                         put("type", "web")
                     }
                 )
             }
-            candidatePayloads.add(
-                JSONObject().apply {
-                    put("room_id", cleanRoomId)
-                    put("role", "teacher")
-                    put("type", "web")
-                }
-            )
             for (payload in candidatePayloads) {
                 val candToken = requestHmsTokenInternal(payload, userToken).getOrNull()
                 if (!candToken.isNullOrBlank()) {

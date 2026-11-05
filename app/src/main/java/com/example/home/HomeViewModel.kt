@@ -150,7 +150,8 @@ class HomeViewModel(
             weeklyRoutine = emptyList(),
             programPhases = emptyList(),
             selectedSubjectCodes = savedSubjects,
-            courseSubjects = initialSubjects
+            courseSubjects = initialSubjects,
+            featureSubjects = initialSubjects
         )
         fetchWeeklyRoutine(program)
         loadCourseSubjects(program)
@@ -228,11 +229,14 @@ class HomeViewModel(
         }
     }
 
-    fun loadCourseSubjects(program: EnrolledProgram) {
+    fun loadCourseSubjects(program: EnrolledProgram, phaseIdOverride: String? = null) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isCourseSubjectsLoading = true)
+            _uiState.value = _uiState.value.copy(
+                isCourseSubjectsLoading = true,
+                isFeatureSubjectsLoading = true
+            )
             val subjectsList = mutableListOf<AcademicSubjectItem>()
-            
+
             // 1. Start with subjects already attached to EnrolledProgram if any
             program.subjects?.let { subs ->
                 subjectsList.addAll(subs.map {
@@ -240,33 +244,74 @@ class HomeViewModel(
                 })
             }
 
-            // 2. Try fetching full subjects via GetAcademicSubjects
-            try {
-                val subjectsQuery = GraphQlQuery(
-                    operationName = "GetAcademicSubjects",
-                    query = """
-                        query GetAcademicSubjects(${'$'}programId: String!) {
-                          academicProgram(id: ${'$'}programId, show_subject_progress_bar: true) {
-                            subjects {
-                              code
-                              color_code
-                              display_bn
-                              icon
-                            }
-                          }
-                        }
-                    """.trimIndent(),
-                    variables = mapOf("programId" to program.id)
-                )
-                val res = apiService.getAcademicSubjects(subjectsQuery)
-                val fetched = res.data?.academicProgram?.subjects
-                if (!fetched.isNullOrEmpty()) {
-                    subjectsList.clear()
-                    subjectsList.addAll(fetched)
-                }
-            } catch (_: Exception) {}
+            val resolvedPhaseId = phaseIdOverride
+                ?: _uiState.value.programPhases.firstOrNull { it.is_current == true }?.id
+                ?: _uiState.value.programPhases.firstOrNull { it.status.equals("ACTIVE", ignoreCase = true) }?.id
+                ?: _uiState.value.programPhases.firstOrNull()?.id
+                ?: sessionManager.getActiveProgramPhaseId()
 
-            // 3. Try fallback to GetPrioritySubjects or SubjectHierarchy
+            var fetchedFromApi: List<AcademicSubjectItem>? = null
+
+            // 2a. Try fetching full subjects for this course with phase_id (matches CourseRepository)
+            if (!resolvedPhaseId.isNullOrBlank()) {
+                try {
+                    val phaseSubjectsQuery = GraphQlQuery(
+                        operationName = "GetAcademicSubjects",
+                        query = """
+                            query GetAcademicSubjects(${'$'}programId: String!, ${'$'}phase_id: String) {
+                              academicProgram(id: ${'$'}programId, show_subject_progress_bar: true, phase_id: ${'$'}phase_id) {
+                                subjects {
+                                  code
+                                  color_code
+                                  display_bn
+                                  icon
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("programId" to program.id, "phase_id" to resolvedPhaseId)
+                    )
+                    val res = apiService.getAcademicSubjects(phaseSubjectsQuery)
+                    val list = res.data?.academicProgram?.subjects
+                    if (!list.isNullOrEmpty()) {
+                        fetchedFromApi = list
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 2b. Fallback: Try fetching full subjects for this course without phase_id
+            if (fetchedFromApi.isNullOrEmpty()) {
+                try {
+                    val subjectsQuery = GraphQlQuery(
+                        operationName = "GetAcademicSubjects",
+                        query = """
+                            query GetAcademicSubjects(${'$'}programId: String!) {
+                              academicProgram(id: ${'$'}programId, show_subject_progress_bar: true) {
+                                subjects {
+                                  code
+                                  color_code
+                                  display_bn
+                                  icon
+                                }
+                              }
+                            }
+                        """.trimIndent(),
+                        variables = mapOf("programId" to program.id)
+                    )
+                    val res = apiService.getAcademicSubjects(subjectsQuery)
+                    val list = res.data?.academicProgram?.subjects
+                    if (!list.isNullOrEmpty()) {
+                        fetchedFromApi = list
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if (!fetchedFromApi.isNullOrEmpty()) {
+                subjectsList.clear()
+                subjectsList.addAll(fetchedFromApi)
+            }
+
+            // 3. Try fallback to UserPrioritySubjects for this specific program if still empty
             if (subjectsList.isEmpty()) {
                 try {
                     val pQuery = GraphQlQuery(
@@ -290,15 +335,30 @@ class HomeViewModel(
                     val pSubs = pRes.data?.userPrioritySubjects?.subjects
                     if (!pSubs.isNullOrEmpty()) {
                         pSubs.forEach { p ->
-                            subjectsList.add(AcademicSubjectItem(code = p.code, color_code = p.color_code, display_bn = p.display_bn ?: p.display, icon = p.icon))
+                            subjectsList.add(
+                                AcademicSubjectItem(
+                                    code = p.code,
+                                    color_code = p.color_code,
+                                    display_bn = p.display_bn ?: p.display,
+                                    icon = p.icon
+                                )
+                            )
                         }
                     }
                 } catch (_: Exception) {}
             }
 
-            // Deduplicate by code
-            val distinctSubjects = subjectsList.distinctBy { it.code ?: it.display_bn }
-            
+            // Guard against race conditions if user switched to a different course while loading
+            val currentActiveId = _uiState.value.activeProgram?.id
+            if (currentActiveId != null && currentActiveId != program.id) {
+                return@launch
+            }
+
+            // Deduplicate by code / display_bn and filter out blank entries
+            val distinctSubjects = subjectsList
+                .filter { !it.code.isNullOrBlank() || !it.display_bn.isNullOrBlank() }
+                .distinctBy { it.code ?: it.display_bn }
+
             // Load saved preference; if user has not customized yet (savedSelection == null), default ALL subjects selected!
             val savedSelection = sessionManager.getSelectedSubjectCodes(program.id)
             val allCodes = distinctSubjects.mapNotNull { it.code ?: it.display_bn }.toSet()
@@ -306,91 +366,23 @@ class HomeViewModel(
 
             _uiState.value = _uiState.value.copy(
                 courseSubjects = distinctSubjects,
-                featureSubjects = (distinctSubjects + _uiState.value.featureSubjects).distinctBy { it.code ?: it.display_bn },
+                featureSubjects = distinctSubjects,
                 isCourseSubjectsLoading = false,
+                isFeatureSubjectsLoading = false,
                 selectedSubjectCodes = effectiveSelection
             )
         }
     }
 
     fun loadFeatureSubjects(forceRefresh: Boolean = false) {
-        if (!forceRefresh && _uiState.value.featureSubjects.isNotEmpty()) return
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isFeatureSubjectsLoading = true)
-            val combined = mutableListOf<AcademicSubjectItem>()
-            combined.addAll(_uiState.value.courseSubjects)
-
-            val rawClass = sessionManager.getUserClassName() ?: "C11"
-            val rawGroup = sessionManager.getUserGroup() ?: "Humanities"
-
-            val classEnumVal = when (rawClass.uppercase()) {
-                "C11", "C12", "HSC" -> "HSC"
-                "C9", "C10", "SSC" -> "SSC"
-                "C6", "C06" -> "C6"
-                "C7", "C07" -> "C7"
-                "C8", "C08" -> "C8"
-                else -> "HSC"
+        val active = _uiState.value.activeProgram
+        if (active != null) {
+            if (forceRefresh || _uiState.value.courseSubjects.isEmpty()) {
+                loadCourseSubjects(active)
             }
-
-            val groupEnumVal = when (rawGroup.lowercase()) {
-                "science", "sci", "বিজ্ঞান" -> "Science"
-                "humanities", "arts", "hum", "মানবিক" -> "Humanities"
-                "business_studies", "businessstudies", "business", "commerce", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "BusinessStudies"
-                "none", "" -> "None"
-                else -> if (classEnumVal in listOf("C6", "C7", "C8")) "None" else "Humanities"
-            }
-
-            val queryStr = """
-                query GetSubjectHierarchyWithQuestionCounts(${'$'}class: ClassEnum, ${'$'}group: StudyGroupTypeEnum) {
-                  subjectHierarchyWithQuestionCounts(class: ${'$'}class, group: ${'$'}group) {
-                    data {
-                      should_render
-                      display_bn
-                      display
-                      code
-                      icon
-                      color_code
-                    }
-                  }
-                }
-            """.trimIndent()
-
-            val attempts = listOf(
-                mapOf("class" to classEnumVal, "group" to groupEnumVal),
-                mapOf("class" to classEnumVal, "group" to "None"),
-                mapOf("class" to "HSC", "group" to "Humanities")
-            ).distinct()
-
-            for (vars in attempts) {
-                try {
-                    val res = apiService.getSubjectHierarchyWithQuestionCounts(
-                        GraphQlQuery(
-                            operationName = "GetSubjectHierarchyWithQuestionCounts",
-                            query = queryStr,
-                            variables = vars
-                        )
-                    )
-                    val data = res.data?.subjectHierarchyWithQuestionCounts?.data.orEmpty()
-                    val valid = data.filter { it.should_render != false && (!it.code.isNullOrBlank() || !it.display_bn.isNullOrBlank()) }
-                    if (valid.isNotEmpty()) {
-                        valid.forEach { s ->
-                            combined.add(
-                                AcademicSubjectItem(
-                                    code = s.code,
-                                    color_code = s.color_code,
-                                    display_bn = s.display_bn ?: s.display,
-                                    icon = s.icon
-                                )
-                            )
-                        }
-                        break
-                    }
-                } catch (_: Exception) {}
-            }
-
-            val distinct = combined.distinctBy { it.code ?: it.display_bn }
+        } else {
             _uiState.value = _uiState.value.copy(
-                featureSubjects = distinct,
+                featureSubjects = emptyList(),
                 isFeatureSubjectsLoading = false
             )
         }
@@ -621,25 +613,18 @@ class HomeViewModel(
             val initialCodes = activeInitialSubjects.mapNotNull { it.code ?: it.display_bn }.toSet()
             val initialSelected = activeSavedSubjects ?: initialCodes
 
-            val allServerSubjects = unfilteredAllPrograms
-                .flatMap { it.subjects.orEmpty() }
-                .map { AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon) }
-                .distinctBy { it.code ?: it.display_bn }
-
             _uiState.value = _uiState.value.copy(
                 enrolledPrograms = allPrograms,
                 activeProgram = active,
                 weeklyRoutine = if (active == null) emptyList() else _uiState.value.weeklyRoutine,
                 selectedSubjectCodes = initialSelected,
                 courseSubjects = activeInitialSubjects,
-                featureSubjects = (activeInitialSubjects + allServerSubjects + _uiState.value.featureSubjects).distinctBy { it.code ?: it.display_bn },
+                featureSubjects = activeInitialSubjects,
                 isPremium = hasActiveEnrollment,
                 isLoading = false,
                 isRefreshing = false,
                 errorMessage = null
             )
-
-            loadFeatureSubjects(forceRefresh = true)
 
             if (active != null) {
                 fetchWeeklyRoutine(active)
@@ -710,6 +695,8 @@ class HomeViewModel(
                         programId,
                         currentPhase.id
                     )
+                    // ফেজ আইডি পাওয়ার সাথে সাথে এই কোর্সের সঠিক বিষয়সমূহ লোড করা
+                    loadCourseSubjects(program, currentPhase.id)
                 }
 
                 // ৩. অফিসিয়াল অ্যাপের মতো চলতি সপ্তাহের শনিবার থেকে শুক্রবার (৭ দিন) ক্যালকুলেট করা

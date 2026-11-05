@@ -806,17 +806,36 @@ class SessionManager(context: Context) {
         fallbackPrefs.edit().putBoolean("live_auto_poll_enabled", enabled).apply()
     }
 
-    fun getLiveAutoPollDelaySeconds(): Int {
-        val v = sharedPreferences.getInt("live_auto_poll_delay_sec", -1)
+    fun getLiveAutoPollDelayMs(): Long {
+        val storedMs = sharedPreferences.getLong("live_auto_poll_delay_ms", -1L)
+            .takeIf { it > 0L }
+            ?: fallbackPrefs.getLong("live_auto_poll_delay_ms", -1L).takeIf { it > 0L }
+        if (storedMs != null) {
+            return storedMs.coerceIn(10L, 120_000L)
+        }
+        val legacySec = sharedPreferences.getInt("live_auto_poll_delay_sec", -1)
             .takeIf { it > 0 }
-            ?: fallbackPrefs.getInt("live_auto_poll_delay_sec", 2)
-        return v.coerceIn(1, 120)
+            ?: fallbackPrefs.getInt("live_auto_poll_delay_sec", -1).takeIf { it > 0 }
+        return if (legacySec != null) {
+            (legacySec * 1000L).coerceIn(10L, 120_000L)
+        } else {
+            670L // Default 0.67s
+        }
+    }
+
+    fun setLiveAutoPollDelayMs(delayMs: Long) {
+        val safeMs = delayMs.coerceIn(10L, 120_000L)
+        sharedPreferences.edit().putLong("live_auto_poll_delay_ms", safeMs).apply()
+        fallbackPrefs.edit().putLong("live_auto_poll_delay_ms", safeMs).apply()
+    }
+
+    fun getLiveAutoPollDelaySeconds(): Int {
+        return ((getLiveAutoPollDelayMs() + 500L) / 1000L).toInt().coerceIn(1, 120)
     }
 
     fun setLiveAutoPollDelaySeconds(seconds: Int) {
         val safeSec = seconds.coerceIn(1, 120)
-        sharedPreferences.edit().putInt("live_auto_poll_delay_sec", safeSec).apply()
-        fallbackPrefs.edit().putInt("live_auto_poll_delay_sec", safeSec).apply()
+        setLiveAutoPollDelayMs(safeSec * 1000L)
     }
 
     fun clearSession() {

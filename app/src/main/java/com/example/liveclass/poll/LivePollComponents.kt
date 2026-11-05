@@ -44,12 +44,16 @@ import java.math.RoundingMode
 private fun formatDurationSeconds(seconds: Double): String {
     return try {
         BigDecimal.valueOf(seconds)
-            .setScale(2, RoundingMode.DOWN)
+            .setScale(2, RoundingMode.HALF_UP)
             .stripTrailingZeros()
             .toPlainString()
     } catch (_: Exception) {
         String.format(java.util.Locale.US, "%.2f", seconds)
     }
+}
+
+fun formatPollDelayMsToSeconds(delayMs: Long): String {
+    return formatDurationSeconds(delayMs / 1000.0)
 }
 
 /**
@@ -65,8 +69,8 @@ fun LivePollQuestionDialog(
     onViewResults: (LivePollItem) -> Unit,
     canUseAutoPoll: Boolean = false,
     autoPollEnabled: Boolean = false,
-    autoPollDelaySeconds: Int = 2,
-    onAutoPollConfigChanged: ((Boolean, Int) -> Unit)? = null
+    autoPollDelayMs: Long = 670L,
+    onAutoPollConfigChanged: ((Boolean, Long) -> Unit)? = null
 ) {
     val question = poll.questions.firstOrNull()
 
@@ -212,7 +216,7 @@ fun LivePollQuestionDialog(
                     if (canUseAutoPoll && onAutoPollConfigChanged != null) {
                         AutoPollControlCard(
                             enabled = autoPollEnabled,
-                            delaySeconds = autoPollDelaySeconds,
+                            delayMs = autoPollDelayMs,
                             onConfigChanged = onAutoPollConfigChanged
                         )
                         Spacer(modifier = Modifier.height(12.dp))
@@ -499,7 +503,11 @@ fun LivePollQuestionDialog(
                                 onClick = {
                                     val opt = selectedOptionIndex
                                     if (opt != null) {
-                                        val duration = (System.currentTimeMillis() - startTimeMs).coerceAtLeast(100L)
+                                        val duration = if (canUseAutoPoll && autoPollDelayMs > 0L) {
+                                            autoPollDelayMs.coerceIn(10L, 120_000L)
+                                        } else {
+                                            (System.currentTimeMillis() - startTimeMs).coerceAtLeast(100L)
+                                        }
                                         onSubmitAnswer(poll.pollId, question.index, opt, duration)
                                     }
                                 },
@@ -514,7 +522,11 @@ fun LivePollQuestionDialog(
                                 modifier = Modifier.height(42.dp)
                             ) {
                                 Text(
-                                    text = "Answer",
+                                    text = if (canUseAutoPoll) {
+                                        "Answer (${formatPollDelayMsToSeconds(autoPollDelayMs)}s)"
+                                    } else {
+                                        "Answer"
+                                    },
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -1015,8 +1027,8 @@ fun PreviousPollsDialog(
     onSelectPoll: (LivePollItem) -> Unit,
     canUseAutoPoll: Boolean = false,
     autoPollEnabled: Boolean = false,
-    autoPollDelaySeconds: Int = 2,
-    onAutoPollConfigChanged: ((Boolean, Int) -> Unit)? = null
+    autoPollDelayMs: Long = 670L,
+    onAutoPollConfigChanged: ((Boolean, Long) -> Unit)? = null
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -1097,7 +1109,7 @@ fun PreviousPollsDialog(
                     if (canUseAutoPoll && onAutoPollConfigChanged != null) {
                         AutoPollControlCard(
                             enabled = autoPollEnabled,
-                            delaySeconds = autoPollDelaySeconds,
+                            delayMs = autoPollDelayMs,
                             onConfigChanged = onAutoPollConfigChanged
                         )
                         Spacer(modifier = Modifier.height(14.dp))
@@ -1303,17 +1315,29 @@ fun LivePollFloatingNotification(
 
 /**
  * Auto Poll ("অটো") Control Card (Strictly visible ONLY for users with Profile View Permission).
- * Allows toggling automatic poll answer submission ON/OFF and configuring the exact delay in seconds.
+ * Supports millisecond / decimal-second precision (e.g. 0.67s, 1.21s, 0.45s).
  */
 @Composable
 fun AutoPollControlCard(
     enabled: Boolean,
-    delaySeconds: Int,
-    onConfigChanged: (enabled: Boolean, delaySeconds: Int) -> Unit,
+    delayMs: Long,
+    onConfigChanged: (enabled: Boolean, delayMs: Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var secondsInput by remember(delaySeconds) { mutableStateOf(delaySeconds.toString()) }
-    val presetSeconds = listOf(1, 2, 3, 5, 10)
+    val formattedDelay = remember(delayMs) { formatPollDelayMsToSeconds(delayMs) }
+    var secondsInput by remember { mutableStateOf(formattedDelay) }
+
+    // Sync input field when preset chip changes delayMs externally
+    LaunchedEffect(delayMs) {
+        val currentParsedMs = parseDecimalSecondsToMs(secondsInput)
+        if (currentParsedMs != delayMs) {
+            secondsInput = formatPollDelayMsToSeconds(delayMs)
+        }
+    }
+
+    val presetMsList = remember {
+        listOf(350L, 500L, 670L, 850L, 1210L, 2000L)
+    }
 
     Surface(
         shape = RoundedCornerShape(14.dp),
@@ -1361,7 +1385,7 @@ fun AutoPollControlCard(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "অটো পোল উত্তর (Auto)",
+                                text = "অটো পোল ও টাইম (Auto)",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White
@@ -1371,7 +1395,7 @@ fun AutoPollControlCard(
                                 color = if (enabled) Color(0xFF059669) else Color(0xFF334155)
                             ) {
                                 Text(
-                                    text = if (enabled) "ON • ${delaySeconds}s" else "OFF",
+                                    text = if (enabled) "ON • ${formattedDelay}s" else "${formattedDelay}s",
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
@@ -1380,7 +1404,7 @@ fun AutoPollControlCard(
                             }
                         }
                         Text(
-                            text = "অন থাকলে পোল প্রশ্ন দিলেই ${delaySeconds} সেকেন্ডে অটোমেটিক সঠিক উত্তর সাবমিট হবে (পোল স্ক্রিনে না আসলেও চলবে)",
+                            text = "দশমিক বা মিলিসেকেন্ড সেট করুন (যেমন 0.67 বা 1.21 সেকেন্ড)। অন থাকলে ${formattedDelay}s এ অটো সাবমিট হবে।",
                             fontSize = 11.sp,
                             color = Color(0xFF94A3B8),
                             lineHeight = 14.5.sp
@@ -1391,8 +1415,8 @@ fun AutoPollControlCard(
                 Switch(
                     checked = enabled,
                     onCheckedChange = { isChecked ->
-                        val parsed = secondsInput.trim().toIntOrNull()?.coerceIn(1, 120) ?: delaySeconds
-                        onConfigChanged(isChecked, parsed)
+                        val parsedMs = parseDecimalSecondsToMs(secondsInput) ?: delayMs
+                        onConfigChanged(isChecked, parsedMs)
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
@@ -1413,14 +1437,15 @@ fun AutoPollControlCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "সময় (সেকেন্ড):",
+                    text = "সময় (Sec):",
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFFCBD5E1)
                 )
 
-                presetSeconds.forEach { sec ->
-                    val isSelected = delaySeconds == sec
+                presetMsList.forEach { presetMs ->
+                    val isSelected = delayMs == presetMs
+                    val label = formatPollDelayMsToSeconds(presetMs)
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = if (isSelected) Color(0xFF0284C7) else Color(0xFF1E293B),
@@ -1429,16 +1454,16 @@ fun AutoPollControlCard(
                             if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
                         ),
                         modifier = Modifier.clickable {
-                            secondsInput = sec.toString()
-                            onConfigChanged(enabled, sec)
+                            secondsInput = label
+                            onConfigChanged(enabled, presetMs)
                         }
                     ) {
                         Text(
-                            text = "${sec}s",
+                            text = "${label}s",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                         )
                     }
                 }
@@ -1446,16 +1471,16 @@ fun AutoPollControlCard(
                 OutlinedTextField(
                     value = secondsInput,
                     onValueChange = { raw ->
-                        val digitsOnly = raw.filter { it.isDigit() }.take(3)
-                        secondsInput = digitsOnly
-                        val parsed = digitsOnly.toIntOrNull()
-                        if (parsed != null && parsed in 1..120) {
-                            onConfigChanged(enabled, parsed)
+                        val sanitized = sanitizeDecimalSecondsInput(raw)
+                        secondsInput = sanitized
+                        val parsedMs = parseDecimalSecondsToMs(sanitized)
+                        if (parsedMs != null) {
+                            onConfigChanged(enabled, parsedMs)
                         }
                     },
                     singleLine = true,
-                    placeholder = { Text("Sec", fontSize = 11.sp, color = Color(0xFF64748B)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    placeholder = { Text("0.67", fontSize = 11.sp, color = Color(0xFF64748B)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color(0xFF38BDF8),
                         unfocusedBorderColor = Color(0xFF334155),
@@ -1466,11 +1491,49 @@ fun AutoPollControlCard(
                     ),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
-                        .width(74.dp)
-                        .height(44.dp)
+                        .width(86.dp)
+                        .height(46.dp)
                 )
             }
         }
     }
 }
+
+private val bnDigitMap = mapOf(
+    '০' to '0', '১' to '1', '২' to '2', '৩' to '3', '৪' to '4',
+    '৫' to '5', '৬' to '6', '৭' to '7', '৮' to '8', '৯' to '9'
+)
+
+private fun sanitizeDecimalSecondsInput(raw: String): String {
+    val sb = StringBuilder()
+    var hasDot = false
+    var decimalsCount = 0
+    for (ch in raw) {
+        val mapped = bnDigitMap[ch] ?: ch
+        if (mapped in '0'..'9') {
+            if (hasDot) {
+                if (decimalsCount < 3) {
+                    sb.append(mapped)
+                    decimalsCount++
+                }
+            } else if (sb.length < 3) {
+                sb.append(mapped)
+            }
+        } else if ((mapped == '.' || mapped == ',') && !hasDot) {
+            hasDot = true
+            if (sb.isEmpty()) sb.append('0')
+            sb.append('.')
+        }
+    }
+    return sb.toString()
+}
+
+private fun parseDecimalSecondsToMs(input: String): Long? {
+    val clean = input.trim().trimEnd('.')
+    if (clean.isEmpty()) return null
+    val sec = clean.toDoubleOrNull() ?: return null
+    if (sec <= 0.0) return null
+    return Math.round(sec * 1000.0).coerceIn(10L, 120_000L)
+}
+
 

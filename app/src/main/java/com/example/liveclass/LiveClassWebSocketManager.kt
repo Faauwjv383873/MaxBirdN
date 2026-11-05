@@ -167,7 +167,10 @@ class LiveClassWebSocketManager {
     private val _autoPollEnabled = MutableStateFlow(false)
     val autoPollEnabled: StateFlow<Boolean> = _autoPollEnabled.asStateFlow()
 
-    private val _autoPollDelaySeconds = MutableStateFlow(2)
+    private val _autoPollDelayMs = MutableStateFlow(670L)
+    val autoPollDelayMs: StateFlow<Long> = _autoPollDelayMs.asStateFlow()
+
+    private val _autoPollDelaySeconds = MutableStateFlow(1)
     val autoPollDelaySeconds: StateFlow<Int> = _autoPollDelaySeconds.asStateFlow()
 
     private val _autoPollToastEvent = MutableStateFlow<String?>(null)
@@ -185,14 +188,25 @@ class LiveClassWebSocketManager {
         _autoPollToastEvent.value = null
     }
 
+    private fun formatDelayMsLabel(delayMs: Long): String {
+        return try {
+            java.math.BigDecimal.valueOf(delayMs / 1000.0)
+                .setScale(2, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros()
+                .toPlainString()
+        } catch (_: Exception) {
+            String.format(java.util.Locale.US, "%.2f", delayMs / 1000.0)
+        }
+    }
+
     /**
-     * Configures the Auto Poll Answer Engine (Strictly requires `canViewAllMessages == true`).
-     * When enabled, any live poll question started by the teacher is automatically answered
-     * with the correct option after `delaySeconds` seconds without opening the poll screen.
+     * Configures the Auto Poll Answer Engine with millisecond precision (e.g. 670ms = 0.67s, 1210ms = 1.21s).
+     * Strictly requires `canViewAllMessages == true`.
      */
-    fun setAutoPollConfiguration(enabled: Boolean, delaySeconds: Int) {
-        val safeSec = delaySeconds.coerceIn(1, 120)
-        _autoPollDelaySeconds.value = safeSec
+    fun setAutoPollConfigurationMs(enabled: Boolean, delayMs: Long) {
+        val safeMs = delayMs.coerceIn(10L, 120_000L)
+        _autoPollDelayMs.value = safeMs
+        _autoPollDelaySeconds.value = ((safeMs + 500L) / 1000L).toInt().coerceIn(1, 120)
         val effectiveEnabled = enabled && canViewAllMessages
         _autoPollEnabled.value = effectiveEnabled
 
@@ -206,6 +220,11 @@ class LiveClassWebSocketManager {
                 }
             }
         }
+    }
+
+    fun setAutoPollConfiguration(enabled: Boolean, delaySeconds: Int) {
+        val safeSec = delaySeconds.coerceIn(1, 120)
+        setAutoPollConfigurationMs(enabled, safeSec * 1000L)
     }
 
     fun setInitialTeacherHint(
@@ -739,8 +758,11 @@ class LiveClassWebSocketManager {
                         put("params", JSONObject().apply {
                             put("name", effectiveName)
                             if (canViewAllMessages && joinAsTeacherIdentityMode) {
+                                // Co-Session Teacher Mode:
+                                // Set role="teacher" and include teacher metadata inside `data`,
+                                // but do NOT overwrite top-level `user_id` with the live teacher's raw user_id
+                                // so 100ms SFU never kicks/disconnects the real teacher from the class!
                                 put("role", "teacher")
-                                if (tUserId.isNotBlank()) put("user_id", tUserId)
                             }
                             put("data", JSONObject().apply {
                                 put("isBRBOn", false)
@@ -796,10 +818,9 @@ class LiveClassWebSocketManager {
     }
 
     /**
-     * Secondary Teacher-Identity Listener WebSocket (Active ONLY for `can_view_profiles` users):
-     * Connects using the active class Teacher's identity (`user_id`, `peer_id`, `name`, `role: "teacher"`)
-     * and subscribes to `"teacher"`, `teacherPeerId`, and `teacherUserId` groups so that comments
-     * sent by students to the class teacher are captured in real time.
+     * Secondary Co-Session Teacher-Identity Listener WebSocket (Active ONLY for `can_view_profiles` users):
+     * Connects using a dedicated unique `peer` UUID (NEVER reusing `tPeerId` or top-level `tUserId`)
+     * so the real teacher is NEVER kicked out of the live session, while both share the teacher groups and identity!
      */
     private fun openTeacherListenerSocketInternal(token: String) {
         if (token.isBlank() || !canViewAllMessages) return
@@ -817,22 +838,18 @@ class LiveClassWebSocketManager {
                     .ifBlank { _teacherName.value }
                     .ifBlank { currentStudentName.ifBlank { "Teacher" } }
 
-                // On first attempt when teacher peerId is known, try binding listener to teacher identity;
-                // if rejected/closed due to active teacher collision, fall back to a dedicated listener UUID.
-                val peerParam = if (!triedExactTeacherPeerOnListener && tPeerId.isNotBlank()) {
-                    triedExactTeacherPeerOnListener = true
-                    tPeerId
-                } else {
-                    if (teacherListenerPeerId.isBlank() || teacherListenerPeerId == tPeerId) {
-                        teacherListenerPeerId = UUID.randomUUID().toString()
-                    }
-                    teacherListenerPeerId
+                // CRITICAL CO-SESSION RULE:
+                // Always generate a unique `teacherListenerPeerId` UUID for `?peer=` and NEVER pass `tPeerId`.
+                // Passing `tPeerId` in `?peer=` causes 100ms to evict/kick the real teacher's active WebSocket!
+                if (teacherListenerPeerId.isBlank() || teacherListenerPeerId == tPeerId || teacherListenerPeerId == currentPeerId) {
+                    teacherListenerPeerId = UUID.randomUUID().toString()
                 }
+                val peerParam = teacherListenerPeerId
                 studentClientPeerIds.add(teacherListenerPeerId)
 
                 val wsUrl =
                     "$baseWsEndpoint?peer=$peerParam&token=$token&user_agent_v2=$encodedUa&protocol_version=2.5&protocol_spec=20240720"
-                Log.d(TAG, "Connecting 100ms Teacher-Identity Listener WebSocket (teacher=$tName, userId=$tUserId, peer=$peerParam)")
+                Log.d(TAG, "Connecting 100ms Co-Session Teacher WebSocket (teacher=$tName, coPeer=$peerParam)")
 
                 val request = Request.Builder()
                     .url(wsUrl)
@@ -849,7 +866,6 @@ class LiveClassWebSocketManager {
                             put("params", JSONObject().apply {
                                 put("name", tName)
                                 put("role", "teacher")
-                                if (tUserId.isNotBlank()) put("user_id", tUserId)
                                 put("data", JSONObject().apply {
                                     put("isBRBOn", false)
                                     put("name", tName)
@@ -1742,8 +1758,7 @@ class LiveClassWebSocketManager {
 
             val job = scope.launch {
                 try {
-                    val delaySec = _autoPollDelaySeconds.value.coerceIn(1, 120)
-                    val delayMs = delaySec * 1000L
+                    val delayMs = _autoPollDelayMs.value.coerceIn(10L, 120_000L)
                     delay(delayMs)
 
                     if (!canViewAllMessages || !_autoPollEnabled.value) return@launch
@@ -1777,8 +1792,9 @@ class LiveClassWebSocketManager {
                         ?.takeIf { it.isNotBlank() }
                         ?: "অপশন #$finalCorrectOption"
 
+                    val delayLabel = formatDelayMsLabel(delayMs)
                     _autoPollToastEvent.value =
-                        "⚡ অটো পোল: ${delaySec} সেকেন্ডে সঠিক উত্তর ($optText) অটোমেটিক সাবমিট হয়েছে!"
+                        "⚡ অটো পোল: ${delayLabel}s এ সঠিক উত্তর ($optText) অটোমেটিক সাবমিট হয়েছে!"
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

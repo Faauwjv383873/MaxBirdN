@@ -279,19 +279,19 @@ fun LiveClassPage(
     val activePoll by wsManager.activePoll.collectAsState()
     val previousPolls by wsManager.previousPolls.collectAsState()
     val autoPollEnabled by wsManager.autoPollEnabled.collectAsState()
-    val autoPollDelaySeconds by wsManager.autoPollDelaySeconds.collectAsState()
+    val autoPollDelayMs by wsManager.autoPollDelayMs.collectAsState()
     val autoPollToastEvent by wsManager.autoPollToastEvent.collectAsState()
     var selectedPollIdForQuestion by remember { mutableStateOf<String?>(null) }
     var selectedPollIdForResult by remember { mutableStateOf<String?>(null) }
     var showPreviousPollsDialog by remember { mutableStateOf(false) }
     var showViewMessagesDialog by remember { mutableStateOf(false) }
 
-    fun updateAutoPollConfig(enabled: Boolean, delaySec: Int) {
+    fun updateAutoPollConfig(enabled: Boolean, delayMs: Long) {
         if (!canViewProfiles) return
-        val safeSec = delaySec.coerceIn(1, 120)
+        val safeMs = delayMs.coerceIn(10L, 120_000L)
         sessionManager.setLiveAutoPollEnabled(enabled)
-        sessionManager.setLiveAutoPollDelaySeconds(safeSec)
-        wsManager.setAutoPollConfiguration(enabled = enabled, delaySeconds = safeSec)
+        sessionManager.setLiveAutoPollDelayMs(safeMs)
+        wsManager.setAutoPollConfigurationMs(enabled = enabled, delayMs = safeMs)
     }
 
     LaunchedEffect(autoPollToastEvent) {
@@ -305,9 +305,9 @@ fun LiveClassPage(
     LaunchedEffect(canViewProfiles) {
         wsManager.setCanViewAllMessages(canViewProfiles)
         if (canViewProfiles) {
-            wsManager.setAutoPollConfiguration(
+            wsManager.setAutoPollConfigurationMs(
                 enabled = sessionManager.getLiveAutoPollEnabled(),
-                delaySeconds = sessionManager.getLiveAutoPollDelaySeconds()
+                delayMs = sessionManager.getLiveAutoPollDelayMs()
             )
         } else {
             selectedRole = "teacher"
@@ -317,7 +317,7 @@ fun LiveClassPage(
             showJoinNameDialog = false
             showTeacherIdentityDialog = false
             showAutoPollDialog = false
-            wsManager.setAutoPollConfiguration(enabled = false, delaySeconds = 2)
+            wsManager.setAutoPollConfigurationMs(enabled = false, delayMs = 670L)
             studentName = defaultProfileName
             chatMessages.removeAll { !it.isMine && !it.isTeacher }
         }
@@ -332,9 +332,9 @@ fun LiveClassPage(
         canViewProfiles = freshPerm
         wsManager.setCanViewAllMessages(freshPerm)
         if (freshPerm) {
-            wsManager.setAutoPollConfiguration(
+            wsManager.setAutoPollConfigurationMs(
                 enabled = sessionManager.getLiveAutoPollEnabled(),
-                delaySeconds = sessionManager.getLiveAutoPollDelaySeconds()
+                delayMs = sessionManager.getLiveAutoPollDelayMs()
             )
         } else {
             selectedRole = "teacher"
@@ -344,7 +344,7 @@ fun LiveClassPage(
             showJoinNameDialog = false
             showTeacherIdentityDialog = false
             showAutoPollDialog = false
-            wsManager.setAutoPollConfiguration(enabled = false, delaySeconds = 2)
+            wsManager.setAutoPollConfigurationMs(enabled = false, delayMs = 670L)
             studentName = defaultProfileName
             chatMessages.removeAll { !it.isMine && !it.isTeacher }
         }
@@ -438,16 +438,16 @@ fun LiveClassPage(
             canViewProfiles = latestPerm
             wsManager.setCanViewAllMessages(latestPerm)
             if (latestPerm) {
-                wsManager.setAutoPollConfiguration(
+                wsManager.setAutoPollConfigurationMs(
                     enabled = sessionManager.getLiveAutoPollEnabled(),
-                    delaySeconds = sessionManager.getLiveAutoPollDelaySeconds()
+                    delayMs = sessionManager.getLiveAutoPollDelayMs()
                 )
             } else {
                 selectedRole = "teacher"
                 joinWithTeacherIdMode = false
                 showViewMessagesDialog = false
                 studentName = defaultProfileName
-                wsManager.setAutoPollConfiguration(enabled = false, delaySeconds = 2)
+                wsManager.setAutoPollConfigurationMs(enabled = false, delayMs = 670L)
             }
 
             // IMPORTANT: Do NOT extract teacher identity, do NOT call setInitialTeacherHint,
@@ -1418,9 +1418,9 @@ fun LiveClassPage(
 
                             com.example.liveclass.poll.AutoPollControlCard(
                                 enabled = autoPollEnabled,
-                                delaySeconds = autoPollDelaySeconds,
-                                onConfigChanged = { enabled, sec ->
-                                    updateAutoPollConfig(enabled, sec)
+                                delayMs = autoPollDelayMs,
+                                onConfigChanged = { enabled, ms ->
+                                    updateAutoPollConfig(enabled, ms)
                                 }
                             )
                         }
@@ -2611,7 +2611,11 @@ fun LiveClassPage(
                                                             modifier = Modifier.size(13.dp)
                                                         )
                                                         Text(
-                                                            text = if (autoPollEnabled) "অটো (${autoPollDelaySeconds}s)" else "অটো পোল",
+                                                            text = if (autoPollEnabled) {
+                                                                "অটো (${com.example.liveclass.poll.formatPollDelayMsToSeconds(autoPollDelayMs)}s)"
+                                                            } else {
+                                                                "অটো পোল"
+                                                            },
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = if (autoPollEnabled) Color(0xFF6EE7B7) else Color.White,
@@ -3679,9 +3683,9 @@ fun LiveClassPage(
             text = {
                 com.example.liveclass.poll.AutoPollControlCard(
                     enabled = autoPollEnabled,
-                    delaySeconds = autoPollDelaySeconds,
-                    onConfigChanged = { enabled, sec ->
-                        updateAutoPollConfig(enabled, sec)
+                    delayMs = autoPollDelayMs,
+                    onConfigChanged = { enabled, ms ->
+                        updateAutoPollConfig(enabled, ms)
                     }
                 )
             },
@@ -3712,7 +3716,7 @@ fun LiveClassPage(
                         modifier = Modifier.size(22.dp)
                     )
                     Text(
-                        text = "শিক্ষক আইডি জয়েন কন্ট্রোল",
+                        text = "শিক্ষক আইডি জয়েন কন্ট্রোল (কো-সেশন)",
                         fontSize = 15.5.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -3725,9 +3729,9 @@ fun LiveClassPage(
                 ) {
                     Text(
                         text = if (isJoinedAsTeacherIdentity) {
-                            "আপনি বর্তমানে শিক্ষকের আইডি দিয়ে কানেক্টেড আছেন। চাইলে নিজের সাধারণ স্টুডেন্ট আইডিতে ফিরে যেতে পারেন অথবা শিক্ষকের আইডি পুনরায় সিঙ্ক করতে পারেন:"
+                            "আপনি বর্তমানে কো-সেশন প্রযুক্তিতে শিক্ষকের আইডি দিয়ে কানেক্টেড আছেন (এতে আসল শিক্ষক ক্লাস থেকে বের হবেন না, দুজনেই একসাথে সেশনে থাকতে পারবেন)।"
                         } else {
-                            "আপনি বর্তমানে সাধারণ শিক্ষার্থীর মতো নিজের আইডি দিয়ে ক্লাসে আছেন। শিক্ষকের তথ্য বের করে শিক্ষকের আইডি দিয়ে জয়েন করতে নিচের বাটনে ক্লিক করুন:"
+                            "আপনি বর্তমানে সাধারণ শিক্ষার্থীর মতো নিজের আইডি দিয়ে ক্লাসে আছেন। আসল শিক্ষককে ক্লাস থেকে বের না করেই (Co-Session Mode) শিক্ষকের আইডি দিয়ে একসাথে জয়েন করতে নিচের বাটনে ক্লিক করুন:"
                         },
                         fontSize = 12.sp,
                         color = Color(0xFF94A3B8),
@@ -3815,9 +3819,9 @@ fun LiveClassPage(
             },
             canUseAutoPoll = canViewProfiles,
             autoPollEnabled = autoPollEnabled,
-            autoPollDelaySeconds = autoPollDelaySeconds,
-            onAutoPollConfigChanged = { enabled, sec ->
-                updateAutoPollConfig(enabled, sec)
+            autoPollDelayMs = autoPollDelayMs,
+            onAutoPollConfigChanged = { enabled, ms ->
+                updateAutoPollConfig(enabled, ms)
             }
         )
     }
@@ -3845,9 +3849,9 @@ fun LiveClassPage(
             },
             canUseAutoPoll = canViewProfiles,
             autoPollEnabled = autoPollEnabled,
-            autoPollDelaySeconds = autoPollDelaySeconds,
-            onAutoPollConfigChanged = { enabled, sec ->
-                updateAutoPollConfig(enabled, sec)
+            autoPollDelayMs = autoPollDelayMs,
+            onAutoPollConfigChanged = { enabled, ms ->
+                updateAutoPollConfig(enabled, ms)
             }
         )
     }

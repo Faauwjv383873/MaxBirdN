@@ -22,22 +22,23 @@ class PracticeQuizRepository(
         subjectCode: String,
         subjectTitle: String?
     ): Pair<SubjectHierarchyItem?, List<HierarchyChapterItem>> {
-        val rawClass = sessionManager.getUserClassName() ?: "C11"
+        val activeClass = sessionManager.getActiveProgramClassCode()
+        val rawClass = if (!activeClass.isNullOrBlank()) activeClass else (sessionManager.getUserClassName() ?: "C11")
         val rawGroup = sessionManager.getUserGroup() ?: "Humanities"
 
-        val classEnumVal = when (rawClass.uppercase()) {
+        val classEnumVal = when (rawClass.trim().uppercase()) {
             "C11", "C12", "HSC" -> "HSC"
-            "C9", "C10", "SSC" -> "SSC"
-            "C6" -> "C6"
-            "C7" -> "C7"
-            "C8" -> "C8"
+            "C9", "C10", "C09", "SSC" -> "SSC"
+            "C6", "C06" -> "C6"
+            "C7", "C07" -> "C7"
+            "C8", "C08" -> "C8"
             else -> rawClass
         }
 
-        val groupEnumVal = when (rawGroup.lowercase()) {
-            "science", "sci" -> "Science"
-            "humanities", "arts", "hum" -> "Humanities"
-            "business_studies", "businessstudies", "business", "commerce", "bus" -> "BusinessStudies"
+        val groupEnumVal = when (rawGroup.trim().lowercase()) {
+            "science", "sci", "বিজ্ঞান" -> "Science"
+            "humanities", "arts", "hum", "মানবিক" -> "Humanities"
+            "business_studies", "businessstudies", "business", "commerce", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "BusinessStudies"
             "none", "" -> "None"
             else -> if (classEnumVal in listOf("C6", "C7", "C8")) "None" else rawGroup
         }
@@ -65,11 +66,15 @@ class PracticeQuizRepository(
             }
         """.trimIndent()
 
-        // Attempt with dynamic class and group, with graceful fallback to alternative combinations if empty
+        // Attempt with active course class & user group first, then fallback across groups for that class so switched courses always resolve their subjects
         val attempts = listOf(
             mapOf("class" to classEnumVal, "group" to groupEnumVal),
+            mapOf("class" to classEnumVal, "group" to "Science"),
+            mapOf("class" to classEnumVal, "group" to "Humanities"),
+            mapOf("class" to classEnumVal, "group" to "BusinessStudies"),
+            mapOf("class" to classEnumVal, "group" to "None"),
             mapOf("class" to "HSC", "group" to "Humanities"),
-            mapOf("class" to classEnumVal, "group" to "None")
+            mapOf("class" to "SSC", "group" to "Science")
         ).distinct()
 
         for (vars in attempts) {

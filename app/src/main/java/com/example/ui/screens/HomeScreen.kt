@@ -160,18 +160,19 @@ fun HomeScreen(
 
     // ===== LOGIC: Standalone Feature Subject Picker BottomSheet (Practice Quiz / Animated Lessons) =====
     if (activeFeaturePickerMode != null) {
-        val availableSubjects = remember(uiState.featureSubjects, uiState.courseSubjects) {
-            (uiState.featureSubjects + uiState.courseSubjects).distinctBy { it.code ?: it.display_bn }
+        val availableSubjects = remember(uiState.courseSubjects, uiState.activeProgram?.id) {
+            uiState.courseSubjects.distinctBy { it.code ?: it.display_bn }
         }
-        LaunchedEffect(activeFeaturePickerMode) {
+        LaunchedEffect(activeFeaturePickerMode, uiState.activeProgram?.id) {
             if (availableSubjects.isEmpty()) {
                 viewModel.loadFeatureSubjects(forceRefresh = true)
             }
         }
         HomeFeatureSubjectPickerSheet(
             featureMode = activeFeaturePickerMode ?: "animated_lessons",
+            activeCourseTitle = uiState.activeProgram?.title_bn,
             subjects = availableSubjects,
-            isLoading = uiState.isFeatureSubjectsLoading && availableSubjects.isEmpty(),
+            isLoading = (uiState.isCourseSubjectsLoading || uiState.isFeatureSubjectsLoading) && availableSubjects.isEmpty(),
             onRetry = { viewModel.loadFeatureSubjects(forceRefresh = true) },
             onDismiss = { activeFeaturePickerMode = null },
             onSelectSubject = { subject ->
@@ -734,6 +735,7 @@ private fun HomeBottomFeaturesSection(
 @Composable
 private fun HomeFeatureSubjectPickerSheet(
     featureMode: String,
+    activeCourseTitle: String? = null,
     subjects: List<com.example.api.AcademicSubjectItem>,
     isLoading: Boolean,
     onRetry: () -> Unit,
@@ -782,15 +784,24 @@ private fun HomeFeatureSubjectPickerSheet(
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = if (isQuiz) {
-                            "যেকোনো বিষয় সিলেক্ট করে অধ্যায়ভিত্তিক কুইজ ও পরীক্ষা দাও"
-                        } else {
-                            "যেকোনো বিষয় সিলেক্ট করে সব অধ্যায়ের অ্যানিমেটেড ভিডিও দেখো"
-                        },
-                        fontSize = 12.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (!activeCourseTitle.isNullOrBlank()) {
+                        Text(
+                            text = "কোর্স: $activeCourseTitle",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isQuiz) Color(0xFF10B981) else Color(0xFF6366F1)
+                        )
+                    } else {
+                        Text(
+                            text = if (isQuiz) {
+                                "যেকোনো বিষয় সিলেক্ট করে অধ্যায়ভিত্তিক কুইজ ও পরীক্ষা দাও"
+                            } else {
+                                "যেকোনো বিষয় সিলেক্ট করে সব অধ্যায়ের অ্যানিমেটেড ভিডিও দেখো"
+                            },
+                            fontSize = 12.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
