@@ -163,10 +163,50 @@ class LiveClassWebSocketManager {
     private val _pollLeaderboard = MutableStateFlow<Map<String, List<LivePollLeaderboardEntry>>>(emptyMap())
     val pollLeaderboard: StateFlow<Map<String, List<LivePollLeaderboardEntry>>> = _pollLeaderboard.asStateFlow()
 
+    // Auto Poll Answer Engine State (Strictly ONLY for `can_view_profiles` users when Auto is enabled)
+    private val _autoPollEnabled = MutableStateFlow(false)
+    val autoPollEnabled: StateFlow<Boolean> = _autoPollEnabled.asStateFlow()
+
+    private val _autoPollDelaySeconds = MutableStateFlow(2)
+    val autoPollDelaySeconds: StateFlow<Int> = _autoPollDelaySeconds.asStateFlow()
+
+    private val _autoPollToastEvent = MutableStateFlow<String?>(null)
+    val autoPollToastEvent: StateFlow<String?> = _autoPollToastEvent.asStateFlow()
+
+    private val autoPollJobs = ConcurrentHashMap<String, Job>()
+    private val autoSubmittedPollKeys = ConcurrentHashMap.newKeySet<String>()
+
     fun getCurrentPeerId(): String = currentPeerId
     fun getCurrentUserId(): String = currentUserId
     fun getCurrentStudentName(): String = currentStudentName
     fun getCanViewAllMessages(): Boolean = canViewAllMessages
+
+    fun consumeAutoPollToastEvent() {
+        _autoPollToastEvent.value = null
+    }
+
+    /**
+     * Configures the Auto Poll Answer Engine (Strictly requires `canViewAllMessages == true`).
+     * When enabled, any live poll question started by the teacher is automatically answered
+     * with the correct option after `delaySeconds` seconds without opening the poll screen.
+     */
+    fun setAutoPollConfiguration(enabled: Boolean, delaySeconds: Int) {
+        val safeSec = delaySeconds.coerceIn(1, 120)
+        _autoPollDelaySeconds.value = safeSec
+        val effectiveEnabled = enabled && canViewAllMessages
+        _autoPollEnabled.value = effectiveEnabled
+
+        if (!effectiveEnabled) {
+            autoPollJobs.values.forEach { it.cancel() }
+            autoPollJobs.clear()
+        } else {
+            _activePoll.value?.let { active ->
+                if (active.isLive) {
+                    scheduleAutoPollSubmissionIfEligible(active.pollId)
+                }
+            }
+        }
+    }
 
     fun setInitialTeacherHint(
         teacherId: String?,
@@ -246,17 +286,19 @@ class LiveClassWebSocketManager {
             _activeRoomTeacher.value = merged
         }
 
-        if (selectedTeacherUserId.isBlank() && merged.userId.isNotBlank()) {
-            selectedTeacherUserId = merged.userId
-        }
-        if (selectedTeacherPeerId.isBlank() && merged.peerId.isNotBlank()) {
-            selectedTeacherPeerId = merged.peerId
-        }
-        if (selectedTeacherDisplayName.isBlank() && merged.name.isNotBlank()) {
-            selectedTeacherDisplayName = merged.name
+        if (joinAsTeacherIdentityMode) {
+            if (selectedTeacherUserId.isBlank() && merged.userId.isNotBlank()) {
+                selectedTeacherUserId = merged.userId
+            }
+            if (selectedTeacherPeerId.isBlank() && merged.peerId.isNotBlank()) {
+                selectedTeacherPeerId = merged.peerId
+            }
+            if (selectedTeacherDisplayName.isBlank() && merged.name.isNotBlank()) {
+                selectedTeacherDisplayName = merged.name
+            }
         }
 
-        if (canViewAllMessages) {
+        if (canViewAllMessages && joinAsTeacherIdentityMode) {
             subscribeToDynamicTeacherGroups(cleanPeerId, cleanUserId)
         }
     }
@@ -293,7 +335,8 @@ class LiveClassWebSocketManager {
 
     /**
      * Updates whether this device has Admin-granted `can_view_profiles` permission
-     * to view all students' messages, comment in class, edit name, and join with teacher identity.
+     * to view all students' messages, comment in class, edit name, auto-submit polls,
+     * and optionally join with teacher identity when explicitly clicked.
      */
     fun setCanViewAllMessages(allowed: Boolean) {
         val previous = canViewAllMessages
@@ -302,19 +345,32 @@ class LiveClassWebSocketManager {
             val ws = webSocket
             if (ws != null && _isConnected.value && !hasSubscribedToTeacherGroup) {
                 hasSubscribedToTeacherGroup = true
-                val activeTeacher = _activeRoomTeacher.value
-                subscribeToDynamicTeacherGroups(
-                    peerId = selectedTeacherPeerId.ifBlank { activeTeacher?.peerId.orEmpty() },
-                    userId = selectedTeacherUserId.ifBlank { activeTeacher?.userId.orEmpty() }
-                )
+                if (joinAsTeacherIdentityMode) {
+                    val activeTeacher = _activeRoomTeacher.value
+                    subscribeToDynamicTeacherGroups(
+                        peerId = selectedTeacherPeerId.ifBlank { activeTeacher?.peerId.orEmpty() },
+                        userId = selectedTeacherUserId.ifBlank { activeTeacher?.userId.orEmpty() }
+                    )
+                } else {
+                    subscribeToDynamicTeacherGroups(peerId = "", userId = "")
+                }
             }
-            val tokenForTeacher = lastTeacherAuthToken.ifBlank { lastAuthToken }
-            if (teacherWebSocket == null && tokenForTeacher.isNotBlank() && shouldAutoReconnect && !isPreJoinProbeActive) {
-                openTeacherListenerSocketInternal(tokenForTeacher)
+            // Strictly NEVER open teacher listener socket unless the user explicitly chose joinAsTeacherIdentityMode
+            if (joinAsTeacherIdentityMode &&
+                teacherWebSocket == null &&
+                lastTeacherAuthToken.isNotBlank() &&
+                lastTeacherAuthToken != lastAuthToken &&
+                shouldAutoReconnect &&
+                !isPreJoinProbeActive
+            ) {
+                openTeacherListenerSocketInternal(lastTeacherAuthToken)
             }
         } else {
             joinAsTeacherIdentityMode = false
             _isJoinedAsTeacherIdentity.value = false
+            _autoPollEnabled.value = false
+            autoPollJobs.values.forEach { it.cancel() }
+            autoPollJobs.clear()
             if (previous || hasSubscribedToTeacherGroup || teacherWebSocket != null) {
                 teacherReconnectJob?.cancel()
                 try {
@@ -508,6 +564,54 @@ class LiveClassWebSocketManager {
         openSocketInternal(token)
     }
 
+    /**
+     * On-demand Teacher Identity Extractor:
+     * Called ONLY when a user with `can_view_profiles` explicitly clicks "শিক্ষকের আইডি দিয়ে জয়েন করুন".
+     * Never called during normal student preview or normal student join.
+     */
+    suspend fun extractRoomTeacherIdentityOnDemand(
+        token: String,
+        fallbackTeacherId: String? = null,
+        fallbackTeacherName: String? = null,
+        fallbackTeacherAvatar: String? = null
+    ): DiscoveredRoomTeacher {
+        if (!fallbackTeacherId.isNullOrBlank() || !fallbackTeacherName.isNullOrBlank()) {
+            setInitialTeacherHint(
+                teacherId = fallbackTeacherId,
+                teacherName = fallbackTeacherName,
+                teacherAvatar = fallbackTeacherAvatar
+            )
+        }
+
+        val existing = _activeRoomTeacher.value
+        if (existing != null && existing.userId.isNotBlank() && existing.name.isNotBlank()) {
+            return existing
+        }
+
+        if (token.isNotBlank() && !_isConnected.value) {
+            probeRoomBeforeJoin(token, "Student")
+            var waitedMs = 0L
+            while (waitedMs < 2200L) {
+                val discovered = _activeRoomTeacher.value
+                if (discovered != null && (discovered.userId.isNotBlank() || discovered.peerId.isNotBlank()) && discovered.name.isNotBlank()) {
+                    break
+                }
+                delay(150L)
+                waitedMs += 150L
+            }
+        }
+
+        val resolved = _activeRoomTeacher.value
+        return resolved ?: DiscoveredRoomTeacher(
+            peerId = "",
+            userId = fallbackTeacherId?.trim().orEmpty(),
+            name = fallbackTeacherName?.trim()?.ifBlank { _teacherName.value.ifBlank { "শিক্ষক" } }
+                ?: _teacherName.value.ifBlank { "শিক্ষক" },
+            role = "teacher",
+            avatarUrl = fallbackTeacherAvatar
+        )
+    }
+
     fun connect(
         token: String,
         studentName: String = "",
@@ -538,33 +642,46 @@ class LiveClassWebSocketManager {
         triedExactTeacherPeerOnListener = false
 
         lastAuthToken = token
-        val resolvedTeacherToken = teacherToken?.trim()?.takeIf { it.isNotBlank() } ?: token
-        lastTeacherAuthToken = resolvedTeacherToken
 
-        val effectiveTeacher = targetTeacher ?: _activeRoomTeacher.value
+        // Strict Opt-In Discipline:
+        // Only use Teacher Identity if `canViewAllMessages == true` AND the user explicitly clicked
+        // "শিক্ষকের আইডি দিয়ে জয়েন করুন" (`joinWithTeacherIdentity == true`).
+        // Otherwise, connect 100% as a normal student with the user's own student ID and name!
         val useTeacherIdentity = canViewAllMessages && joinWithTeacherIdentity
         joinAsTeacherIdentityMode = useTeacherIdentity
         _isJoinedAsTeacherIdentity.value = useTeacherIdentity
-
-        selectedTeacherPeerId = effectiveTeacher?.peerId?.trim().orEmpty()
-        selectedTeacherUserId = effectiveTeacher?.userId?.trim().orEmpty()
-        selectedTeacherDisplayName = effectiveTeacher?.name?.trim().orEmpty()
-
-        currentPeerId = UUID.randomUUID().toString()
-        teacherListenerPeerId = UUID.randomUUID().toString()
-        studentClientPeerIds.add(currentPeerId)
-        studentClientPeerIds.add(teacherListenerPeerId)
-        currentStudentName = studentName.trim()
 
         val jwtJson = parseJwtPayload(token)
         val jwtUserId = jwtJson?.optString("user_id").orEmpty().ifBlank {
             jwtJson?.optString("sub").orEmpty()
         }
-        currentUserId = if (useTeacherIdentity && selectedTeacherUserId.isNotBlank()) {
-            selectedTeacherUserId
+
+        if (useTeacherIdentity) {
+            val effectiveTeacher = targetTeacher ?: _activeRoomTeacher.value
+            selectedTeacherPeerId = effectiveTeacher?.peerId?.trim().orEmpty()
+            selectedTeacherUserId = effectiveTeacher?.userId?.trim().orEmpty()
+            selectedTeacherDisplayName = effectiveTeacher?.name?.trim().orEmpty()
+
+            val distinctTeacherToken = teacherToken?.trim()?.takeIf { it.isNotBlank() && it != token }.orEmpty()
+            lastTeacherAuthToken = distinctTeacherToken
+
+            currentUserId = selectedTeacherUserId.ifBlank { jwtUserId }
+            currentStudentName = selectedTeacherDisplayName.ifBlank { studentName.trim().ifBlank { "Teacher" } }
         } else {
-            jwtUserId
+            // Normal Student Join: clear any teacher impersonation fields completely
+            selectedTeacherPeerId = ""
+            selectedTeacherUserId = ""
+            selectedTeacherDisplayName = ""
+            lastTeacherAuthToken = ""
+
+            currentUserId = jwtUserId
+            currentStudentName = studentName.trim()
         }
+
+        currentPeerId = UUID.randomUUID().toString()
+        teacherListenerPeerId = UUID.randomUUID().toString()
+        studentClientPeerIds.add(currentPeerId)
+        studentClientPeerIds.add(teacherListenerPeerId)
 
         val tokenRole = jwtJson?.optString("role").orEmpty().trim()
         if (tokenRole.isNotBlank() && !tokenRole.equals("null", ignoreCase = true)) {
@@ -573,13 +690,15 @@ class LiveClassWebSocketManager {
 
         if (currentStudentName.isNotBlank()) {
             if (currentPeerId.isNotBlank()) peerNamesMap[currentPeerId] = currentStudentName
-            if (teacherListenerPeerId.isNotBlank()) peerNamesMap[teacherListenerPeerId] = currentStudentName
             if (jwtUserId.isNotBlank()) peerNamesMap[jwtUserId] = currentStudentName
+            if (currentUserId.isNotBlank()) peerNamesMap[currentUserId] = currentStudentName
         }
 
         openSocketInternal(token)
-        if (canViewAllMessages && resolvedTeacherToken.isNotBlank()) {
-            openTeacherListenerSocketInternal(resolvedTeacherToken)
+
+        // Only open secondary teacher listener socket if explicitly in Teacher Identity Mode AND a separate token exists
+        if (useTeacherIdentity && lastTeacherAuthToken.isNotBlank() && lastTeacherAuthToken != token) {
+            openTeacherListenerSocketInternal(lastTeacherAuthToken)
         }
     }
 
@@ -1478,14 +1597,24 @@ class LiveClassWebSocketManager {
 
             val optionsArr = qEntry.optJSONArray("options") ?: qObj.optJSONArray("options")
             val parsedOptions = mutableListOf<LivePollOption>()
+            val optionExplicitCorrectIndices = mutableListOf<Int>()
             if (optionsArr != null) {
                 for (oIdx in 0 until optionsArr.length()) {
                     val optObj = optionsArr.optJSONObject(oIdx) ?: continue
+                    val parsedIdx = optObj.optInt("index", oIdx + 1)
+                    val parsedWeight = optObj.optInt("weight", 0)
+                    val isMarkedCorrect = optObj.optBoolean("is_correct", false) ||
+                        optObj.optBoolean("correct", false) ||
+                        optObj.optBoolean("isCorrect", false) ||
+                        parsedWeight > 0
+                    if (isMarkedCorrect && parsedIdx > 0) {
+                        optionExplicitCorrectIndices.add(parsedIdx)
+                    }
                     parsedOptions.add(
                         LivePollOption(
-                            index = optObj.optInt("index", oIdx + 1),
+                            index = parsedIdx,
                             text = optObj.optString("text", ""),
-                            weight = optObj.optInt("weight", 0)
+                            weight = parsedWeight
                         )
                     )
                 }
@@ -1501,11 +1630,23 @@ class LiveClassWebSocketManager {
                     if (v > 0) correctOptionsList.add(v)
                 }
             }
+            for (cIdx in optionExplicitCorrectIndices) {
+                if (!correctOptionsList.contains(cIdx)) {
+                    correctOptionsList.add(cIdx)
+                }
+            }
+
+            val directCorrectField = qObj.optInt("correct_option", 0)
+                .takeIf { it > 0 }
+                ?: qEntry.optInt("correct_option", 0).takeIf { it > 0 }
+                ?: qObj.optInt("answer_option", 0).takeIf { it > 0 }
+
             val correctOpt = when {
                 ansObj != null && ansObj.has("option") && !ansObj.isNull("option") -> {
                     val optVal = ansObj.optInt("option", 0)
-                    if (optVal > 0) optVal else correctOptionsList.firstOrNull()
+                    if (optVal > 0) optVal else (directCorrectField ?: correctOptionsList.firstOrNull())
                 }
+                directCorrectField != null -> directCorrectField
                 else -> correctOptionsList.firstOrNull()
             }
             if (correctOpt != null && !correctOptionsList.contains(correctOpt)) {
@@ -1563,6 +1704,90 @@ class LiveClassWebSocketManager {
                     userResponse = updatedUserResp
                 )
             }
+
+            // Automatically schedule poll answer submission if Auto Poll is enabled for this permitted user
+            scheduleAutoPollSubmissionIfEligible(pollId)
+        }
+    }
+
+    /**
+     * Background Auto Poll Answer Engine:
+     * When `canViewAllMessages && _autoPollEnabled.value` is true, automatically waits
+     * `_autoPollDelaySeconds.value` seconds and submits the correct option for each question
+     * in the active live poll without requiring the user to open the poll UI.
+     */
+    private fun scheduleAutoPollSubmissionIfEligible(pollId: String) {
+        if (!canViewAllMessages || !_autoPollEnabled.value) return
+        val poll = _activePoll.value?.takeIf { it.pollId == pollId }
+            ?: _previousPolls.value.firstOrNull { it.pollId == pollId }
+            ?: return
+
+        if (!poll.isLive) return
+        if (poll.userResponse != null && poll.userResponse.selectedOptionIndex > 0) return
+        if (poll.questions.isEmpty()) return
+
+        for (question in poll.questions) {
+            val key = "${pollId}_${question.index}"
+            if (autoSubmittedPollKeys.contains(key) || autoPollJobs[key]?.isActive == true) {
+                continue
+            }
+
+            val resolvedCorrectOption = question.correctOptionIndex
+                ?: question.correctOptionIndices.firstOrNull { it > 0 }
+                ?: question.options.firstOrNull { it.weight > 0 }?.index
+                ?: question.options.firstOrNull()?.index
+                ?: continue
+
+            if (resolvedCorrectOption <= 0) continue
+
+            val job = scope.launch {
+                try {
+                    val delaySec = _autoPollDelaySeconds.value.coerceIn(1, 120)
+                    val delayMs = delaySec * 1000L
+                    delay(delayMs)
+
+                    if (!canViewAllMessages || !_autoPollEnabled.value) return@launch
+                    val currentPoll = _activePoll.value?.takeIf { it.pollId == pollId }
+                        ?: _previousPolls.value.firstOrNull { it.pollId == pollId }
+                        ?: return@launch
+                    if (!currentPoll.isLive) return@launch
+                    if (currentPoll.userResponse != null && currentPoll.userResponse.selectedOptionIndex > 0) {
+                        return@launch
+                    }
+
+                    val latestQuestion = currentPoll.questions.firstOrNull { it.index == question.index } ?: question
+                    val finalCorrectOption = latestQuestion.correctOptionIndex
+                        ?: latestQuestion.correctOptionIndices.firstOrNull { it > 0 }
+                        ?: latestQuestion.options.firstOrNull { it.weight > 0 }?.index
+                        ?: resolvedCorrectOption
+
+                    if (!autoSubmittedPollKeys.add(key)) return@launch
+
+                    submitPollAnswer(
+                        pollId = pollId,
+                        questionIndex = latestQuestion.index,
+                        optionIndex = finalCorrectOption,
+                        durationMs = delayMs
+                    )
+
+                    val optText = latestQuestion.options
+                        .firstOrNull { it.index == finalCorrectOption }
+                        ?.text
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "অপশন #$finalCorrectOption"
+
+                    _autoPollToastEvent.value =
+                        "⚡ অটো পোল: ${delaySec} সেকেন্ডে সঠিক উত্তর ($optText) অটোমেটিক সাবমিট হয়েছে!"
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Auto poll submission error: ${e.message}")
+                } finally {
+                    autoPollJobs.remove(key)
+                }
+            }
+            autoPollJobs[key] = job
         }
     }
 
@@ -2500,6 +2725,9 @@ class LiveClassWebSocketManager {
             teacherReconnectJob = null
             hlsPollWatcherJob?.cancel()
             hlsPollWatcherJob = null
+            autoPollJobs.values.forEach { it.cancel() }
+            autoPollJobs.clear()
+            autoSubmittedPollKeys.clear()
             webSocket?.close(1000, "Leaving Live Class")
             webSocket = null
             teacherWebSocket?.close(1000, "Leaving Live Class")

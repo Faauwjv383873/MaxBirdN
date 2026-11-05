@@ -189,15 +189,17 @@ fun LiveClassPage(
     var showJoinNameDialog by remember { mutableStateOf(false) }
     var isUpdatingNameInLiveClass by remember { mutableStateOf(false) }
 
-    // Pre-Join Lobby & Teacher Identity Join States
+    // Pre-Join Lobby & Teacher Identity Join States (Strictly false by default so normal join is 100% student mode)
     var hasUserClickedJoin by rememberSaveable(classId, lessonId) { mutableStateOf(false) }
     var isJoiningClass by remember { mutableStateOf(false) }
+    var isJoiningAsTeacher by remember { mutableStateOf(false) }
     var cachedRoomId by remember { mutableStateOf<String?>(null) }
     var cachedPrimaryToken by remember { mutableStateOf<String?>(null) }
     var cachedTeacherToken by remember { mutableStateOf<String?>(null) }
-    var joinWithTeacherIdMode by rememberSaveable(classId, lessonId) { mutableStateOf(true) }
+    var joinWithTeacherIdMode by rememberSaveable(classId, lessonId) { mutableStateOf(false) }
     var selectedTeacherForJoin by remember { mutableStateOf<DiscoveredRoomTeacher?>(null) }
     var showTeacherIdentityDialog by remember { mutableStateOf(false) }
+    var showAutoPollDialog by remember { mutableStateOf(false) }
 
     // Live Delay state & Sync Trigger
     var liveDelaySeconds by remember { mutableIntStateOf(0) }
@@ -273,22 +275,49 @@ fun LiveClassPage(
         )
     }
 
-    // 100ms Real Live Poll / Quiz State
+    // 100ms Real Live Poll / Quiz State & Auto Poll Engine State
     val activePoll by wsManager.activePoll.collectAsState()
     val previousPolls by wsManager.previousPolls.collectAsState()
+    val autoPollEnabled by wsManager.autoPollEnabled.collectAsState()
+    val autoPollDelaySeconds by wsManager.autoPollDelaySeconds.collectAsState()
+    val autoPollToastEvent by wsManager.autoPollToastEvent.collectAsState()
     var selectedPollIdForQuestion by remember { mutableStateOf<String?>(null) }
     var selectedPollIdForResult by remember { mutableStateOf<String?>(null) }
     var showPreviousPollsDialog by remember { mutableStateOf(false) }
     var showViewMessagesDialog by remember { mutableStateOf(false) }
 
+    fun updateAutoPollConfig(enabled: Boolean, delaySec: Int) {
+        if (!canViewProfiles) return
+        val safeSec = delaySec.coerceIn(1, 120)
+        sessionManager.setLiveAutoPollEnabled(enabled)
+        sessionManager.setLiveAutoPollDelaySeconds(safeSec)
+        wsManager.setAutoPollConfiguration(enabled = enabled, delaySeconds = safeSec)
+    }
+
+    LaunchedEffect(autoPollToastEvent) {
+        val msg = autoPollToastEvent
+        if (!msg.isNullOrBlank()) {
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            wsManager.consumeAutoPollToastEvent()
+        }
+    }
+
     LaunchedEffect(canViewProfiles) {
         wsManager.setCanViewAllMessages(canViewProfiles)
-        if (!canViewProfiles) {
+        if (canViewProfiles) {
+            wsManager.setAutoPollConfiguration(
+                enabled = sessionManager.getLiveAutoPollEnabled(),
+                delaySeconds = sessionManager.getLiveAutoPollDelaySeconds()
+            )
+        } else {
             selectedRole = "teacher"
+            joinWithTeacherIdMode = false
             showViewMessagesDialog = false
             showNameChangeDialog = false
             showJoinNameDialog = false
             showTeacherIdentityDialog = false
+            showAutoPollDialog = false
+            wsManager.setAutoPollConfiguration(enabled = false, delaySeconds = 2)
             studentName = defaultProfileName
             chatMessages.removeAll { !it.isMine && !it.isTeacher }
         }
@@ -302,12 +331,20 @@ fun LiveClassPage(
         )
         canViewProfiles = freshPerm
         wsManager.setCanViewAllMessages(freshPerm)
-        if (!freshPerm) {
+        if (freshPerm) {
+            wsManager.setAutoPollConfiguration(
+                enabled = sessionManager.getLiveAutoPollEnabled(),
+                delaySeconds = sessionManager.getLiveAutoPollDelaySeconds()
+            )
+        } else {
             selectedRole = "teacher"
+            joinWithTeacherIdMode = false
             showViewMessagesDialog = false
             showNameChangeDialog = false
             showJoinNameDialog = false
             showTeacherIdentityDialog = false
+            showAutoPollDialog = false
+            wsManager.setAutoPollConfiguration(enabled = false, delaySeconds = 2)
             studentName = defaultProfileName
             chatMessages.removeAll { !it.isMine && !it.isTeacher }
         }
@@ -361,9 +398,17 @@ fun LiveClassPage(
     }
 
     // Auto-open active poll question dialog when teacher starts a new live poll
-    LaunchedEffect(activePoll?.pollId, activePoll?.state) {
+    // (When `canViewProfiles && autoPollEnabled` is true, do NOT force-open the poll screen—
+    // the background Auto Poll Engine automatically submits the correct answer after `autoPollDelaySeconds`!)
+    LaunchedEffect(activePoll?.pollId, activePoll?.state, canViewProfiles, autoPollEnabled) {
         val poll = activePoll
-        if (uiState is LiveClassState.Playing && poll != null && poll.isLive && poll.userResponse == null && selectedPollIdForQuestion == null) {
+        if (uiState is LiveClassState.Playing &&
+            poll != null &&
+            poll.isLive &&
+            poll.userResponse == null &&
+            selectedPollIdForQuestion == null &&
+            !(canViewProfiles && autoPollEnabled)
+        ) {
             selectedPollIdForQuestion = poll.pollId
         }
     }
@@ -392,19 +437,21 @@ fun LiveClassPage(
             val latestPerm = permDeferred.await()
             canViewProfiles = latestPerm
             wsManager.setCanViewAllMessages(latestPerm)
-            if (!latestPerm) {
+            if (latestPerm) {
+                wsManager.setAutoPollConfiguration(
+                    enabled = sessionManager.getLiveAutoPollEnabled(),
+                    delaySeconds = sessionManager.getLiveAutoPollDelaySeconds()
+                )
+            } else {
                 selectedRole = "teacher"
+                joinWithTeacherIdMode = false
                 showViewMessagesDialog = false
                 studentName = defaultProfileName
+                wsManager.setAutoPollConfiguration(enabled = false, delaySeconds = 2)
             }
 
-            // Provide initial teacher hint from GraphQL if available
-            wsManager.setInitialTeacherHint(
-                teacherId = academicInfo?.teacherId,
-                teacherName = academicInfo?.teacherName,
-                teacherAvatar = academicInfo?.teacherAvatar
-            )
-
+            // IMPORTANT: Do NOT extract teacher identity, do NOT call setInitialTeacherHint,
+            // and do NOT probe the room before the user explicitly clicks "শিক্ষকের আইডি দিয়ে জয়েন করুন"!
             val discoveredUrls = mutableListOf<String>()
             academicInfo?.playbackUrl?.takeIf { it.isNotBlank() }?.let { discoveredUrls.add(it) }
             discoveredUrls.addAll(academicInfo?.candidateUrls ?: emptyList())
@@ -422,38 +469,33 @@ fun LiveClassPage(
             cachedRoomId = roomId
 
             if (!roomId.isNullOrBlank()) {
+                // Fetch ONLY the student's normal primary token on initial load (includeTeacherListener = false)
                 val tokensResult = service.getHmsRoomTokens(
                     roomId = roomId,
                     userToken = userToken,
-                    includeTeacherListener = latestPerm,
-                    teacherUserId = academicInfo?.teacherId,
-                    teacherName = academicInfo?.teacherName
+                    includeTeacherListener = false,
+                    teacherUserId = null,
+                    teacherName = null
                 )
                 val roomTokens = tokensResult.getOrNull()
                 val hmsToken = roomTokens?.primaryToken
                 cachedPrimaryToken = hmsToken
-                cachedTeacherToken = roomTokens?.teacherToken
+                cachedTeacherToken = null
 
                 if (!hmsToken.isNullOrBlank()) {
                     if (!hasUserClickedJoin) {
-                        // Probe room in the background while showing Pre-Join Lobby so active teacher ID, peer list & viewer count are ready!
-                        wsManager.probeRoomBeforeJoin(
-                            token = hmsToken,
-                            probeDisplayName = studentName
-                        )
                         if (academicInfo?.isOnGoing == false && !academicInfo.playbackUrl.isNullOrBlank()) {
                             wsManager.setMasterUrl(academicInfo.playbackUrl)
                         }
                         uiState = LiveClassState.Preview(viewerCount)
                         return@launch
                     } else {
-                        val chosenTeacher = selectedTeacherForJoin ?: activeRoomTeacher
                         wsManager.connect(
                             token = hmsToken,
                             studentName = studentName,
-                            teacherToken = if (latestPerm) roomTokens.teacherToken else null,
-                            joinWithTeacherIdentity = latestPerm && joinWithTeacherIdMode,
-                            targetTeacher = chosenTeacher
+                            teacherToken = null,
+                            joinWithTeacherIdentity = false,
+                            targetTeacher = null
                         )
                         if (academicInfo?.isOnGoing == false && !academicInfo.playbackUrl.isNullOrBlank()) {
                             wsManager.setMasterUrl(academicInfo.playbackUrl)
@@ -491,9 +533,16 @@ fun LiveClassPage(
         }
     }
 
-    fun joinLiveClassNow(requestedDisplayName: String) {
-        if (isJoiningClass) return
+    /**
+     * Normal Student Join:
+     * Joins the live class strictly as a normal student using the user's own student ID and name,
+     * even if `canViewProfiles == true`. Does NOT extract or use any teacher ID or teacher token.
+     */
+    fun joinLiveClassAsStudent(requestedDisplayName: String) {
+        if (isJoiningClass || isJoiningAsTeacher) return
         isJoiningClass = true
+        joinWithTeacherIdMode = false
+        selectedTeacherForJoin = null
         coroutineScope.launch {
             val userToken = sessionManager.getAccessToken()
             val effectiveName = if (canViewProfiles) {
@@ -506,31 +555,24 @@ fun LiveClassPage(
                 sessionManager.setLiveCustomStudentName(effectiveName)
             }
 
-            val targetTeacher = if (canViewProfiles) {
-                selectedTeacherForJoin ?: activeRoomTeacher
-            } else null
-
             var primaryTokenToUse = cachedPrimaryToken
-            var teacherTokenToUse = cachedTeacherToken
             val roomId = cachedRoomId
 
             if (!roomId.isNullOrBlank() && !userToken.isNullOrBlank()) {
-                if (canViewProfiles) {
-                    // Sync custom name to Shikho profile so /hms/token embeds the new name in reality
+                if (canViewProfiles && effectiveName != defaultProfileName) {
                     runCatching { service.updateShikhoProfileName(effectiveName, userToken) }
                 }
                 val freshTokens = service.getHmsRoomTokens(
                     roomId = roomId,
                     userToken = userToken,
-                    includeTeacherListener = canViewProfiles,
-                    teacherUserId = targetTeacher?.userId,
-                    teacherName = targetTeacher?.name
+                    includeTeacherListener = false,
+                    teacherUserId = null,
+                    teacherName = null
                 ).getOrNull()
                 if (freshTokens != null) {
                     primaryTokenToUse = freshTokens.primaryToken
-                    teacherTokenToUse = freshTokens.teacherToken
                     cachedPrimaryToken = freshTokens.primaryToken
-                    cachedTeacherToken = freshTokens.teacherToken
+                    cachedTeacherToken = null
                 }
             }
 
@@ -540,16 +582,98 @@ fun LiveClassPage(
                 wsManager.connect(
                     token = primaryTokenToUse,
                     studentName = effectiveName,
-                    teacherToken = if (canViewProfiles) teacherTokenToUse else null,
-                    joinWithTeacherIdentity = canViewProfiles && joinWithTeacherIdMode,
-                    targetTeacher = targetTeacher
+                    teacherToken = null,
+                    joinWithTeacherIdentity = false,
+                    targetTeacher = null
                 )
             }
 
             isJoiningClass = false
             uiState = LiveClassState.Playing
 
-            // Safety fallback if WebSocket does not deliver a stream URL within 5 seconds
+            coroutineScope.launch {
+                kotlinx.coroutines.delay(5000L)
+                if (wsManager.masterUrl.value.isNullOrBlank()) {
+                    val fallback = candidateUrls.firstOrNull { it.isNotBlank() }
+                    if (!fallback.isNullOrBlank()) {
+                        wsManager.setMasterUrl(fallback)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Explicit Opt-In Teacher ID Join (ONLY for `canViewProfiles == true`):
+     * Triggered ONLY when the user explicitly clicks "শিক্ষকের আইডি দিয়ে জয়েন করুন".
+     * Extracts the active class teacher's ID and name on demand, fetches the teacher token,
+     * and joins the live class using the teacher's identity.
+     */
+    fun joinLiveClassWithTeacherId() {
+        if (!canViewProfiles || isJoiningClass || isJoiningAsTeacher) return
+        isJoiningAsTeacher = true
+        joinWithTeacherIdMode = true
+        coroutineScope.launch {
+            val userToken = sessionManager.getAccessToken()
+            val roomId = cachedRoomId
+            var primaryTokenToUse = cachedPrimaryToken
+            var teacherTokenToUse: String? = null
+            var extractedTeacher = selectedTeacherForJoin ?: activeRoomTeacher
+
+            if (!userToken.isNullOrBlank()) {
+                val academicInfo = service.getAcademicLiveClassInfo(classId, lessonId, userToken).getOrNull()
+                if (primaryTokenToUse.isNullOrBlank() && !roomId.isNullOrBlank()) {
+                    primaryTokenToUse = service.getHmsToken(roomId, userToken).getOrNull()
+                    cachedPrimaryToken = primaryTokenToUse
+                }
+                extractedTeacher = wsManager.extractRoomTeacherIdentityOnDemand(
+                    token = primaryTokenToUse.orEmpty(),
+                    fallbackTeacherId = academicInfo?.teacherId,
+                    fallbackTeacherName = academicInfo?.teacherName,
+                    fallbackTeacherAvatar = academicInfo?.teacherAvatar
+                )
+                selectedTeacherForJoin = extractedTeacher
+
+                if (!roomId.isNullOrBlank()) {
+                    val freshTokens = service.getHmsRoomTokens(
+                        roomId = roomId,
+                        userToken = userToken,
+                        includeTeacherListener = true,
+                        teacherUserId = extractedTeacher.userId,
+                        teacherName = extractedTeacher.name
+                    ).getOrNull()
+                    if (freshTokens != null) {
+                        primaryTokenToUse = freshTokens.primaryToken
+                        teacherTokenToUse = freshTokens.teacherToken
+                        cachedPrimaryToken = freshTokens.primaryToken
+                        cachedTeacherToken = freshTokens.teacherToken
+                    }
+                }
+            }
+
+            val teacherDisplayName = extractedTeacher?.name?.trim()?.takeIf { it.isNotBlank() }
+                ?: roomTeacherName.ifBlank { studentName }
+            studentName = teacherDisplayName
+            hasUserClickedJoin = true
+
+            if (!primaryTokenToUse.isNullOrBlank()) {
+                wsManager.connect(
+                    token = primaryTokenToUse,
+                    studentName = teacherDisplayName,
+                    teacherToken = teacherTokenToUse,
+                    joinWithTeacherIdentity = true,
+                    targetTeacher = extractedTeacher
+                )
+            }
+
+            isJoiningAsTeacher = false
+            uiState = LiveClassState.Playing
+            Toast.makeText(
+                context,
+                "শিক্ষক '$teacherDisplayName' এর আইডি দিয়ে ক্লাসে জয়েন করা হয়েছে ✨",
+                Toast.LENGTH_SHORT
+            ).show()
+
             coroutineScope.launch {
                 kotlinx.coroutines.delay(5000L)
                 if (wsManager.masterUrl.value.isNullOrBlank()) {
@@ -1148,189 +1272,12 @@ fun LiveClassPage(
                             }
                         }
 
-                        // Teacher ID Impersonation & All-Student Comment Capture Section (ONLY for canViewProfiles == true)
-                        if (canViewProfiles) {
-                            Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
 
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFF111C33),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (joinWithTeacherIdMode) Color(0xFFFBBF24).copy(alpha = 0.7f) else Color(0xFF26354D)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
-                                                border = BorderStroke(1.dp, Color(0xFFFBBF24)),
-                                                modifier = Modifier.size(34.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.School,
-                                                        contentDescription = null,
-                                                        tint = Color(0xFFFBBF24),
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
-                                            }
-                                            Column {
-                                                Text(
-                                                    text = "ক্লাসের শিক্ষকের আইডি দিয়ে প্রবেশ",
-                                                    fontSize = 13.5.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = Color.White
-                                                )
-                                                Text(
-                                                    text = "ওই স্যারের আইডিতে আসা সকল শিক্ষার্থীর কমেন্ট সরাসরি দেখতে অন রাখুন",
-                                                    fontSize = 11.sp,
-                                                    color = Color(0xFF94A3B8)
-                                                )
-                                            }
-                                        }
-
-                                        Switch(
-                                            checked = joinWithTeacherIdMode,
-                                            onCheckedChange = { joinWithTeacherIdMode = it },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = Color.White,
-                                                checkedTrackColor = Color(0xFF0284C7),
-                                                uncheckedThumbColor = Color(0xFF94A3B8),
-                                                uncheckedTrackColor = Color(0xFF1E293B)
-                                            )
-                                        )
-                                    }
-
-                                    if (joinWithTeacherIdMode) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-
-                                        val teachersToShow = remember(discoveredTeachers, activeRoomTeacher, displayTeacherName) {
-                                            if (discoveredTeachers.isNotEmpty()) {
-                                                discoveredTeachers
-                                            } else if (activeRoomTeacher != null) {
-                                                listOf(activeRoomTeacher!!)
-                                            } else {
-                                                listOf(
-                                                    DiscoveredRoomTeacher(
-                                                        peerId = "",
-                                                        userId = "",
-                                                        name = displayTeacherName,
-                                                        role = "teacher"
-                                                    )
-                                                )
-                                            }
-                                        }
-
-                                        Text(
-                                            text = "এই ক্লাসের শনাক্তকৃত শিক্ষক আইডি (ট্যাপ করে নির্বাচন করুন):",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFFCBD5E1)
-                                        )
-
-                                        Spacer(modifier = Modifier.height(6.dp))
-
-                                        teachersToShow.forEach { tItem ->
-                                            val isSelectedTeacher = (selectedTeacherForJoin?.userId == tItem.userId &&
-                                                selectedTeacherForJoin?.peerId == tItem.peerId &&
-                                                selectedTeacherForJoin?.name == tItem.name) ||
-                                                (selectedTeacherForJoin == null && tItem == teachersToShow.first())
-
-                                            Surface(
-                                                shape = RoundedCornerShape(12.dp),
-                                                color = if (isSelectedTeacher) Color(0xFF0C2440) else Color(0xFF0B1120),
-                                                border = BorderStroke(
-                                                    1.dp,
-                                                    if (isSelectedTeacher) Color(0xFF38BDF8) else Color(0xFF26354D)
-                                                ),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 3.dp)
-                                                    .clickable { selectedTeacherForJoin = tItem }
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Column(modifier = Modifier.weight(1f)) {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = tItem.name.ifBlank { "শিক্ষক (Teacher)" },
-                                                                fontSize = 13.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = Color.White
-                                                            )
-                                                            Surface(
-                                                                shape = RoundedCornerShape(4.dp),
-                                                                color = Color(0xFF0284C7)
-                                                            ) {
-                                                                Text(
-                                                                    text = tItem.role.ifBlank { "teacher" },
-                                                                    fontSize = 9.sp,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = Color.White,
-                                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
-                                                                )
-                                                            }
-                                                        }
-                                                        Spacer(modifier = Modifier.height(2.dp))
-                                                        Text(
-                                                            text = buildString {
-                                                                if (tItem.userId.isNotBlank()) append("Teacher ID: ${tItem.userId}")
-                                                                if (tItem.peerId.isNotBlank()) {
-                                                                    if (isNotEmpty()) append(" • ")
-                                                                    append("Peer: ${tItem.peerId.take(10)}...")
-                                                                }
-                                                                if (isEmpty()) append("লাইভ রুম থেকে স্যারের আইডি অটো-সিঙ্ক হচ্ছে...")
-                                                            },
-                                                            fontSize = 10.5.sp,
-                                                            color = Color(0xFF38BDF8)
-                                                        )
-                                                    }
-
-                                                    Icon(
-                                                        imageVector = if (isSelectedTeacher) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                                        contentDescription = null,
-                                                        tint = if (isSelectedTeacher) Color(0xFF38BDF8) else Color(0xFF475569),
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Prominent Join Class Button
+                        // 1. Primary Normal Student Join Button (Joins strictly with user's own student info)
                         Button(
-                            onClick = { joinLiveClassNow(lobbyNameInput) },
-                            enabled = !isJoiningClass,
+                            onClick = { joinLiveClassAsStudent(lobbyNameInput) },
+                            enabled = !isJoiningClass && !isJoiningAsTeacher,
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF0284C7),
@@ -1348,7 +1295,7 @@ fun LiveClassPage(
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "ক্লাসে জয়েন হচ্ছে...",
+                                    text = "আপনার আইডি দিয়ে জয়েন হচ্ছে...",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White
@@ -1368,6 +1315,114 @@ fun LiveClassPage(
                                     color = Color.White
                                 )
                             }
+                        }
+
+                        // 2. Extra Options ONLY for `canViewProfiles == true`:
+                        //    (A) Separate Opt-In Button: "শিক্ষকের আইডি দিয়ে জয়েন করুন" (Only extracts teacher info when clicked!)
+                        //    (B) Auto Poll ("অটো") Configuration Card
+                        if (canViewProfiles) {
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFF111C33),
+                                border = BorderStroke(1.dp, Color(0xFFFBBF24).copy(alpha = 0.65f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                            border = BorderStroke(1.dp, Color(0xFFFBBF24)),
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.School,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFFBBF24),
+                                                    modifier = Modifier.size(19.dp)
+                                                )
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "শিক্ষকের আইডি দিয়ে প্রবেশ (ঐচ্ছিক)",
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                text = "উপরের বাটনে ক্লিক করলে সাধারণ শিক্ষার্থীর মতো আপনার নিজের আইডিতে জয়েন হবে। শুধুমাত্র নিচের বাটনে ক্লিক করলেই শিক্ষকের তথ্য বের করে শিক্ষকের আইডিতে জয়েন করবে।",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF94A3B8),
+                                                lineHeight = 15.sp
+                                            )
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = { joinLiveClassWithTeacherId() },
+                                        enabled = !isJoiningClass && !isJoiningAsTeacher,
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFD97706),
+                                            disabledContainerColor = Color(0xFF1E293B)
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                    ) {
+                                        if (isJoiningAsTeacher) {
+                                            CircularProgressIndicator(
+                                                color = Color.White,
+                                                strokeWidth = 2.2.dp,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "শিক্ষকের তথ্য বের করে জয়েন হচ্ছে...",
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.School,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "শিক্ষকের আইডি দিয়ে জয়েন করুন",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            com.example.liveclass.poll.AutoPollControlCard(
+                                enabled = autoPollEnabled,
+                                delaySeconds = autoPollDelaySeconds,
+                                onConfigChanged = { enabled, sec ->
+                                    updateAutoPollConfig(enabled, sec)
+                                }
+                            )
                         }
                     }
                 }
@@ -2533,6 +2588,39 @@ fun LiveClassPage(
                                                 }
                                             }
 
+                                            // 2b. Auto Poll ("অটো") Pill (Strictly ONLY for Admin-permitted devices with can_view_profiles)
+                                            if (canViewProfiles) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = if (autoPollEnabled) Color(0xFF064E3B) else Color(0xFF1E293B),
+                                                    border = BorderStroke(
+                                                        1.dp,
+                                                        if (autoPollEnabled) Color(0xFF10B981) else Color(0xFF334155)
+                                                    ),
+                                                    modifier = Modifier.clickable { showAutoPollDialog = true }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Bolt,
+                                                            contentDescription = "Auto Poll",
+                                                            tint = if (autoPollEnabled) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (autoPollEnabled) "অটো (${autoPollDelaySeconds}s)" else "অটো পোল",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (autoPollEnabled) Color(0xFF6EE7B7) else Color.White,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+
                                             // 3. View Messages Pill ("ভিউ ম্যাসেজ" — ONLY for Admin-permitted devices with can_view_profiles)
                                             if (canViewProfiles) {
                                                 Surface(
@@ -2566,10 +2654,14 @@ fun LiveClassPage(
                                                     }
                                                 }
 
-                                                // Teacher ID Listener Pill (Shows active Teacher ID for capturing all student comments)
-                                                val activeTeacherLabel = selectedTeacherForJoin?.name?.takeIf { it.isNotBlank() }
-                                                    ?: activeRoomTeacher?.name?.takeIf { it.isNotBlank() }
-                                                    ?: roomTeacherName.ifBlank { "শিক্ষক আইডি" }
+                                                // Teacher ID Join / Switch Pill (Only active as teacher when explicitly selected)
+                                                val activeTeacherLabel = if (isJoinedAsTeacherIdentity) {
+                                                    selectedTeacherForJoin?.name?.takeIf { it.isNotBlank() }
+                                                        ?: activeRoomTeacher?.name?.takeIf { it.isNotBlank() }
+                                                        ?: roomTeacherName.ifBlank { "শিক্ষক আইডি" }
+                                                } else {
+                                                    "শিক্ষক আইডি জয়েন"
+                                                }
                                                 Surface(
                                                     shape = RoundedCornerShape(10.dp),
                                                     color = if (isJoinedAsTeacherIdentity) Color(0xFF064E3B) else Color(0xFF1E293B),
@@ -2591,7 +2683,7 @@ fun LiveClassPage(
                                                             modifier = Modifier.size(13.dp)
                                                         )
                                                         Text(
-                                                            text = "আইডি: $activeTeacherLabel",
+                                                            text = if (isJoinedAsTeacherIdentity) "শিক্ষক: $activeTeacherLabel" else activeTeacherLabel,
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = if (isJoinedAsTeacherIdentity) Color(0xFF6EE7B7) else Color(0xFFFDE68A),
@@ -3492,18 +3584,18 @@ fun LiveClassPage(
                             if (!userToken.isNullOrBlank()) {
                                 runCatching { service.updateShikhoProfileName(clean, userToken) }
                                 if (!roomId.isNullOrBlank()) {
-                                    val targetTeacher = selectedTeacherForJoin ?: activeRoomTeacher
+                                    val targetTeacher = if (joinWithTeacherIdMode) (selectedTeacherForJoin ?: activeRoomTeacher) else null
                                     val freshTokens = service.getHmsRoomTokens(
                                         roomId = roomId,
                                         userToken = userToken,
-                                        includeTeacherListener = true,
+                                        includeTeacherListener = joinWithTeacherIdMode,
                                         teacherUserId = targetTeacher?.userId,
                                         teacherName = targetTeacher?.name
                                     ).getOrNull()
                                     if (freshTokens != null) {
                                         freshPrimaryToken = freshTokens.primaryToken
                                         cachedPrimaryToken = freshTokens.primaryToken
-                                        cachedTeacherToken = freshTokens.teacherToken
+                                        cachedTeacherToken = if (joinWithTeacherIdMode) freshTokens.teacherToken else null
                                     }
                                 }
                             }
@@ -3559,28 +3651,52 @@ fun LiveClassPage(
         )
     }
 
+    // Auto Poll Configuration Dialog (Strictly ONLY for canViewProfiles == true)
+    if (canViewProfiles && showAutoPollDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoPollDialog = false },
+            containerColor = Color(0xFF0F172A),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = Color(0xFF34D399),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "অটো পোল লাইভ এক্সাম সেটিংস",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                com.example.liveclass.poll.AutoPollControlCard(
+                    enabled = autoPollEnabled,
+                    delaySeconds = autoPollDelaySeconds,
+                    onConfigChanged = { enabled, sec ->
+                        updateAutoPollConfig(enabled, sec)
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showAutoPollDialog = false }) {
+                    Text("সম্পন্ন", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
     // Teacher Identity Switcher / Re-Sync Dialog inside Live Class (ONLY for canViewProfiles == true)
     if (canViewProfiles && showTeacherIdentityDialog) {
-        val currentTeacherName = activeRoomTeacher?.name?.takeIf { it.isNotBlank() } ?: roomTeacherName.ifBlank { "নির্ধারিত শিক্ষক" }
-        val teachersToShow = remember(discoveredTeachers, activeRoomTeacher, currentTeacherName) {
-            if (discoveredTeachers.isNotEmpty()) {
-                discoveredTeachers
-            } else if (activeRoomTeacher != null) {
-                listOf(activeRoomTeacher!!)
-            } else {
-                listOf(
-                    DiscoveredRoomTeacher(
-                        peerId = "",
-                        userId = "",
-                        name = currentTeacherName,
-                        role = "teacher"
-                    )
-                )
-            }
-        }
-
         AlertDialog(
-            onDismissRequest = { showTeacherIdentityDialog = false },
+            onDismissRequest = { if (!isJoiningAsTeacher) showTeacherIdentityDialog = false },
             containerColor = Color(0xFF111C33),
             titleContentColor = Color.White,
             textContentColor = Color.White,
@@ -3596,7 +3712,7 @@ fun LiveClassPage(
                         modifier = Modifier.size(22.dp)
                     )
                     Text(
-                        text = "ক্লাসের শিক্ষক আইডি ও কমেন্ট সিঙ্ক",
+                        text = "শিক্ষক আইডি জয়েন কন্ট্রোল",
                         fontSize = 15.5.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -3605,100 +3721,71 @@ fun LiveClassPage(
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "যে শিক্ষক এই ক্লাসটি নিচ্ছেন তার আইডির সাথে সংযুক্ত থাকলে শিক্ষার্থীদের পাঠানো সকল কমেন্ট সরাসরি দেখা যাবে:",
+                        text = if (isJoinedAsTeacherIdentity) {
+                            "আপনি বর্তমানে শিক্ষকের আইডি দিয়ে কানেক্টেড আছেন। চাইলে নিজের সাধারণ স্টুডেন্ট আইডিতে ফিরে যেতে পারেন অথবা শিক্ষকের আইডি পুনরায় সিঙ্ক করতে পারেন:"
+                        } else {
+                            "আপনি বর্তমানে সাধারণ শিক্ষার্থীর মতো নিজের আইডি দিয়ে ক্লাসে আছেন। শিক্ষকের তথ্য বের করে শিক্ষকের আইডি দিয়ে জয়েন করতে নিচের বাটনে ক্লিক করুন:"
+                        },
                         fontSize = 12.sp,
                         color = Color(0xFF94A3B8),
                         lineHeight = 17.sp
                     )
 
-                    teachersToShow.forEach { tItem ->
-                        val isSelected = (selectedTeacherForJoin?.userId == tItem.userId &&
-                            selectedTeacherForJoin?.peerId == tItem.peerId &&
-                            selectedTeacherForJoin?.name == tItem.name) ||
-                            (selectedTeacherForJoin == null && tItem == teachersToShow.first())
+                    Button(
+                        onClick = {
+                            showTeacherIdentityDialog = false
+                            joinLiveClassWithTeacherId()
+                        },
+                        enabled = !isJoiningAsTeacher && !isJoiningClass,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "শিক্ষকের আইডি দিয়ে জয়েন করুন",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
 
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isSelected) Color(0xFF0C2440) else Color(0xFF0B1120),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFF38BDF8) else Color(0xFF26354D)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    selectedTeacherForJoin = tItem
-                                    joinWithTeacherIdMode = true
-                                    coroutineScope.launch {
-                                        val userToken = sessionManager.getAccessToken()
-                                        val roomId = cachedRoomId
-                                        if (!userToken.isNullOrBlank() && !roomId.isNullOrBlank()) {
-                                            val freshTokens = service.getHmsRoomTokens(
-                                                roomId = roomId,
-                                                userToken = userToken,
-                                                includeTeacherListener = true,
-                                                teacherUserId = tItem.userId,
-                                                teacherName = tItem.name
-                                            ).getOrNull()
-                                            val pToken = freshTokens?.primaryToken ?: cachedPrimaryToken
-                                            val tToken = freshTokens?.teacherToken ?: cachedTeacherToken
-                                            if (!pToken.isNullOrBlank()) {
-                                                wsManager.connect(
-                                                    token = pToken,
-                                                    studentName = studentName,
-                                                    teacherToken = tToken,
-                                                    joinWithTeacherIdentity = true,
-                                                    targetTeacher = tItem
-                                                )
-                                            }
-                                        }
-                                        showTeacherIdentityDialog = false
-                                        Toast.makeText(
-                                            context,
-                                            "শিক্ষক '${tItem.name.ifBlank { "Teacher" }}' এর আইডির সাথে কানেক্ট করা হয়েছে ✨",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
+                    if (isJoinedAsTeacherIdentity) {
+                        OutlinedButton(
+                            onClick = {
+                                showTeacherIdentityDialog = false
+                                val myNormalName = sessionManager.getLiveCustomStudentName()
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: defaultProfileName
+                                joinLiveClassAsStudent(myNormalName)
+                            },
+                            enabled = !isJoiningAsTeacher && !isJoiningClass,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = tItem.name.ifBlank { "শিক্ষক (Teacher)" },
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = buildString {
-                                            if (tItem.userId.isNotBlank()) append("Teacher ID: ${tItem.userId}")
-                                            if (tItem.peerId.isNotBlank()) {
-                                                if (isNotEmpty()) append(" • ")
-                                                append("Peer: ${tItem.peerId.take(10)}...")
-                                            }
-                                            if (isEmpty()) append("লাইভ রুম থেকে স্যারের আইডি সিঙ্ক করা হয়েছে")
-                                        },
-                                        fontSize = 10.5.sp,
-                                        color = Color(0xFF38BDF8)
-                                    )
-                                }
-                                Icon(
-                                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                    contentDescription = null,
-                                    tint = if (isSelected) Color(0xFF38BDF8) else Color(0xFF475569),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "নিজের স্টুডেন্ট আইডিতে ফিরে যান",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF38BDF8)
+                            )
                         }
                     }
                 }
@@ -3725,6 +3812,12 @@ fun LiveClassPage(
                 wsManager.fetchUserPollResponse(pollItem.pollId)
                 selectedPollIdForQuestion = null
                 selectedPollIdForResult = pollItem.pollId
+            },
+            canUseAutoPoll = canViewProfiles,
+            autoPollEnabled = autoPollEnabled,
+            autoPollDelaySeconds = autoPollDelaySeconds,
+            onAutoPollConfigChanged = { enabled, sec ->
+                updateAutoPollConfig(enabled, sec)
             }
         )
     }
@@ -3749,6 +3842,12 @@ fun LiveClassPage(
                 showPreviousPollsDialog = false
                 wsManager.loadFullPollDetails(selectedPoll.pollId)
                 selectedPollIdForQuestion = selectedPoll.pollId
+            },
+            canUseAutoPoll = canViewProfiles,
+            autoPollEnabled = autoPollEnabled,
+            autoPollDelaySeconds = autoPollDelaySeconds,
+            onAutoPollConfigChanged = { enabled, sec ->
+                updateAutoPollConfig(enabled, sec)
             }
         )
     }

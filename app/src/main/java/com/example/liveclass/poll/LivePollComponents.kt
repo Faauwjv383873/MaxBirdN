@@ -4,12 +4,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,7 +62,11 @@ fun LivePollQuestionDialog(
     teacherName: String,
     onDismiss: () -> Unit,
     onSubmitAnswer: (pollId: String, questionIndex: Int, optionIndex: Int, durationMs: Long) -> Unit,
-    onViewResults: (LivePollItem) -> Unit
+    onViewResults: (LivePollItem) -> Unit,
+    canUseAutoPoll: Boolean = false,
+    autoPollEnabled: Boolean = false,
+    autoPollDelaySeconds: Int = 2,
+    onAutoPollConfigChanged: ((Boolean, Int) -> Unit)? = null
 ) {
     val question = poll.questions.firstOrNull()
 
@@ -202,6 +209,15 @@ fun LivePollQuestionDialog(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                 ) {
+                    if (canUseAutoPoll && onAutoPollConfigChanged != null) {
+                        AutoPollControlCard(
+                            enabled = autoPollEnabled,
+                            delaySeconds = autoPollDelaySeconds,
+                            onConfigChanged = onAutoPollConfigChanged
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
                     // Teacher Announcement Line
                     if (resolvedTeacher.isNotBlank()) {
                         Surface(
@@ -996,7 +1012,11 @@ private fun LeaderboardRowItem(
 fun PreviousPollsDialog(
     polls: List<LivePollItem>,
     onDismiss: () -> Unit,
-    onSelectPoll: (LivePollItem) -> Unit
+    onSelectPoll: (LivePollItem) -> Unit,
+    canUseAutoPoll: Boolean = false,
+    autoPollEnabled: Boolean = false,
+    autoPollDelaySeconds: Int = 2,
+    onAutoPollConfigChanged: ((Boolean, Int) -> Unit)? = null
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -1074,6 +1094,15 @@ fun PreviousPollsDialog(
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
+                    if (canUseAutoPoll && onAutoPollConfigChanged != null) {
+                        AutoPollControlCard(
+                            enabled = autoPollEnabled,
+                            delaySeconds = autoPollDelaySeconds,
+                            onConfigChanged = onAutoPollConfigChanged
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                    }
+
                     Text(
                         text = "সকল পোল ও কুইজ তালিকা",
                         fontSize = 15.sp,
@@ -1271,3 +1300,177 @@ fun LivePollFloatingNotification(
         }
     }
 }
+
+/**
+ * Auto Poll ("অটো") Control Card (Strictly visible ONLY for users with Profile View Permission).
+ * Allows toggling automatic poll answer submission ON/OFF and configuring the exact delay in seconds.
+ */
+@Composable
+fun AutoPollControlCard(
+    enabled: Boolean,
+    delaySeconds: Int,
+    onConfigChanged: (enabled: Boolean, delaySeconds: Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var secondsInput by remember(delaySeconds) { mutableStateOf(delaySeconds.toString()) }
+    val presetSeconds = listOf(1, 2, 3, 5, 10)
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF111C33),
+        border = BorderStroke(
+            1.2.dp,
+            if (enabled) Color(0xFF10B981) else Color(0xFF334155)
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (enabled) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, if (enabled) Color(0xFF34D399) else Color(0xFF475569)),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "Auto Poll",
+                                tint = if (enabled) Color(0xFF34D399) else Color(0xFFFBBF24),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "অটো পোল উত্তর (Auto)",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (enabled) Color(0xFF059669) else Color(0xFF334155)
+                            ) {
+                                Text(
+                                    text = if (enabled) "ON • ${delaySeconds}s" else "OFF",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "অন থাকলে পোল প্রশ্ন দিলেই ${delaySeconds} সেকেন্ডে অটোমেটিক সঠিক উত্তর সাবমিট হবে (পোল স্ক্রিনে না আসলেও চলবে)",
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8),
+                            lineHeight = 14.5.sp
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { isChecked ->
+                        val parsed = secondsInput.trim().toIntOrNull()?.coerceIn(1, 120) ?: delaySeconds
+                        onConfigChanged(isChecked, parsed)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF10B981),
+                        uncheckedThumbColor = Color(0xFF94A3B8),
+                        uncheckedTrackColor = Color(0xFF1E293B)
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "সময় (সেকেন্ড):",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFCBD5E1)
+                )
+
+                presetSeconds.forEach { sec ->
+                    val isSelected = delaySeconds == sec
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) Color(0xFF0284C7) else Color(0xFF1E293B),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                        ),
+                        modifier = Modifier.clickable {
+                            secondsInput = sec.toString()
+                            onConfigChanged(enabled, sec)
+                        }
+                    ) {
+                        Text(
+                            text = "${sec}s",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = secondsInput,
+                    onValueChange = { raw ->
+                        val digitsOnly = raw.filter { it.isDigit() }.take(3)
+                        secondsInput = digitsOnly
+                        val parsed = digitsOnly.toIntOrNull()
+                        if (parsed != null && parsed in 1..120) {
+                            onConfigChanged(enabled, parsed)
+                        }
+                    },
+                    singleLine = true,
+                    placeholder = { Text("Sec", fontSize = 11.sp, color = Color(0xFF64748B)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color(0xFF0B1120),
+                        unfocusedContainerColor = Color(0xFF0B1120)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .width(74.dp)
+                        .height(44.dp)
+                )
+            }
+        }
+    }
+}
+

@@ -63,6 +63,8 @@ fun HomeScreen(
     onOpenLessonDetail: ((lesson: StudentLessonItem) -> Unit)? = null,
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
+    onNavigateToPracticeQuiz: (subjectCode: String, subjectTitle: String, subjectColor: String?) -> Unit = { _, _, _ -> },
+    onNavigateToAnimatedLessons: (subjectCode: String, subjectTitle: String, subjectColor: String?, programId: String?, phaseId: String?) -> Unit = { _, _, _, _, _ -> },
     onNavigateToNotificationHistory: () -> Unit = {},
     onOpenPdf: ((filePath: String, title: String) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -72,6 +74,9 @@ fun HomeScreen(
     val scrollState = rememberScrollState()
     val context = LocalContext.current
     val isDark = com.example.ui.theme.isAppInDarkTheme()
+
+    // Mode for standalone Home Feature Subject Picker: "practice_quiz" or "animated_lessons"
+    var activeFeaturePickerMode by remember { mutableStateOf<String?>(null) }
 
     // ===== LOGIC: Notice Popup Dialog (Admin Managed) =====
     if (uiState.showNoticePopup && uiState.notices.any { it.showAsPopup }) {
@@ -150,6 +155,40 @@ fun HomeScreen(
             onClearAll = { viewModel.clearAllSubjectSelection() },
             onSave = { viewModel.saveSubjectFilter() },
             onDismiss = { viewModel.dismissSubjectFilterDialog() }
+        )
+    }
+
+    // ===== LOGIC: Standalone Feature Subject Picker BottomSheet (Practice Quiz / Animated Lessons) =====
+    if (activeFeaturePickerMode != null) {
+        val availableSubjects = remember(uiState.featureSubjects, uiState.courseSubjects) {
+            (uiState.featureSubjects + uiState.courseSubjects).distinctBy { it.code ?: it.display_bn }
+        }
+        LaunchedEffect(activeFeaturePickerMode) {
+            if (availableSubjects.isEmpty()) {
+                viewModel.loadFeatureSubjects(forceRefresh = true)
+            }
+        }
+        HomeFeatureSubjectPickerSheet(
+            featureMode = activeFeaturePickerMode ?: "animated_lessons",
+            subjects = availableSubjects,
+            isLoading = uiState.isFeatureSubjectsLoading && availableSubjects.isEmpty(),
+            onRetry = { viewModel.loadFeatureSubjects(forceRefresh = true) },
+            onDismiss = { activeFeaturePickerMode = null },
+            onSelectSubject = { subject ->
+                val mode = activeFeaturePickerMode
+                activeFeaturePickerMode = null
+                val code = subject.code ?: ""
+                val title = subject.display_bn ?: code
+                val color = subject.color_code ?: "#4F46E5"
+                if (mode == "practice_quiz") {
+                    onNavigateToPracticeQuiz(code, title, color)
+                } else {
+                    val progId = uiState.activeProgram?.id
+                    val phaseId = uiState.programPhases.find { it.is_current == true }?.id
+                        ?: uiState.programPhases.firstOrNull()?.id
+                    onNavigateToAnimatedLessons(code, title, color, progId, phaseId)
+                }
+            }
         )
     }
 
@@ -369,6 +408,32 @@ fun HomeScreen(
                                 phases = uiState.programPhases,
                                 onPhaseClick = { phase -> onOpenCourse(phase.id) }
                             )
+
+                            // ============================================================
+                            //  "ফিচারস" (Features) Section at the Bottom of Home Screen
+                            //  (Excluding SHIKHO AI — 3 Options: Report Card, Practice Quiz, Animated Lessons)
+                            // ============================================================
+                            val avgProgressPct = remember(uiState.programPhases) {
+                                val valid = uiState.programPhases.mapNotNull { it.course_progress_percentage }
+                                if (valid.isNotEmpty()) valid.average().toInt().coerceIn(0, 100) else 0
+                            }
+                            HomeBottomFeaturesSection(
+                                totalScorePercent = avgProgressPct,
+                                onOpenReportCard = {
+                                    val prog = uiState.activeProgram
+                                    val phase = uiState.programPhases.find { it.is_current == true }
+                                        ?: uiState.programPhases.firstOrNull()
+                                    onNavigateToReportCard(prog?.id, prog?.title_bn, phase?.id)
+                                },
+                                onOpenPracticeQuiz = {
+                                    viewModel.loadFeatureSubjects()
+                                    activeFeaturePickerMode = "practice_quiz"
+                                },
+                                onOpenAnimatedLessons = {
+                                    viewModel.loadFeatureSubjects()
+                                    activeFeaturePickerMode = "animated_lessons"
+                                }
+                            )
                         }
                     }
                 }
@@ -376,6 +441,499 @@ fun HomeScreen(
 
             // Bottom spacing for floating nav bar
             Spacer(modifier = Modifier.height(110.dp))
+        }
+    }
+}
+
+@Composable
+private fun HomeBottomFeaturesSection(
+    totalScorePercent: Int,
+    onOpenReportCard: () -> Unit,
+    onOpenPracticeQuiz: () -> Unit,
+    onOpenAnimatedLessons: () -> Unit
+) {
+    val cardGradient = remember {
+        Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF1E2985),
+                Color(0xFF2835A8),
+                Color(0xFF3946C8)
+            )
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "ফিচারস",
+            fontSize = 21.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+
+        // Top Row: 1. সর্বমোট স্কোর (রিপোর্ট কার্ড দেখো) & 2. প্র্যাকটিস কুইজ
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Card 1: সর্বমোট স্কোর -> রিপোর্ট কার্ড দেখো
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(24.dp))
+                    .clickable(onClick = onOpenReportCard)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(cardGradient)
+                        .padding(18.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFF59E0B),
+                                modifier = Modifier.size(26.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.WorkspacePremium,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "সর্বমোট স্কোর",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Column {
+                            Text(
+                                text = "${toBengaliDigits(totalScorePercent)}%",
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(9.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Color(0xFF141D66))
+                            ) {
+                                val progressFraction = (totalScorePercent / 100f).coerceIn(0f, 1f)
+                                if (progressFraction > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(progressFraction.coerceAtLeast(0.06f))
+                                            .clip(RoundedCornerShape(50))
+                                            .background(Color(0xFF38BDF8))
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "রিপোর্ট কার্ড দেখো",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Card 2: প্র্যাকটিস কুইজ
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(24.dp))
+                    .clickable(onClick = onOpenPracticeQuiz)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(cardGradient)
+                        .padding(18.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.55f)),
+                                modifier = Modifier.size(54.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Quiz,
+                                        contentDescription = null,
+                                        tint = Color(0xFF4ADE80),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF141D66).copy(alpha = 0.65f),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bolt,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFBBF24),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Column {
+                            Text(
+                                text = "প্র্যাকটিস কুইজ",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "বিষয়, অধ্যায় ও টপিক নির্বাচন করে কুইজ প্র্যাকটিস করো",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.88f),
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bottom Card: 3. অ্যানিমেটেড লেসনস (Excluding SHIKHO AI as requested)
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .clickable(onClick = onOpenAnimatedLessons)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(cardGradient)
+                    .padding(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // White rounded box with "E=mc²" matching Screenshot 5
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "E=mc²",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFBE185D)
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "অ্যানিমেটেড লেসনস",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "সব সাবজেক্টের অ্যানিমেটেড ভিডিও ঘুরে দেখো",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.88f),
+                            lineHeight = 18.sp
+                        )
+                    }
+
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.16f),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeFeatureSubjectPickerSheet(
+    featureMode: String,
+    subjects: List<com.example.api.AcademicSubjectItem>,
+    isLoading: Boolean,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onSelectSubject: (com.example.api.AcademicSubjectItem) -> Unit
+) {
+    val isQuiz = featureMode == "practice_quiz"
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isQuiz) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFF6366F1).copy(alpha = 0.15f),
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isQuiz) Icons.Default.Quiz else Icons.Default.SmartDisplay,
+                            contentDescription = null,
+                            tint = if (isQuiz) Color(0xFF10B981) else Color(0xFF6366F1),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isQuiz) "প্র্যাকটিস কুইজ — বিষয় নির্বাচন করো" else "অ্যানিমেটেড লেসনস — বিষয় নির্বাচন করো",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (isQuiz) {
+                            "যেকোনো বিষয় সিলেক্ট করে অধ্যায়ভিত্তিক কুইজ ও পরীক্ষা দাও"
+                        } else {
+                            "যেকোনো বিষয় সিলেক্ট করে সব অধ্যায়ের অ্যানিমেটেড ভিডিও দেখো"
+                        },
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(strokeWidth = 3.dp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "বিষয়সমূহ লোড হচ্ছে...",
+                                fontSize = 13.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                subjects.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "কোনো বিষয় পাওয়া যায়নি",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(onClick = onRetry, shape = RoundedCornerShape(12.dp)) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("পুনরায় চেষ্টা করুন")
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 460.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 20.dp)
+                    ) {
+                        items(
+                            count = subjects.size,
+                            key = { idx -> "${subjects[idx].code}_${idx}" }
+                        ) { idx ->
+                            val sub = subjects[idx]
+                            val subColor = remember(sub.color_code, sub.display_bn) {
+                                try {
+                                    if (!sub.color_code.isNullOrBlank()) {
+                                        Color(android.graphics.Color.parseColor(sub.color_code))
+                                    } else {
+                                        com.example.utils.SubjectColorUtils.getColorScheme(sub.display_bn).textColor
+                                    }
+                                } catch (_: Exception) {
+                                    com.example.utils.SubjectColorUtils.getColorScheme(sub.display_bn).textColor
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                border = BorderStroke(1.dp, subColor.copy(alpha = 0.3f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { onSelectSubject(sub) }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    com.example.utils.SubjectIconBadge(
+                                        iconUrl = sub.icon,
+                                        subjectName = sub.display_bn,
+                                        subjectCode = sub.code,
+                                        color = subColor,
+                                        size = 44.dp,
+                                        iconSize = 24.dp
+                                    )
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = sub.display_bn ?: sub.code ?: "বিষয়",
+                                            fontSize = 15.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (isQuiz) "সকল অধ্যায়ের কুইজ ও পরীক্ষা" else "সকল অধ্যায়ের অ্যানিমেটেড ভিডিও",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = subColor.copy(alpha = 0.15f),
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (isQuiz) Icons.AutoMirrored.Filled.ArrowForward else Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                tint = subColor,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

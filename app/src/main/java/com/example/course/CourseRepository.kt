@@ -416,51 +416,100 @@ class CourseRepository(
         return list
     }
 
-    suspend fun fetchFallbackHierarchyChapters(subjectCode: String, selectedSubjectTitle: String?): List<AcademicChapterItem> {
-        try {
-            val query = GraphQlQuery(
-                operationName = "GetSubjectHierarchyWithQuestionCounts",
-                query = """
-                    query GetSubjectHierarchyWithQuestionCounts(${'$'}class: ClassEnum, ${'$'}group: StudyGroupTypeEnum) {
-                      subjectHierarchyWithQuestionCounts(class: ${'$'}class, group: ${'$'}group) {
-                        data {
-                          chapters {
-                            id
-                            name
-                            no
-                            should_render
-                            total_active_questions
-                          }
-                          should_render
-                          display_bn
-                          display
-                          code
-                          icon
-                          color_code
-                          total_active_questions
-                        }
-                      }
-                    }
-                """.trimIndent(),
-                variables = mapOf("class" to "HSC", "group" to "Humanities")
-            )
-            val res = apiService.getSubjectHierarchyWithQuestionCounts(query)
-            val subjectsData = res.data?.subjectHierarchyWithQuestionCounts?.data ?: emptyList()
-            val matchedSubject = subjectsData.find { it.code == subjectCode }
-                ?: subjectsData.find { it.display_bn?.trim() == selectedSubjectTitle?.trim() }
+    suspend fun fetchFallbackHierarchyChapters(
+        subjectCode: String,
+        selectedSubjectTitle: String?,
+        userClass: String? = null,
+        userGroup: String? = null
+    ): List<AcademicChapterItem> {
+        val rawClass = userClass ?: "C11"
+        val rawGroup = userGroup ?: "Humanities"
 
-            return matchedSubject?.chapters?.filter { it.should_render != false }?.map { ch ->
-                AcademicChapterItem(
-                    id = ch.id,
-                    chapter_id = ch.id,
-                    chapter_name = ch.name,
-                    chapter_no = ch.no,
-                    status = "IN_PROGRESS"
-                )
-            } ?: emptyList()
-        } catch (e: Exception) {
-            return emptyList()
+        val classEnumVal = when (rawClass.uppercase()) {
+            "C11", "C12", "HSC" -> "HSC"
+            "C9", "C10", "SSC" -> "SSC"
+            "C6", "C06" -> "C6"
+            "C7", "C07" -> "C7"
+            "C8", "C08" -> "C8"
+            else -> "HSC"
         }
+
+        val groupEnumVal = when (rawGroup.lowercase()) {
+            "science", "sci", "বিজ্ঞান" -> "Science"
+            "humanities", "arts", "hum", "মানবিক" -> "Humanities"
+            "business_studies", "businessstudies", "business", "commerce", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "BusinessStudies"
+            "none", "" -> "None"
+            else -> if (classEnumVal in listOf("C6", "C7", "C8")) "None" else "Humanities"
+        }
+
+        val queryStr = """
+            query GetSubjectHierarchyWithQuestionCounts(${'$'}class: ClassEnum, ${'$'}group: StudyGroupTypeEnum) {
+              subjectHierarchyWithQuestionCounts(class: ${'$'}class, group: ${'$'}group) {
+                data {
+                  chapters {
+                    id
+                    name
+                    no
+                    should_render
+                    total_active_questions
+                  }
+                  should_render
+                  display_bn
+                  display
+                  code
+                  icon
+                  color_code
+                  total_active_questions
+                }
+              }
+            }
+        """.trimIndent()
+
+        val attempts = listOf(
+            mapOf("class" to classEnumVal, "group" to groupEnumVal),
+            mapOf("class" to classEnumVal, "group" to "None"),
+            mapOf("class" to "HSC", "group" to "Humanities"),
+            mapOf("class" to "SSC", "group" to "Science")
+        ).distinct()
+
+        for (vars in attempts) {
+            try {
+                val query = GraphQlQuery(
+                    operationName = "GetSubjectHierarchyWithQuestionCounts",
+                    query = queryStr,
+                    variables = vars
+                )
+                val res = apiService.getSubjectHierarchyWithQuestionCounts(query)
+                val subjectsData = res.data?.subjectHierarchyWithQuestionCounts?.data ?: emptyList()
+                val matchedSubject = subjectsData.find { it.code.equals(subjectCode, ignoreCase = true) }
+                    ?: subjectsData.find {
+                        !selectedSubjectTitle.isNullOrBlank() &&
+                            it.display_bn?.trim().equals(selectedSubjectTitle.trim(), ignoreCase = true)
+                    }
+                    ?: subjectsData.find {
+                        !selectedSubjectTitle.isNullOrBlank() &&
+                            (it.display_bn?.contains(selectedSubjectTitle.trim(), ignoreCase = true) == true ||
+                                selectedSubjectTitle.contains(it.display_bn?.trim() ?: "___", ignoreCase = true))
+                    }
+
+                val chapters = matchedSubject?.chapters?.filter { it.should_render != false && it.id.isNotBlank() }?.map { ch ->
+                    AcademicChapterItem(
+                        id = ch.id,
+                        chapter_id = ch.id,
+                        name = ch.name,
+                        no = ch.no,
+                        chapter_name = ch.name,
+                        chapter_no = ch.no,
+                        status = "IN_PROGRESS"
+                    )
+                } ?: emptyList()
+
+                if (chapters.isNotEmpty()) {
+                    return chapters
+                }
+            } catch (_: Exception) {}
+        }
+        return emptyList()
     }
 
     suspend fun fetchAllLessonsForProgram(

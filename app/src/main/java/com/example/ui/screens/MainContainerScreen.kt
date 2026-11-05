@@ -52,6 +52,8 @@ fun MainContainerScreen(
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToReportCard: (programId: String?, programTitle: String?, phaseId: String?) -> Unit = { _, _, _ -> },
+    onNavigateToPracticeQuiz: (subjectCode: String, subjectTitle: String, subjectColor: String?) -> Unit = { _, _, _ -> },
+    onNavigateToAnimatedLessons: (subjectCode: String, subjectTitle: String, subjectColor: String?, programId: String?, phaseId: String?) -> Unit = { _, _, _, _, _ -> },
     onOpenLessonDetail: (com.example.api.StudentLessonItem) -> Unit = {},
     onNavigateToExam: ((sessionId: String, lessonId: String, title: String, chapter: String) -> Unit)? = null,
     onPlayVideo: (videoUrl: String, title: String, subjectName: String, subjectColor: String, isLive: Boolean) -> Unit = { _, _, _, _, _ -> },
@@ -180,6 +182,8 @@ fun MainContainerScreen(
                         onOpenLessonDetail = onOpenLessonDetail,
                         onNavigateToExam = onNavigateToExam,
                         onNavigateToReportCard = onNavigateToReportCard,
+                        onNavigateToPracticeQuiz = onNavigateToPracticeQuiz,
+                        onNavigateToAnimatedLessons = onNavigateToAnimatedLessons,
                         onNavigateToNotificationHistory = onNavigateToNotificationHistory,
                         onOpenPdf = onOpenPdf
                     )

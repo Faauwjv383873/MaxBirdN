@@ -72,21 +72,16 @@ fun AnimatedLessonChaptersScreen(
                     ?: courseState.selectedPhase?.id?.takeIf { it.isNotBlank() }
                     ?: courseState.activePhaseId.takeIf { it.isNotBlank() }
                     ?: "6864d62506800acba2e27111"
-                
-                val fetched = viewModel.getPhaseWiseChapters(
+
+                val fetched = viewModel.getAllChaptersForAnimatedLessons(
                     programId = effectiveProgId,
                     phaseId = effectivePhaseId,
-                    subjectCode = subjectId
+                    subjectCode = subjectId,
+                    subjectTitle = subjectTitle
                 )
-                
-                chaptersList = fetched.sortedBy { ch ->
-                    when (val no = ch.effectiveNo) {
-                        is Number -> no.toDouble()
-                        is String -> no.toDoubleOrNull() ?: 999.0
-                        else -> 999.0
-                    }
-                }
-                
+
+                chaptersList = fetched
+
                 if (chaptersList.isEmpty()) {
                     errorMessage = "এই বিষয়ের কোনো অধ্যায় পাওয়া যায়নি"
                 }
@@ -108,52 +103,89 @@ fun AnimatedLessonChaptersScreen(
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 2.dp
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surface,
+                                    themeColor.copy(alpha = 0.08f),
+                                    themeColor.copy(alpha = 0.16f)
+                                )
+                            )
+                        )
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 10.dp, vertical = 12.dp)
                 ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = subjectTitle.ifBlank { "অ্যানিমেটেড লেসনস" },
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.SmartDisplay,
-                                contentDescription = null,
-                                tint = themeColor,
-                                modifier = Modifier.size(13.dp)
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = subjectTitle.ifBlank { "অ্যানিমেটেড লেসনস" },
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (chaptersList.isNotEmpty()) {
+                                    "সর্বমোট ${toBengaliDigits(chaptersList.size)} টি অধ্যায়"
+                                } else {
+                                    "অধ্যায় নির্বাচন করুন"
+                                },
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Decorative Subject Watermark / Emblem on the right (matching Screenshot 2)
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "অ",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFFBBF24),
+                                modifier = Modifier.align(Alignment.TopStart).offset(x = 4.dp, y = 2.dp)
                             )
                             Text(
-                                text = "অধ্যায় নির্বাচন করুন",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = themeColor
+                                text = "খ",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF93C5FD),
+                                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 0.dp)
+                            )
+                            Text(
+                                text = "ক",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF38BDF8),
+                                modifier = Modifier.align(Alignment.BottomCenter).offset(y = (-2).dp)
                             )
                         }
                     }
@@ -237,109 +269,78 @@ fun AnimatedLessonChaptersScreen(
 
                 else -> {
                     LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = themeColor.copy(alpha = 0.08f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, themeColor.copy(alpha = 0.2f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SmartDisplay,
-                                        contentDescription = null,
-                                        tint = themeColor,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Text(
-                                        text = "মোট অধ্যায়: ${toBengaliDigits(chaptersList.size)}টি",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = themeColor
-                                    )
-                                }
-                            }
-                        }
-
-                        itemsIndexed(chaptersList) { index, chapter ->
+                        itemsIndexed(
+                            items = chaptersList,
+                            key = { idx, ch -> "${ch.chapter_id ?: ch.id}_$idx" }
+                        ) { index, chapter ->
                             val effectiveId = chapter.chapter_id?.takeIf { it.isNotBlank() } ?: chapter.id
                             val chapterName = chapter.effectiveName
                             val rawNo = chapter.effectiveNo
                             val serialText = when (rawNo) {
-                                is Number -> "অধ্যায় ${toBengaliDigits(rawNo.toInt())}"
-                                is String -> if (rawNo.isNotBlank()) "অধ্যায় ${toBengaliDigits(rawNo)}" else "অধ্যায় ${toBengaliDigits(index + 1)}"
-                                else -> "অধ্যায় ${toBengaliDigits(index + 1)}"
+                                is Number -> "অধ্যায় ${toBengaliDigits(rawNo.toInt())}"
+                                is String -> if (rawNo.isNotBlank()) "অধ্যায় ${toBengaliDigits(rawNo)}" else "অধ্যায় ${toBengaliDigits(index)}"
+                                else -> "অধ্যায় ${toBengaliDigits(index)}"
                             }
 
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp),
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
                                     .clickable {
                                         onChapterClick(effectiveId, chapterName)
                                     }
+                                    .padding(horizontal = 14.dp, vertical = 18.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = themeColor.copy(alpha = 0.12f),
-                                        modifier = Modifier.size(44.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.SmartDisplay,
-                                                contentDescription = null,
-                                                tint = themeColor,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.width(14.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = serialText,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = themeColor
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
+                                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                         Text(
                                             text = chapterName,
-                                            fontSize = 14.5.sp,
+                                            fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
+                                            overflow = TextOverflow.Ellipsis,
+                                            lineHeight = 22.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = serialText,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(14.dp)
-                                    )
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFE0E7FF),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Play Animated Lessons",
+                                                tint = Color(0xFF3B4FE4),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
                                 }
+                            }
+
+                            if (index < chaptersList.size - 1) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                    thickness = 1.dp,
+                                    modifier = Modifier.padding(horizontal = 14.dp)
+                                )
                             }
                         }
                     }

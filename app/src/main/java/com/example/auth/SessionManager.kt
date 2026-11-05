@@ -796,6 +796,29 @@ class SessionManager(context: Context) {
             .apply()
     }
 
+    fun getLiveAutoPollEnabled(): Boolean {
+        return sharedPreferences.getBoolean("live_auto_poll_enabled", false) ||
+            fallbackPrefs.getBoolean("live_auto_poll_enabled", false)
+    }
+
+    fun setLiveAutoPollEnabled(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("live_auto_poll_enabled", enabled).apply()
+        fallbackPrefs.edit().putBoolean("live_auto_poll_enabled", enabled).apply()
+    }
+
+    fun getLiveAutoPollDelaySeconds(): Int {
+        val v = sharedPreferences.getInt("live_auto_poll_delay_sec", -1)
+            .takeIf { it > 0 }
+            ?: fallbackPrefs.getInt("live_auto_poll_delay_sec", 2)
+        return v.coerceIn(1, 120)
+    }
+
+    fun setLiveAutoPollDelaySeconds(seconds: Int) {
+        val safeSec = seconds.coerceIn(1, 120)
+        sharedPreferences.edit().putInt("live_auto_poll_delay_sec", safeSec).apply()
+        fallbackPrefs.edit().putInt("live_auto_poll_delay_sec", safeSec).apply()
+    }
+
     fun clearSession() {
         val keys = listOf(
             "access_token", "refresh_token", "id_token", "user_id",

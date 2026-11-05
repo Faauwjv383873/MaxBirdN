@@ -41,6 +41,9 @@ data class HomeUiState(
     val selectedSubjectCodes: Set<String> = emptySet(),
     val isSavingSubjectFilter: Boolean = false,
     val programPhases: List<PhaseItem> = emptyList(),
+    // Subjects available for standalone Features (Practice Quiz & Animated Lessons) on Home Screen
+    val featureSubjects: List<AcademicSubjectItem> = emptyList(),
+    val isFeatureSubjectsLoading: Boolean = false,
     // Dynamic In-App Notices (Admin Managed)
     val notices: List<com.example.notice.AppNotice> = emptyList(),
     val showNoticePopup: Boolean = false
@@ -303,8 +306,92 @@ class HomeViewModel(
 
             _uiState.value = _uiState.value.copy(
                 courseSubjects = distinctSubjects,
+                featureSubjects = (distinctSubjects + _uiState.value.featureSubjects).distinctBy { it.code ?: it.display_bn },
                 isCourseSubjectsLoading = false,
                 selectedSubjectCodes = effectiveSelection
+            )
+        }
+    }
+
+    fun loadFeatureSubjects(forceRefresh: Boolean = false) {
+        if (!forceRefresh && _uiState.value.featureSubjects.isNotEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isFeatureSubjectsLoading = true)
+            val combined = mutableListOf<AcademicSubjectItem>()
+            combined.addAll(_uiState.value.courseSubjects)
+
+            val rawClass = sessionManager.getUserClassName() ?: "C11"
+            val rawGroup = sessionManager.getUserGroup() ?: "Humanities"
+
+            val classEnumVal = when (rawClass.uppercase()) {
+                "C11", "C12", "HSC" -> "HSC"
+                "C9", "C10", "SSC" -> "SSC"
+                "C6", "C06" -> "C6"
+                "C7", "C07" -> "C7"
+                "C8", "C08" -> "C8"
+                else -> "HSC"
+            }
+
+            val groupEnumVal = when (rawGroup.lowercase()) {
+                "science", "sci", "বিজ্ঞান" -> "Science"
+                "humanities", "arts", "hum", "মানবিক" -> "Humanities"
+                "business_studies", "businessstudies", "business", "commerce", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "BusinessStudies"
+                "none", "" -> "None"
+                else -> if (classEnumVal in listOf("C6", "C7", "C8")) "None" else "Humanities"
+            }
+
+            val queryStr = """
+                query GetSubjectHierarchyWithQuestionCounts(${'$'}class: ClassEnum, ${'$'}group: StudyGroupTypeEnum) {
+                  subjectHierarchyWithQuestionCounts(class: ${'$'}class, group: ${'$'}group) {
+                    data {
+                      should_render
+                      display_bn
+                      display
+                      code
+                      icon
+                      color_code
+                    }
+                  }
+                }
+            """.trimIndent()
+
+            val attempts = listOf(
+                mapOf("class" to classEnumVal, "group" to groupEnumVal),
+                mapOf("class" to classEnumVal, "group" to "None"),
+                mapOf("class" to "HSC", "group" to "Humanities")
+            ).distinct()
+
+            for (vars in attempts) {
+                try {
+                    val res = apiService.getSubjectHierarchyWithQuestionCounts(
+                        GraphQlQuery(
+                            operationName = "GetSubjectHierarchyWithQuestionCounts",
+                            query = queryStr,
+                            variables = vars
+                        )
+                    )
+                    val data = res.data?.subjectHierarchyWithQuestionCounts?.data.orEmpty()
+                    val valid = data.filter { it.should_render != false && (!it.code.isNullOrBlank() || !it.display_bn.isNullOrBlank()) }
+                    if (valid.isNotEmpty()) {
+                        valid.forEach { s ->
+                            combined.add(
+                                AcademicSubjectItem(
+                                    code = s.code,
+                                    color_code = s.color_code,
+                                    display_bn = s.display_bn ?: s.display,
+                                    icon = s.icon
+                                )
+                            )
+                        }
+                        break
+                    }
+                } catch (_: Exception) {}
+            }
+
+            val distinct = combined.distinctBy { it.code ?: it.display_bn }
+            _uiState.value = _uiState.value.copy(
+                featureSubjects = distinct,
+                isFeatureSubjectsLoading = false
             )
         }
     }
@@ -534,19 +621,25 @@ class HomeViewModel(
             val initialCodes = activeInitialSubjects.mapNotNull { it.code ?: it.display_bn }.toSet()
             val initialSelected = activeSavedSubjects ?: initialCodes
 
+            val allServerSubjects = unfilteredAllPrograms
+                .flatMap { it.subjects.orEmpty() }
+                .map { AcademicSubjectItem(code = it.code, color_code = it.color_code, display_bn = it.display_bn, icon = it.icon) }
+                .distinctBy { it.code ?: it.display_bn }
+
             _uiState.value = _uiState.value.copy(
                 enrolledPrograms = allPrograms,
                 activeProgram = active,
                 weeklyRoutine = if (active == null) emptyList() else _uiState.value.weeklyRoutine,
                 selectedSubjectCodes = initialSelected,
                 courseSubjects = activeInitialSubjects,
+                featureSubjects = (activeInitialSubjects + allServerSubjects + _uiState.value.featureSubjects).distinctBy { it.code ?: it.display_bn },
                 isPremium = hasActiveEnrollment,
                 isLoading = false,
                 isRefreshing = false,
-                errorMessage = if (allPrograms.isEmpty()) {
-                    "তুমি এখনো কোনো কোর্সে ভর্তি হওনি। কোর্স অপশনে গিয়ে তোমার পছন্দের কোর্সে এক্সেস নাও ও ভর্তি হও।"
-                } else null
+                errorMessage = null
             )
+
+            loadFeatureSubjects(forceRefresh = true)
 
             if (active != null) {
                 fetchWeeklyRoutine(active)

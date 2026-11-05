@@ -19,12 +19,39 @@ class CourseViewModel(
     private val completedItemRepository: com.example.database.CompletedItemRepository? = null
 ) : ViewModel() {
 
-    suspend fun getTopics(chapterId: String, topicIds: List<String>? = null): List<TopicFullItem> {
+    suspend fun getTopics(
+        chapterId: String,
+        topicIds: List<String>? = null,
+        chapterName: String? = null
+    ): List<TopicFullItem> {
         return try {
-            val list = repository.getTopics(chapterId, topicIds)
-            val validVideoTopics = list.filter { topic ->
+            var list = repository.getTopics(chapterId, topicIds)
+            var validVideoTopics = list.filter { topic ->
                 val vList = topic.videos?.data
                 !vList.isNullOrEmpty() && vList.any { !it.playback_url.isNullOrBlank() }
+            }
+            if (validVideoTopics.isEmpty() && !chapterName.isNullOrBlank()) {
+                val subCode = _uiState.value.selectedSubjectCode
+                if (subCode.isNotBlank()) {
+                    val masterChapters = runCatching { repository.getChaptersBySubjectCode(subCode) }.getOrNull().orEmpty()
+                    val matchedMaster = masterChapters.firstOrNull { ch ->
+                        ch.effectiveName.trim().equals(chapterName.trim(), ignoreCase = true) ||
+                            ch.effectiveName.contains(chapterName.trim(), ignoreCase = true) ||
+                            chapterName.trim().contains(ch.effectiveName.trim(), ignoreCase = true)
+                    }
+                    val masterId = matchedMaster?.id?.takeIf { it.isNotBlank() && it != chapterId }
+                    if (masterId != null) {
+                        val retryList = repository.getTopics(masterId, topicIds)
+                        val retryValid = retryList.filter { topic ->
+                            val vList = topic.videos?.data
+                            !vList.isNullOrEmpty() && vList.any { !it.playback_url.isNullOrBlank() }
+                        }
+                        if (retryValid.isNotEmpty()) {
+                            list = retryList
+                            validVideoTopics = retryValid
+                        }
+                    }
+                }
             }
             if (validVideoTopics.isNotEmpty()) {
                 _uiState.update { it.copy(animatedPlaylist = validVideoTopics) }
@@ -46,6 +73,75 @@ class CourseViewModel(
         }
     }
 
+    /**
+     * Fetches ALL syllabus chapters for Animated Lessons (e.g., all 28 chapters in Bangla 1st Paper)
+     * rather than only the 2-3 chapters scheduled in a single live-class phase.
+     */
+    suspend fun getAllChaptersForAnimatedLessons(
+        programId: String,
+        phaseId: String,
+        subjectCode: String,
+        subjectTitle: String? = null
+    ): List<AcademicChapterItem> {
+        val effectiveTitle = subjectTitle?.takeIf { it.isNotBlank() } ?: _uiState.value.selectedSubjectTitle
+        val userClass = sessionManager.getUserClassName()
+        val userGroup = sessionManager.getUserGroup()
+
+        return coroutineScope {
+            val byCodeDeferred = async {
+                runCatching { repository.getChaptersBySubjectCode(subjectCode) }.getOrNull().orEmpty()
+            }
+            val byHierarchyDeferred = async {
+                runCatching {
+                    repository.fetchFallbackHierarchyChapters(
+                        subjectCode = subjectCode,
+                        selectedSubjectTitle = effectiveTitle,
+                        userClass = userClass,
+                        userGroup = userGroup
+                    )
+                }.getOrNull().orEmpty()
+            }
+            val byPhaseDeferred = async {
+                runCatching {
+                    val effectiveProgId = programId.ifBlank { _uiState.value.programId.ifBlank { "6864d3a806800acba2e27099" } }
+                    val effectivePhaseId = phaseId.ifBlank { _uiState.value.activePhaseId.ifBlank { "6864d62506800acba2e27111" } }
+                    val phaseList = repository.getPhaseWiseChapters(effectiveProgId, effectivePhaseId, subjectCode)
+                    val progList = repository.getAcademicProgramChaptersFallback(effectiveProgId, subjectCode)
+                    (phaseList + progList)
+                }.getOrNull().orEmpty()
+            }
+
+            val byCode = byCodeDeferred.await()
+            val byHierarchy = byHierarchyDeferred.await()
+            val byPhase = byPhaseDeferred.await()
+
+            val mergedMap = LinkedHashMap<String, AcademicChapterItem>()
+
+            fun addChapters(list: List<AcademicChapterItem>) {
+                for (item in list) {
+                    val masterId = item.chapter_id?.takeIf { it.isNotBlank() } ?: item.id
+                    if (masterId.isBlank()) continue
+                    val normalized = item.copy(
+                        id = masterId,
+                        chapter_id = masterId
+                    )
+                    if (!mergedMap.containsKey(masterId)) {
+                        mergedMap[masterId] = normalized
+                    }
+                }
+            }
+
+            // 1. Primary: Full syllabus chapters by subject_code (e.g., all 28 chapters)
+            addChapters(byCode)
+            // 2. Secondary: Full hierarchy chapters for the student's class & group
+            addChapters(byHierarchy)
+            // 3. Tertiary: Any phase/program chapters not already in the map
+            addChapters(byPhase)
+
+            mergedMap.values.toList()
+        }
+    }
+
     suspend fun getPhaseWiseChapters(programId: String, phaseId: String, subjectCode: String): List<AcademicChapterItem> {
         return try {
             val effectiveProgId = programId.ifBlank { "6864d3a806800acba2e27099" }
@@ -58,7 +154,12 @@ class CourseViewModel(
                 if (byCode.isNotEmpty()) {
                     byCode
                 } else {
-                    repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
+                    repository.fetchFallbackHierarchyChapters(
+                        subjectCode = subjectCode,
+                        selectedSubjectTitle = _uiState.value.selectedSubjectTitle,
+                        userClass = sessionManager.getUserClassName(),
+                        userGroup = sessionManager.getUserGroup()
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -66,7 +167,12 @@ class CourseViewModel(
             try {
                 val byCode = repository.getChaptersBySubjectCode(subjectCode)
                 if (byCode.isNotEmpty()) byCode
-                else repository.fetchFallbackHierarchyChapters(subjectCode, _uiState.value.selectedSubjectTitle)
+                else repository.fetchFallbackHierarchyChapters(
+                    subjectCode = subjectCode,
+                    selectedSubjectTitle = _uiState.value.selectedSubjectTitle,
+                    userClass = sessionManager.getUserClassName(),
+                    userGroup = sessionManager.getUserGroup()
+                )
             } catch (_: Exception) {
                 emptyList()
             }

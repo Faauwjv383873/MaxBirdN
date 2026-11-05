@@ -518,6 +518,21 @@ private fun MyCoursesListView(
                         EnrolledCourseBannerCard(
                             program = program,
                             commerceState = commerceItem,
+                            isJoinedOnShikhoServer = program.id in uiState.shikhoServerJoinedIds,
+                            isJoiningShikhoServer = uiState.joiningShikhoServerProgramId == program.id,
+                            onJoinShikhoServer = {
+                                onJoinShikhoServer(
+                                    OtherProgram(
+                                        id = program.id,
+                                        classes = program.classes,
+                                        title_bn = program.title_bn,
+                                        banner_url = program.banner_url,
+                                        is_free = program.is_free,
+                                        has_animated_video = program.has_animated_video,
+                                        trial_enabled = program.trial_enabled
+                                    )
+                                )
+                            },
                             onClick = { onOpenEnrolledCourse(program) },
                             onPayNextInstallment = {
                                 onPayInstallment(program.id, program.title_bn ?: "কোর্স")
@@ -608,6 +623,9 @@ private fun getCourseGradient(title: String): Brush {
 private fun EnrolledCourseBannerCard(
     program: EnrolledProgram,
     commerceState: CourseCommerceItemState,
+    isJoinedOnShikhoServer: Boolean,
+    isJoiningShikhoServer: Boolean,
+    onJoinShikhoServer: () -> Unit,
     onClick: () -> Unit,
     onPayNextInstallment: () -> Unit
 ) {
@@ -1043,7 +1061,19 @@ private fun EnrolledCourseBannerCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Shikho Server 3-Day Free Access / Free Course Enrollment Section
+                ShikhoServerEnrollmentSection(
+                    programId = program.id,
+                    isFreeCourse = program.is_free == true,
+                    trialDays = 3,
+                    isJoinedOnShikhoServer = isJoinedOnShikhoServer,
+                    isJoiningShikhoServer = isJoiningShikhoServer,
+                    onJoinShikhoServer = onJoinShikhoServer
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Full Width High-Contrast Action Button: "শেখো"
                 Surface(
@@ -1782,6 +1812,170 @@ private fun OtherCourseBannerCard(
                     }
 
                     CourseAccessState.ACTIVE -> {}
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Shikho Server 3-Day Free Access / Free Course Enrollment Section
+                ShikhoServerEnrollmentSection(
+                    programId = program.id,
+                    isFreeCourse = program.is_free == true,
+                    trialDays = program.trial_duration?.takeIf { it > 0 } ?: 3,
+                    isJoinedOnShikhoServer = isJoinedOnShikhoServer,
+                    isJoiningShikhoServer = isJoiningShikhoServer,
+                    onJoinShikhoServer = onJoinShikhoServer
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShikhoServerEnrollmentSection(
+    programId: String,
+    isFreeCourse: Boolean,
+    trialDays: Int,
+    isJoinedOnShikhoServer: Boolean,
+    isJoiningShikhoServer: Boolean,
+    onJoinShikhoServer: () -> Unit
+) {
+    if (isJoinedOnShikhoServer) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF064E3B).copy(alpha = 0.65f),
+            border = BorderStroke(1.dp, Color(0xFF34D399).copy(alpha = 0.6f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("shikho_server_joined_badge_$programId")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = null,
+                        tint = Color(0xFF34D399),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text(
+                        text = if (isFreeCourse) {
+                            "শিখো ডাটাবেজে ফ্রি কোর্স এনরোলমেন্ট সক্রিয়"
+                        } else {
+                            "শিখো সার্ভারে ${toBengaliDigits(trialDays)} দিনের ফ্রি এক্সেস এনরোলড"
+                        },
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFECFDF5),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color.White.copy(alpha = 0.14f),
+                    border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable(enabled = !isJoiningShikhoServer, onClick = onJoinShikhoServer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isJoiningShikhoServer) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 1.6.dp,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "পুনরায় সিঙ্ক",
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "সিঙ্ক",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0xFF0F172A).copy(alpha = 0.72f),
+            border = BorderStroke(
+                width = 1.2.dp,
+                brush = Brush.horizontalGradient(
+                    listOf(Color(0xFF38BDF8), Color(0xFF818CF8), Color(0xFF34D399))
+                )
+            ),
+            shadowElevation = 3.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .clickable(enabled = !isJoiningShikhoServer, onClick = onJoinShikhoServer)
+                .testTag("join_shikho_server_button_$programId")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 11.dp, horizontal = 14.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isJoiningShikhoServer) {
+                    CircularProgressIndicator(
+                        color = Color(0xFF38BDF8),
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "শিখো ডাটাবেজে এনরোলমেন্ট হচ্ছে...",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (isFreeCourse) Icons.Default.CloudUpload else Icons.Default.CardGiftcard,
+                        contentDescription = null,
+                        tint = if (isFreeCourse) Color(0xFF34D399) else Color(0xFFFBBF24),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isFreeCourse) {
+                            "শিখো সার্ভারে ফ্রি কোর্স এনরোলমেন্ট করুন"
+                        } else {
+                            "শিখো সার্ভারে ${toBengaliDigits(trialDays)} দিনের ফ্রি এক্সেস চালু করুন"
+                        },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }

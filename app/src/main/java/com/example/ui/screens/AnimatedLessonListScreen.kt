@@ -70,7 +70,7 @@ fun AnimatedLessonListScreen(
             isLoading = true
             errorMessage = null
             try {
-                val fetched = viewModel.getTopics(chapterId)
+                val fetched = viewModel.getTopics(chapterId = chapterId, chapterName = chapterName)
                 // Filter out items without valid playback URL
                 topicsList = fetched.filter { topic ->
                     val vList = topic.videos?.data

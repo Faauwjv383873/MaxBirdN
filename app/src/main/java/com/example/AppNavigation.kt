@@ -688,6 +688,19 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     val phId = phaseId ?: ""
                     navController.navigate("report_card?programId=$pId&programTitle=$encTitle&phaseId=$phId")
                 },
+                onNavigateToPracticeQuiz = { sCode, sTitle, sColor ->
+                    val encodedTitle = safeUrlEncode(sTitle)
+                    val encodedColor = safeUrlEncode(sColor)
+                    navController.navigate("practice_quiz_chapters/$sCode?title=$encodedTitle&color=$encodedColor")
+                },
+                onNavigateToAnimatedLessons = { sCode, sTitle, sColor, pId, phId ->
+                    courseViewModel.selectSubject(sCode, sTitle, sColor ?: "#4F46E5")
+                    val encodedTitle = safeUrlEncode(sTitle)
+                    val encodedColor = safeUrlEncode(sColor)
+                    val encodedProgId = safeUrlEncode(pId)
+                    val encodedPhaseId = safeUrlEncode(phId)
+                    navController.navigate("animated_lesson_chapters/$sCode?title=$encodedTitle&color=$encodedColor&programId=$encodedProgId&phaseId=$encodedPhaseId")
+                },
                 onOpenLessonDetail = handleOpenLessonDetail,
                 onNavigateToExam = { sessionId, lessonId, title, chapter ->
                     val encodedTitle = safeUrlEncode(title)
