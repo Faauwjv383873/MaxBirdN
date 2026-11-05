@@ -41,6 +41,7 @@ import com.example.notification.ShikhoFirebaseMessagingService
 import com.example.notification.ShikhoNotificationManager
 import com.example.security.AntiTamperSecurity
 import com.example.security.SecurityViolation
+import com.example.ui.dialogs.KillSwitchMaintenanceScreen
 import com.example.ui.dialogs.UpdateDialog
 import com.example.ui.theme.MyApplicationTheme
 import com.example.update.AppUpdateInfo
@@ -122,18 +123,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Continuous strict version enforcement check (blocks old/mismatched versions immediately)
+            // Continuous strict version enforcement & Kill Switch check
+            var isRecheckingKillSwitch by remember { mutableStateOf(false) }
+            val mainScope = rememberCoroutineScope()
+
             LaunchedEffect(Unit) {
                 while (true) {
                     val info = withContext(Dispatchers.IO) {
                         AppUpdateRepository.fetchLatestUpdate()
                     }
-                    if (info != null && AppUpdateRepository.isUpdateRequired(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
+                    if (info != null && AppUpdateRepository.shouldBlockApp(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                         requiredUpdateState.value = info
                     } else if (info != null) {
                         requiredUpdateState.value = null
                     }
-                    delay(20_000L)
+                    delay(15_000L)
                 }
             }
 
@@ -157,20 +161,51 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             } else if (currentRequiredUpdate != null) {
-                                // Strictly block all app screens when installed version does not match database version
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A))
-                                            )
-                                        )
-                                ) {
-                                    UpdateDialog(
+                                if (currentRequiredUpdate.isKillSwitchActive) {
+                                    KillSwitchMaintenanceScreen(
                                         updateInfo = currentRequiredUpdate,
-                                        onDismiss = {}
+                                        isRechecking = isRecheckingKillSwitch,
+                                        onRecheck = {
+                                            if (!isRecheckingKillSwitch) {
+                                                isRecheckingKillSwitch = true
+                                                mainScope.launch {
+                                                    val latest = withContext(Dispatchers.IO) {
+                                                        AppUpdateRepository.fetchLatestUpdate()
+                                                    }
+                                                    isRecheckingKillSwitch = false
+                                                    if (latest != null && AppUpdateRepository.shouldBlockApp(
+                                                            latest,
+                                                            BuildConfig.VERSION_CODE,
+                                                            BuildConfig.VERSION_NAME
+                                                        )
+                                                    ) {
+                                                        requiredUpdateState.value = latest
+                                                    } else if (latest != null) {
+                                                        requiredUpdateState.value = null
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onExitApp = {
+                                            finishAffinity()
+                                        }
                                     )
+                                } else {
+                                    // Strictly block all app screens when installed version does not match database version
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A))
+                                                )
+                                            )
+                                    ) {
+                                        UpdateDialog(
+                                            updateInfo = currentRequiredUpdate,
+                                            onDismiss = {}
+                                        )
+                                    }
                                 }
                             } else {
                                 AppNavigation()
@@ -308,7 +343,7 @@ class MainActivity : ComponentActivity() {
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 try {
                     val info = AppUpdateRepository.fetchLatestUpdate()
-                    if (info != null && AppUpdateRepository.isUpdateRequired(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
+                    if (info != null && AppUpdateRepository.shouldBlockApp(info, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             requiredUpdateState.value = info
                         }

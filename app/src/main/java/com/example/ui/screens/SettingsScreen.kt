@@ -614,7 +614,7 @@ fun SettingsScreen(
                             scope.launch {
                                 val info = AppUpdateRepository.fetchLatestUpdate()
                                 isCheckingUpdate = false
-                                if (info != null && AppUpdateRepository.isUpdateRequired(
+                                if (info != null && AppUpdateRepository.shouldBlockApp(
                                         info = info,
                                         installedVersionCode = BuildConfig.VERSION_CODE,
                                         installedVersionName = BuildConfig.VERSION_NAME

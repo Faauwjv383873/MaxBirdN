@@ -61,12 +61,12 @@ android {
     val envVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
         ?: (findProperty("VERSION_CODE") as? String)?.toIntOrNull()
         ?: (findProperty("versionCode") as? String)?.toIntOrNull()
-    versionCode = envVersionCode ?: (System.currentTimeMillis() / 1000).toInt()
+    versionCode = envVersionCode ?: 110
 
     val envVersionName = System.getenv("VERSION_NAME")
         ?: (findProperty("VERSION_NAME") as? String)
         ?: (findProperty("versionName") as? String)
-    versionName = envVersionName ?: "1.2"
+    versionName = envVersionName ?: "1.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
