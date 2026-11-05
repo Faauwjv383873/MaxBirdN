@@ -323,77 +323,81 @@ private fun MyCoursesListView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
     ) {
-        // Header matching page background
+        // Sleek, Compact Top Header (no double statusBarsPadding or reload button)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 10.dp),
+                .padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 10.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "আমার কোর্স ও মিশন",
-                        fontSize = 21.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        letterSpacing = (-0.3).sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (enrolled.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = Color(0xFF10B981).copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
-                        ) {
-                            Text(
-                                text = "${toBengaliDigits(enrolled.size)}টি সক্রিয়",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF10B981),
-                                maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF0284C7), Color(0xFF2563EB))
                             )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.School,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "আমার কোর্স ও মিশন",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            letterSpacing = (-0.2).sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (enrolled.isNotEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "${toBengaliDigits(enrolled.size)}টি সক্রিয়",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF10B981),
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (enrolled.isEmpty()) "নিচের কোর্সগুলো থেকে এক্সেস নিয়ে ক্লাস শুরু করো" else "চলমান শিক্ষাবর্ষ ও ভর্তি হওয়া কোর্সসমূহ",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = if (enrolled.isEmpty()) "নিচের কোর্সগুলো থেকে এক্সেস নিয়ে এককালীন বা কিস্তিতে ভর্তি হও" else "চলমান শিক্ষাবর্ষ ও ভর্তি হওয়া কোর্সসমূহ",
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            IconButton(
-                onClick = onRefresh,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "রিফ্রেশ",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
 
@@ -1859,20 +1863,28 @@ private fun ShikhoServerEnrollmentSection(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = Color(0xFF34D399),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(7.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981).copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = Color(0xFF34D399),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (isFreeCourse) {
-                            "শিখো ডাটাবেজে ফ্রি কোর্স এনরোলমেন্ট সক্রিয়"
+                            "ফ্রি ক্লাস অ্যাক্সেস সক্রিয়"
                         } else {
-                            "শিখো সার্ভারে ${toBengaliDigits(trialDays)} দিনের ফ্রি এক্সেস এনরোলড"
+                            "${toBengaliDigits(trialDays)} দিনের ফ্রি অ্যাক্সেস সক্রিয়"
                         },
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFECFDF5),
                         maxLines = 1,
@@ -1891,7 +1903,7 @@ private fun ShikhoServerEnrollmentSection(
                         .clickable(enabled = !isJoiningShikhoServer, onClick = onJoinShikhoServer)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isJoiningShikhoServer) {
@@ -1905,12 +1917,12 @@ private fun ShikhoServerEnrollmentSection(
                                 imageVector = Icons.Default.Sync,
                                 contentDescription = "পুনরায় সিঙ্ক",
                                 tint = Color.White,
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size(13.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "সিঙ্ক",
-                                fontSize = 10.5.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -1951,14 +1963,14 @@ private fun ShikhoServerEnrollmentSection(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "শিখো ডাটাবেজে এনরোলমেন্ট হচ্ছে...",
+                        text = "ফ্রি অ্যাক্সেস চালু হচ্ছে...",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 } else {
                     Icon(
-                        imageVector = if (isFreeCourse) Icons.Default.CloudUpload else Icons.Default.CardGiftcard,
+                        imageVector = if (isFreeCourse) Icons.Default.AutoAwesome else Icons.Default.CardGiftcard,
                         contentDescription = null,
                         tint = if (isFreeCourse) Color(0xFF34D399) else Color(0xFFFBBF24),
                         modifier = Modifier.size(18.dp)
@@ -1966,9 +1978,9 @@ private fun ShikhoServerEnrollmentSection(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (isFreeCourse) {
-                            "শিখো সার্ভারে ফ্রি কোর্স এনরোলমেন্ট করুন"
+                            "ফ্রি ক্লাস অ্যাক্সেস চালু করুন"
                         } else {
-                            "শিখো সার্ভারে ${toBengaliDigits(trialDays)} দিনের ফ্রি এক্সেস চালু করুন"
+                            "${toBengaliDigits(trialDays)} দিনের ফ্রি অ্যাক্সেস চালু করুন"
                         },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,

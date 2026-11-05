@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -61,6 +62,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -74,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -98,6 +101,9 @@ fun LoginScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var visible by remember { mutableStateOf(false) }
     var showQrLoginSheet by remember { mutableStateOf(false) }
+    var canViewProfile by remember {
+        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
     val hasRateLimitPendingOtp by viewModel.hasRateLimitPendingOtp.collectAsState()
     val keyboardController = LocalSoftwareKeyboardController.current
     val isDark = com.example.ui.theme.isAppInDarkTheme()
@@ -111,6 +117,11 @@ fun LoginScreen(
         try {
             if (!com.example.security.DeviceActivationRepository.isDeviceActivated(context)) {
                 onNavigateToActivation?.invoke()
+            } else {
+                canViewProfile = com.example.security.DeviceActivationRepository.checkProfileViewPermission(
+                    context = context,
+                    forceRefresh = true
+                )
             }
         } catch (_: Throwable) {}
     }
@@ -234,10 +245,10 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp, vertical = 20.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // ---------- Logo & Brand Header (floating + rotating gradient ring) ----------
             AnimatedVisibility(
@@ -364,7 +375,7 @@ fun LoginScreen(
 
                     Text(
                         text = "সহজ ও আনন্দদায়ক শেখার ডিজিটাল একাডেমি",
-                        fontSize = 13.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -372,7 +383,7 @@ fun LoginScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // ---------- Phone Input Card ----------
             AnimatedVisibility(
@@ -468,11 +479,11 @@ fun LoginScreen(
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Input container with animated border & subtle focus glow
+                        // Input container with animated border & subtle focus glow (Zero vertical clipping)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(60.dp)
+                                .height(58.dp)
                                 .shadow(
                                     elevation = if (isTextFieldFocused) 6.dp else 0.dp,
                                     shape = RoundedCornerShape(18.dp),
@@ -498,20 +509,22 @@ fun LoginScreen(
                                         if (isDark) Color(0xFF131E33)
                                         else MaterialTheme.colorScheme.surfaceVariant
                                     )
-                                    .padding(horizontal = 14.dp),
+                                    .padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Text(
                                     text = "🇧🇩",
-                                    fontSize = 16.sp
+                                    fontSize = 15.sp
                                 )
                                 Text(
                                     text = "+880",
-                                    fontSize = 15.sp,
+                                    fontSize = 14.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
 
@@ -522,7 +535,7 @@ fun LoginScreen(
                                     .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             )
 
-                            TextField(
+                            BasicTextField(
                                 value = phoneInput,
                                 onValueChange = { rawValue ->
                                     val sanitized = sanitizePhoneInput(rawValue)
@@ -532,79 +545,15 @@ fun LoginScreen(
                                     }
                                 },
                                 interactionSource = textFieldInteractionSource,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
+                                singleLine = true,
+                                cursorBrush = SolidColor(primary),
                                 textStyle = TextStyle(
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace,
-                                    letterSpacing = 1.2.sp
+                                    letterSpacing = 1.2.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 ),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    disabledContainerColor = Color.Transparent,
-                                    errorContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    cursorColor = primary
-                                ),
-                                placeholder = {
-                                    Text(
-                                        text = "০১XXXXXXXXX",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                },
-                                trailingIcon = {
-                                    AnimatedContent(
-                                        targetState = when {
-                                            isComplete -> 2
-                                            phoneInput.isNotEmpty() -> 1
-                                            else -> 0
-                                        },
-                                        transitionSpec = {
-                                            (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut())
-                                        },
-                                        label = "trailingIconState"
-                                    ) { state ->
-                                        when (state) {
-                                            2 -> Surface(
-                                                shape = CircleShape,
-                                                color = successColor.copy(alpha = 0.15f),
-                                                modifier = Modifier
-                                                    .padding(end = 10.dp)
-                                                    .size(28.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Check,
-                                                        contentDescription = "Complete",
-                                                        tint = successColor,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            }
-                                            1 -> IconButton(onClick = {
-                                                phoneInput = ""
-                                                errorMessage = null
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Clear,
-                                                    contentDescription = "Clear",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                            else -> Spacer(modifier = Modifier.size(1.dp))
-                                        }
-                                    }
-                                },
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Number,
                                     imeAction = ImeAction.Done
@@ -612,7 +561,82 @@ fun LoginScreen(
                                 keyboardActions = KeyboardActions(
                                     onDone = { submitPhoneLogin() }
                                 ),
-                                singleLine = true
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .padding(start = 14.dp, end = 6.dp),
+                                decorationBox = { innerTextField ->
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.weight(1f),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (phoneInput.isEmpty()) {
+                                                Text(
+                                                    text = "০১XXXXXXXXX",
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    letterSpacing = 0.6.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Clip
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+
+                                        AnimatedContent(
+                                            targetState = when {
+                                                isComplete -> 2
+                                                phoneInput.isNotEmpty() -> 1
+                                                else -> 0
+                                            },
+                                            transitionSpec = {
+                                                (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut())
+                                            },
+                                            label = "trailingIconState"
+                                        ) { state ->
+                                            when (state) {
+                                                2 -> Surface(
+                                                    shape = CircleShape,
+                                                    color = successColor.copy(alpha = 0.15f),
+                                                    modifier = Modifier
+                                                        .padding(end = 6.dp)
+                                                        .size(28.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Check,
+                                                            contentDescription = "Complete",
+                                                            tint = successColor,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+                                                1 -> IconButton(
+                                                    onClick = {
+                                                        phoneInput = ""
+                                                        errorMessage = null
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Clear,
+                                                        contentDescription = "Clear",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                else -> Spacer(modifier = Modifier.size(1.dp))
+                                            }
+                                        }
+                                    }
+                                }
                             )
                         }
 
@@ -837,63 +861,67 @@ fun LoginScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        if (canViewProfile) {
+                            Spacer(modifier = Modifier.height(14.dp))
 
-                        // Modern "অথবা" Divider
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            HorizontalDivider(
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            )
-                            Text(
-                                text = "অথবা",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            )
-                        }
+                            // Modern "অথবা" Divider
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                HorizontalDivider(
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                                Text(
+                                    text = "অথবা",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                            }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        // QR / Session Code Login Button
-                        OutlinedButton(
-                            onClick = { showQrLoginSheet = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = primary.copy(alpha = if (isDark) 0.08f else 0.05f)
-                            ),
-                            border = BorderStroke(1.2.dp, primary.copy(alpha = 0.45f))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
-                                contentDescription = null,
-                                tint = primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "কিউআর / সেশন কোড দিয়ে লগইন",
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = primary
-                            )
+                            // QR / Session Code Login Button (Only visible when Profile View Permission is ON)
+                            OutlinedButton(
+                                onClick = { showQrLoginSheet = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = primary.copy(alpha = if (isDark) 0.08f else 0.05f)
+                                ),
+                                border = BorderStroke(1.2.dp, primary.copy(alpha = 0.45f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.QrCodeScanner,
+                                    contentDescription = null,
+                                    tint = primary,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "কিউআর / সেশন কোড দিয়ে লগইন",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            if (showQrLoginSheet && sessionManager != null) {
+            if (showQrLoginSheet && canViewProfile && sessionManager != null) {
                 com.example.ui.dialogs.QrSessionLoginSheet(
                     sessionManager = sessionManager,
                     onLoginSuccess = {

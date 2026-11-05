@@ -116,15 +116,19 @@ fun HeaderWallpaperSettingsScreen(
                 title = {
                     Column {
                         Text(
-                            text = "হেডার ও লাইভ ওয়ালপেপার স্টুডিও",
+                            text = "হেডার থিম স্টুডিও",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = primaryText
+                            color = primaryText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "১৬টি সিমলেস অ্যানিমেটেড থিম • কাস্টম কোড ইমপোর্ট",
+                            text = "৬টি প্রিমিয়াম লাইভ থিম ও কাস্টম কোড",
                             fontSize = 11.5.sp,
-                            color = secondaryText
+                            color = secondaryText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 },
@@ -802,26 +806,31 @@ private fun LivePresetThemeCard(
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = preset.nameBn,
-                        fontSize = 14.5.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = primaryText,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = preset.accentColor.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = preset.categoryBn,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = preset.accentColor,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = preset.categoryBn + " • " + preset.nameEn,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = preset.accentColor
-                )
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = preset.description,
                     fontSize = 11.5.sp,

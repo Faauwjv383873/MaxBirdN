@@ -91,9 +91,10 @@ private data class FireflyParticle(
     val baseX: Float,
     val baseY: Float,
     val radiusDp: Float,
-    val speedFactor: Float,
+    val harmonicMultiplier: Int,
     val phaseOffset: Float,
     val driftAmplitudeX: Float,
+    val driftAmplitudeY: Float,
     val isGolden: Boolean
 )
 
@@ -254,21 +255,15 @@ fun DeviceActivationScreen(
         initialValue = 0f,
         targetValue = (2f * PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(14000, easing = LinearEasing),
+            animation = tween(18000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "nature_time"
     )
 
-    val fireflyProgress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(18000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "firefly_progress"
-    )
+    val fireflyProgress = remember(natureTime) {
+        (natureTime / (2f * PI).toFloat()).coerceIn(0f, 1f)
+    }
 
     val sunbeamBreath by infiniteTransition.animateFloat(
         initialValue = 0.35f,
@@ -325,12 +320,13 @@ fun DeviceActivationScreen(
     val fireflies = remember {
         List(26) { idx ->
             FireflyParticle(
-                baseX = ((idx * 37 + 13) % 96) / 100f + 0.02f,
-                baseY = ((idx * 53 + 29) % 90) / 100f + 0.05f,
+                baseX = ((idx * 37 + 13) % 88) / 100f + 0.06f,
+                baseY = ((idx * 53 + 29) % 82) / 100f + 0.09f,
                 radiusDp = 2.2f + (idx % 4) * 1.1f,
-                speedFactor = 0.6f + (idx % 5) * 0.25f,
+                harmonicMultiplier = 1 + (idx % 2),
                 phaseOffset = (idx * 0.75f),
-                driftAmplitudeX = 0.025f + (idx % 3) * 0.015f,
+                driftAmplitudeX = 0.035f + (idx % 3) * 0.018f,
+                driftAmplitudeY = 0.045f + (idx % 4) * 0.020f,
                 isGolden = idx % 2 == 0
             )
         }
@@ -1326,13 +1322,13 @@ private fun EnchantedForestBackdrop(
             )
         }
 
-        // 6. Peaceful Gliding Birds in Upper Canopy
+        // 6. Peaceful Gliding Birds in Upper Canopy (Closed harmonic soaring path — never jumps)
         if (!isBlocked) {
             for (b in 0..3) {
-                val birdProgress = (fireflyProgress * 0.8f + b * 0.18f) % 1f
-                val bx = w * (0.1f + birdProgress * 0.8f)
-                val by = h * (0.16f + (b % 2) * 0.035f + sin(natureTime * 2f + b) * 0.008f)
-                val wingFlap = sin(natureTime * 4f + b * 1.3f) * 4.dp.toPx()
+                val seed = b * 1.57f
+                val bx = w * (0.22f + b * 0.18f + 0.10f * sin(natureTime + seed))
+                val by = h * (0.15f + (b % 2) * 0.035f + 0.018f * cos(natureTime + seed))
+                val wingFlap = sin(natureTime * 3f + seed) * 4.dp.toPx()
                 val birdSpan = 7.dp.toPx()
 
                 val birdPath = Path().apply {
@@ -1348,17 +1344,15 @@ private fun EnchantedForestBackdrop(
             }
         }
 
-        // 7. Magical Glowing Fireflies (জোনাকি পোকা) Drifting Across the Forest
+        // 7. Magical Glowing Fireflies (জোনাকি পোকা) in Continuous Closed Harmonic Orbits (Zero Reset!)
         fireflies.forEach { fly ->
-            val currentYRatio = (fly.baseY - fireflyProgress * fly.speedFactor).let { raw ->
-                val mod = raw % 1f
-                if (mod < 0f) mod + 1f else mod
-            }
-            val waveX = sin(natureTime * fly.speedFactor + fly.phaseOffset) * fly.driftAmplitudeX
+            val angle = natureTime * fly.harmonicMultiplier + fly.phaseOffset
+            val waveX = sin(angle) * fly.driftAmplitudeX + cos(natureTime + fly.phaseOffset) * (fly.driftAmplitudeX * 0.4f)
+            val waveY = cos(angle) * fly.driftAmplitudeY + sin(natureTime * 2f + fly.phaseOffset) * (fly.driftAmplitudeY * 0.35f)
             val fx = (fly.baseX + waveX).coerceIn(0.02f, 0.98f) * w
-            val fy = currentYRatio * h
+            val fy = (fly.baseY + waveY).coerceIn(0.04f, 0.96f) * h
 
-            val twinkle = ((sin(natureTime * 2f + fly.phaseOffset) + 1f) * 0.5f).coerceIn(0.2f, 1f)
+            val twinkle = ((sin(natureTime * 2f + fly.phaseOffset) + 1f) * 0.5f).coerceIn(0.25f, 1f)
             val coreColor = when {
                 isBlocked -> Color(0xFFF87171)
                 fly.isGolden -> Color(0xFFFDE047)

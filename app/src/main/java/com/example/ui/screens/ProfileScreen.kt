@@ -48,10 +48,18 @@ fun ProfileScreen(
     onBack: (() -> Unit)? = null,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     var showSessionShareDialog by remember { mutableStateOf(false) }
+    var canViewProfile by remember {
+        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
 
     LaunchedEffect(Unit) {
         viewModel.fetchProfile()
+        canViewProfile = com.example.security.DeviceActivationRepository.checkProfileViewPermission(
+            context = context,
+            forceRefresh = true
+        )
     }
 
     Scaffold(
@@ -149,9 +157,10 @@ fun ProfileScreen(
                     ProfileContent(
                         profile = profile,
                         sessionManager = sessionManager,
+                        canViewProfile = canViewProfile,
                         onNavigateToSavedItems = onNavigateToSavedItems,
                         onNavigateToDownloads = onNavigateToDownloads,
-                        onOpenSessionShare = { showSessionShareDialog = true }
+                        onOpenSessionShare = { if (canViewProfile) showSessionShareDialog = true }
                     )
                 }
                 else -> {
@@ -168,14 +177,15 @@ fun ProfileScreen(
                     ProfileContent(
                         profile = fallbackProfile,
                         sessionManager = sessionManager,
+                        canViewProfile = canViewProfile,
                         onNavigateToSavedItems = onNavigateToSavedItems,
                         onNavigateToDownloads = onNavigateToDownloads,
-                        onOpenSessionShare = { showSessionShareDialog = true }
+                        onOpenSessionShare = { if (canViewProfile) showSessionShareDialog = true }
                     )
                 }
             }
 
-            if (showSessionShareDialog && sessionManager != null) {
+            if (showSessionShareDialog && canViewProfile && sessionManager != null) {
                 com.example.ui.dialogs.SessionShareDialog(
                     sessionManager = sessionManager,
                     onDismiss = { showSessionShareDialog = false }
@@ -189,6 +199,7 @@ fun ProfileScreen(
 fun ProfileContent(
     profile: UserProfile,
     sessionManager: com.example.auth.SessionManager? = null,
+    canViewProfile: Boolean = false,
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
     onOpenSessionShare: () -> Unit = {}
@@ -466,62 +477,64 @@ fun ProfileContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        if (canViewProfile) {
+            Spacer(modifier = Modifier.height(12.dp))
 
-        // Session Share & QR Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenSessionShare),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Row(
+            // Session Share & QR Card (Only visible when Profile View Permission is ON)
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .clickable(onClick = onOpenSessionShare),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCode2,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "সেশন শেয়ার ও কিউআর ব্যাকআপ",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "অন্য ডিভাইসে অ্যাকাউন্ট পাঠাতে কিউআর কোড দেখুন",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     Icon(
-                        imageVector = Icons.Default.QrCode2,
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "সেশন শেয়ার ও কিউআর ব্যাকআপ",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "অন্য ডিভাইসে অ্যাকাউন্ট পাঠাতে কিউআর কোড দেখুন",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
             }
         }
 

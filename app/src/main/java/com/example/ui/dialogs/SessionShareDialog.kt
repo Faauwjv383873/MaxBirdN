@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.auth.SessionManager
 import com.example.utils.QrSessionUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,13 +42,20 @@ fun SessionShareDialog(
     val context = LocalContext.current
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var payloadText by remember { mutableStateOf<String?>(null) }
+    var isGenerating by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        val payload = QrSessionUtils.createSessionPayload(sessionManager)
-        payloadText = payload
-        if (payload != null) {
-            qrBitmap = QrSessionUtils.generateQrBitmap(payload, 600)
+        isGenerating = true
+        val result = withContext(Dispatchers.Default) {
+            val payload = QrSessionUtils.createSessionPayload(sessionManager)
+            val bmp = if (payload != null) {
+                QrSessionUtils.generateQrBitmap(payload, 560)
+            } else null
+            Pair(payload, bmp)
         }
+        payloadText = result.first
+        qrBitmap = result.second
+        isGenerating = false
     }
 
     Dialog(onDismissRequest = onDismiss) {

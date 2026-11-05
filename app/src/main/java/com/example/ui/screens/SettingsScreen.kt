@@ -494,7 +494,7 @@ fun SettingsScreen(
                     icon = Icons.Default.Wallpaper,
                     iconTint = Color(0xFFEC4899),
                     title = "হেডার ও লাইভ ওয়ালপেপার",
-                    subtitle = "১৬টি সিমলেস অ্যানিমেটেড থিম, গ্যালারি ছবি ও থিম কোড ইমপোর্ট",
+                    subtitle = "৬টি প্রিমিয়াম সিমলেস অ্যানিমেটেড থিম, গ্যালারি ছবি ও থিম কোড ইমপোর্ট",
                     badgeText = activeWallpaperBadge,
                     isDark = isDark,
                     onClick = onNavigateToHeaderWallpaper,
@@ -663,19 +663,20 @@ fun SettingsScreen(
                 )
             }
 
-            // App Version Footer
+            // App Version Footer — generous bottom clearance above floating dock
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(top = 6.dp, bottom = 110.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0).copy(alpha = 0.7f)
+                    color = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0).copy(alpha = 0.85f),
+                    border = BorderStroke(1.dp, if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -683,19 +684,17 @@ fun SettingsScreen(
                             imageVector = Icons.Default.Verified,
                             contentDescription = null,
                             tint = Color(0xFF0284C7),
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "ভার্সন v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
-                            fontSize = 12.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = secondaryText
+                            color = primaryText
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 

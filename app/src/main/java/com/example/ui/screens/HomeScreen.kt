@@ -394,16 +394,6 @@ fun HomeScreen(
                                 onNavigateToExam = onNavigateToExam
                             )
 
-                            // Report Card & Leaderboard Premium Interactive Card
-                            ReportCardQuickBanner(
-                                onClick = {
-                                    val prog = uiState.activeProgram
-                                    val phase = uiState.programPhases.find { it.is_current == true }
-                                        ?: uiState.programPhases.firstOrNull()
-                                    onNavigateToReportCard(prog?.id, prog?.title_bn, phase?.id)
-                                }
-                            )
-
                             CourseProgressSection(
                                 phases = uiState.programPhases,
                                 onPhaseClick = { phase -> onOpenCourse(phase.id) }

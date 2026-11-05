@@ -544,143 +544,59 @@ fun DownloadsScreen(
                     }
                 }
 
-                // Search Bar + Category Filter Chips + Sort Options
+                // Category Filter Chips Row (Balanced 3-Column Layout without Search Bar)
                 item {
-                    Column(
+                    val categories = listOf(
+                        "সবগুলো (${completedAndFailedDownloads.size.toBengaliDigits()})" to Icons.Default.Folder,
+                        "ভিডিও (${videoCount.toBengaliDigits()})" to Icons.Default.PlayCircleFilled,
+                        "নোট/পিডিএফ (${pdfCount.toBengaliDigits()})" to Icons.Default.PictureAsPdf
+                    )
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Search Bar
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = {
-                                Text(
-                                    text = "ডাউনলোডকৃত ভিডিও বা নোট খুঁজুন...",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = Color(0xFF0284C7),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = {
-                                            searchQuery = ""
-                                            focusManager.clearFocus()
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Clear",
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(
-                                onSearch = {
-                                    keyboardController?.hide()
-                                    focusManager.clearFocus()
-                                }
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF0284C7),
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                        )
-
-                        // Scrollable Filter Chips & Sort Button Row
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val categories = listOf(
-                                "সবগুলো (${completedAndFailedDownloads.size.toBengaliDigits()})" to Icons.Default.Folder,
-                                "ভিডিও (${videoCount.toBengaliDigits()})" to Icons.Default.PlayCircleFilled,
-                                "নোট/পিডিএফ (${pdfCount.toBengaliDigits()})" to Icons.Default.PictureAsPdf
-                            )
-                            categories.forEachIndexed { index, (label, icon) ->
-                                val isSelected = selectedCategoryIndex == index
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { selectedCategoryIndex = index },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    },
-                                    label = {
-                                        Text(
-                                            text = label,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(20.dp),
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFF0284C7),
-                                        selectedLabelColor = Color.White,
-                                        containerColor = MaterialTheme.colorScheme.surface,
-                                        labelColor = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        enabled = true,
-                                        selected = isSelected,
-                                        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                                        selectedBorderColor = Color(0xFF0284C7)
-                                    )
-                                )
-                            }
-
-                            // Cycle Sort Order Chip
-                            val sortLabel = when (selectedSortOrder) {
-                                1 -> "সাইজ অনুযায়ী"
-                                2 -> "নাম অনুযায়ী"
-                                else -> "নতুন প্রথমে"
-                            }
-                            AssistChip(
-                                onClick = { selectedSortOrder = (selectedSortOrder + 1) % 3 },
-                                leadingIcon = {
+                        categories.forEachIndexed { index, (label, icon) ->
+                            val isSelected = selectedCategoryIndex == index
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isSelected) Color(0xFF0284C7) else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF0284C7)
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { selectedCategoryIndex = index }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.Sort,
-                                        contentDescription = "Sort",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = Color(0xFF0284C7)
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                },
-                                label = {
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     Text(
-                                        text = sortLabel,
+                                        text = label,
                                         fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                },
-                                shape = RoundedCornerShape(20.dp)
-                            )
+                                }
+                            }
                         }
                     }
                 }
