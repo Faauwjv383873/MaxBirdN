@@ -20,5 +20,6 @@ debug.keystore.base64
 *.jks
 *.keystore
 keystore_base64.txt
+app/google-services.json
 .build-outputs/
 artifacts/
