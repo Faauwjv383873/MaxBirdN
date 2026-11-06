@@ -1382,6 +1382,13 @@ fun LessonDetailPlayerScreen(
                 }
 
                 // 2. Class Header & Info Section
+                val canUseTelegramAgent = remember {
+                    com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)
+                }
+                var showTelegramSheet by remember { mutableStateOf(false) }
+                var telegramIncludeVideos by remember { mutableStateOf(true) }
+                var telegramIncludeSlides by remember { mutableStateOf(true) }
+
                 LessonDetailHeader(
                     lesson = lesson,
                     isSaved = isLessonSaved,
@@ -1416,6 +1423,97 @@ fun LessonDetailPlayerScreen(
                     }
                 )
 
+                if (canUseTelegramAgent && lesson != null && !lesson.isExam) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                telegramIncludeVideos = true
+                                telegramIncludeSlides = true
+                                showTelegramSheet = true
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF0088CC),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "এই ভিডিও টেলিগ্রামে পাঠান",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                telegramIncludeVideos = false
+                                telegramIncludeSlides = true
+                                showTelegramSheet = true
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFF0088CC)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PictureAsPdf,
+                                contentDescription = null,
+                                tint = Color(0xFF0088CC),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "স্লাইড পাঠান",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0088CC),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                if (showTelegramSheet && lesson != null) {
+                    val enrichedLesson = remember(lesson, activeStreamUrl) {
+                        if (activeStreamUrl.isNotBlank() && lesson.video_url.isNullOrBlank()) {
+                            lesson.copy(video_url = activeStreamUrl)
+                        } else {
+                            lesson
+                        }
+                    }
+                    TelegramSendBottomSheet(
+                        title = ClassTypeUtils.formatLessonTitle(lesson.title ?: "ক্লাস লেকচার"),
+                        subtitle = listOfNotNull(subjectName, lesson.chapter_name).filter { it.isNotBlank() }.joinToString(" • "),
+                        lessonsToSend = listOf(enrichedLesson),
+                        programId = lesson.program_id.orEmpty(),
+                        programTitle = "",
+                        phaseId = "",
+                        subjectCode = lesson.subject_id.orEmpty(),
+                        subjectTitle = subjectName,
+                        chapterId = lesson.chapter_id.orEmpty(),
+                        chapterTitle = lesson.chapter_name.orEmpty(),
+                        initialIncludeVideos = telegramIncludeVideos,
+                        initialIncludeSlides = telegramIncludeSlides,
+                        onDismiss = { showTelegramSheet = false }
+                    )
+                }
+
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                     thickness = 1.dp,
@@ -1444,7 +1542,14 @@ fun LessonDetailPlayerScreen(
                     onRefreshLesson = onRefreshLesson,
                     onViewAttachment = handleViewSlide,
                     onOpenChapterResources = onOpenChapterResources,
-                    onOpenSubjectResources = onOpenSubjectResources
+                    onOpenSubjectResources = onOpenSubjectResources,
+                    onSendSlideToTelegram = if (canUseTelegramAgent && lesson != null) {
+                        {
+                            telegramIncludeVideos = false
+                            telegramIncludeSlides = true
+                            showTelegramSheet = true
+                        }
+                    } else null
                 )
 
                 // 5. "🎬 অ্যানিমেটেড লেসন" (Horizontal Scroll)

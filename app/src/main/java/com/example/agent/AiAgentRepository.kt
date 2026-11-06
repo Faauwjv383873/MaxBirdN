@@ -54,6 +54,7 @@ class AiAgentRepository(
         private const val KEY_TG_AUTH_STATE = "tg_auth_state"
         private const val KEY_TG_AUTH_MSG = "tg_auth_msg"
         private const val KEY_TG_CONNECTED = "tg_connected"
+        private const val KEY_TG_DIALOGS_JSON = "tg_dialogs_json"
 
         private const val KEY_LOCAL_TASKS_JSON = "local_tasks_json"
         private const val KEY_LOCAL_SCHEDULES_JSON = "local_schedules_json"
@@ -118,6 +119,7 @@ class AiAgentRepository(
         val connected = sessionStr.isNotBlank() || botTok.isNotBlank() || prefs.getBoolean(KEY_TG_CONNECTED, false)
         val rawState = prefs.getString(KEY_TG_AUTH_STATE, "IDLE").orEmpty()
         val effectiveState = if (sessionStr.isNotBlank()) "CONNECTED" else rawState.ifBlank { "IDLE" }
+        val dialogsRaw = prefs.getString(KEY_TG_DIALOGS_JSON, "[]") ?: "[]"
 
         return TelegramExtensionConfig(
             apiId = savedApiId.ifBlank { DEFAULT_TELEGRAM_API_ID },
@@ -129,7 +131,8 @@ class AiAgentRepository(
             accountDisplayName = prefs.getString(KEY_TG_DISPLAY_NAME, "") ?: "",
             authState = effectiveState,
             authMessage = prefs.getString(KEY_TG_AUTH_MSG, "") ?: "",
-            isConnected = connected
+            isConnected = connected,
+            dialogs = parseDialogsJson(dialogsRaw)
         )
     }
 
@@ -142,7 +145,7 @@ class AiAgentRepository(
             cleanBot.isNotBlank()
         val state = if (cleanSession.isNotBlank()) "CONNECTED" else config.authState.ifBlank { "IDLE" }
 
-        prefs.edit()
+        val editor = prefs.edit()
             .putString(KEY_TG_API_ID, cleanApiId)
             .putString(KEY_TG_API_HASH, cleanApiHash)
             .putString(KEY_TG_PHONE, config.phone.trim())
@@ -153,7 +156,82 @@ class AiAgentRepository(
             .putString(KEY_TG_AUTH_STATE, state)
             .putString(KEY_TG_AUTH_MSG, config.authMessage.trim())
             .putBoolean(KEY_TG_CONNECTED, isReady)
-            .apply()
+        if (config.dialogs.isNotEmpty()) {
+            editor.putString(KEY_TG_DIALOGS_JSON, serializeDialogsJson(config.dialogs))
+        }
+        editor.apply()
+    }
+
+    private fun parseDialogsJson(raw: String): List<TelegramDialogDestination> {
+        if (raw.isBlank()) return emptyList()
+        return try {
+            parseDialogsArray(JSONArray(raw))
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun parseDialogsArray(arr: JSONArray): List<TelegramDialogDestination> {
+        val list = mutableListOf<TelegramDialogDestination>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val id = obj.optString("id", "").trim()
+            val title = obj.optString("title", "").trim()
+            if (id.isBlank() || title.isBlank()) continue
+            val topicsArr = obj.optJSONArray("topics")
+            val topics = mutableListOf<TelegramForumTopic>()
+            if (topicsArr != null) {
+                for (j in 0 until topicsArr.length()) {
+                    val tObj = topicsArr.optJSONObject(j) ?: continue
+                    val tId = tObj.optInt("id", 0)
+                    val tTitle = tObj.optString("title", "").trim()
+                    if (tId > 0 && tTitle.isNotBlank()) {
+                        topics.add(TelegramForumTopic(id = tId, title = tTitle))
+                    }
+                }
+            }
+            list.add(
+                TelegramDialogDestination(
+                    id = id,
+                    title = title,
+                    username = obj.optString("username", ""),
+                    isChannel = obj.optBoolean("is_channel", !obj.optBoolean("is_megagroup", false)),
+                    isMegagroup = obj.optBoolean("is_megagroup", false),
+                    isForum = obj.optBoolean("is_forum", topics.isNotEmpty()),
+                    canPost = obj.optBoolean("can_post", true),
+                    topics = topics
+                )
+            )
+        }
+        return list
+    }
+
+    private fun serializeDialogsJson(dialogs: List<TelegramDialogDestination>): String {
+        val arr = JSONArray()
+        dialogs.forEach { d ->
+            val topicsArr = JSONArray()
+            d.topics.forEach { t ->
+                topicsArr.put(
+                    JSONObject().apply {
+                        put("id", t.id)
+                        put("title", t.title)
+                    }
+                )
+            }
+            arr.put(
+                JSONObject().apply {
+                    put("id", d.id)
+                    put("title", d.title)
+                    put("username", d.username)
+                    put("is_channel", d.isChannel)
+                    put("is_megagroup", d.isMegagroup)
+                    put("is_forum", d.isForum)
+                    put("can_post", d.canPost)
+                    put("topics", topicsArr)
+                }
+            )
+        }
+        return arr.toString()
     }
 
     private fun sealSecret(plain: String): String {
@@ -970,6 +1048,14 @@ class AiAgentRepository(
             .ifBlank { supaObj?.optString("telegram_api_hash", current.apiHash).orEmpty().trim() }
             .ifBlank { DEFAULT_TELEGRAM_API_HASH }
 
+        val remoteDialogsArr = ghObj?.optJSONArray("telegram_dialogs")
+            ?: supaObj?.optJSONArray("telegram_dialogs")
+        val remoteDialogs = if (remoteDialogsArr != null) {
+            parseDialogsArray(remoteDialogsArr)
+        } else {
+            emptyList()
+        }
+
         val updated = current.copy(
             apiId = remoteApiId,
             apiHash = remoteApiHash,
@@ -978,10 +1064,180 @@ class AiAgentRepository(
             accountDisplayName = remoteAccount.ifBlank { current.accountDisplayName },
             authState = if (remoteSession.isNotBlank()) "CONNECTED" else remoteState.ifBlank { current.authState },
             authMessage = remoteMsg.ifBlank { current.authMessage },
-            isConnected = remoteSession.isNotBlank() || current.sessionString.isNotBlank() || current.botToken.isNotBlank()
+            isConnected = remoteSession.isNotBlank() || current.sessionString.isNotBlank() || current.botToken.isNotBlank(),
+            dialogs = if (remoteDialogs.isNotEmpty()) remoteDialogs else current.dialogs
         )
         saveTelegramConfig(updated)
         updated
+    }
+
+    /**
+     * Fetches the user's synced Telegram Channels, Supergroups, and Forum Topics from cloud state,
+     * and optionally dispatches a fast `TELEGRAM_FETCH_DIALOGS` run on GitHub Actions to refresh them live.
+     */
+    suspend fun fetchTelegramDialogs(triggerRemoteRefresh: Boolean = false): List<TelegramDialogDestination> =
+        withContext(Dispatchers.IO) {
+            val polled = pollTelegramAuthStatusFromSupabase()
+            if (!triggerRemoteRefresh && polled.dialogs.isNotEmpty()) {
+                return@withContext polled.dialogs
+            }
+            val gh = getGitHubConfig()
+            val tg = getTelegramConfig()
+            if (gh.personalAccessToken.isBlank() || gh.owner.isBlank() || gh.repo.isBlank() || tg.sessionString.isBlank()) {
+                return@withContext polled.dialogs
+            }
+            val (supabaseUrl, supabaseKey) = DeviceActivationRepository.getSupabaseConfig()
+            val deviceHash = getCurrentDeviceHash()
+
+            runCatching { deployAgentWorkflowToGitHub(gh) }
+            val payloadJson = JSONObject().apply {
+                put("supabase_url", supabaseUrl)
+                put("supabase_anon_key", supabaseKey)
+                put("device_hash", deviceHash)
+                put("github_pat", gh.personalAccessToken)
+                put("github_repository", "${gh.owner}/${gh.repo}")
+                put("github_branch", gh.branch.ifBlank { "main" })
+                put("auth_action", "TELEGRAM_FETCH_DIALOGS")
+                put(
+                    "auth_payload",
+                    JSONObject().apply {
+                        put("device_hash", deviceHash)
+                        put("telegram_api_id", tg.apiId.ifBlank { DEFAULT_TELEGRAM_API_ID })
+                        put("telegram_api_hash", tg.apiHash.ifBlank { DEFAULT_TELEGRAM_API_HASH })
+                        put("telegram_session_string", tg.sessionString)
+                    }
+                )
+            }
+            dispatchRawPayloadToGitHub(
+                gh = gh,
+                taskId = "tg_fetch_dialogs_${System.currentTimeMillis()}",
+                payloadJson = payloadJson,
+                successMessage = "টেলিগ্রাম চ্যানেল ও গ্রুপ তালিকা সিঙ্ক হচ্ছে..."
+            )
+            // Poll for up to 16 seconds to get the freshly synced dialogs
+            for (i in 1..6) {
+                kotlinx.coroutines.delay(2600L)
+                val latest = pollTelegramAuthStatusFromSupabase()
+                if (latest.dialogs.isNotEmpty()) {
+                    return@withContext latest.dialogs
+                }
+            }
+            getTelegramConfig().dialogs
+        }
+
+    /**
+     * Real Cloud LLM Inference Engine (GitHub Models GPT-4o-mini + Pollinations OpenAI)
+     * so AI Agent Chat is 100% genuine, conversational, and intelligent even on custom-signed APKs
+     * where Firebase App Check blocks `Firebase.ai`.
+     */
+    suspend fun generateCloudLlmAgentResponse(
+        systemPrompt: String,
+        userPrompt: String
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        val gh = getGitHubConfig()
+        val messagesArr = JSONArray().apply {
+            put(
+                JSONObject().apply {
+                    put("role", "system")
+                    put("content", systemPrompt)
+                }
+            )
+            put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put("content", userPrompt)
+                }
+            )
+        }
+
+        // 1. Try GitHub Models API (gpt-4o-mini) using the user's connected GitHub token
+        if (gh.personalAccessToken.isNotBlank()) {
+            try {
+                val ghBody = JSONObject().apply {
+                    put("model", "gpt-4o-mini")
+                    put("messages", messagesArr)
+                    put("temperature", 0.4)
+                    put("response_format", JSONObject().put("type", "json_object"))
+                }
+                val ghReq = Request.Builder()
+                    .url("https://models.inference.ai.azure.com/chat/completions")
+                    .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
+                    .addHeader("Content-Type", "application/json")
+                    .post(ghBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                httpClient.newCall(ghReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val bodyStr = resp.body?.string().orEmpty()
+                        val content = JSONObject(bodyStr)
+                            .optJSONArray("choices")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("message")
+                            ?.optString("content", "")
+                            .orEmpty()
+                            .trim()
+                        val parsed = extractJsonObjectFromText(content)
+                        if (parsed != null && parsed.optString("reply_bn", "").isNotBlank()) {
+                            return@withContext parsed
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "GitHub Models LLM note: ${e.message}")
+            }
+        }
+
+        // 2. Try Pollinations OpenAI-compatible Cloud Endpoint (Zero-Key Real GPT-4o-mini Inference)
+        try {
+            val pollBody = JSONObject().apply {
+                put("model", "openai")
+                put("messages", messagesArr)
+                put("temperature", 0.4)
+                put("jsonMode", true)
+            }
+            val pollReq = Request.Builder()
+                .url("https://text.pollinations.ai/openai")
+                .addHeader("Content-Type", "application/json")
+                .post(pollBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            httpClient.newCall(pollReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string().orEmpty()
+                    val content = JSONObject(bodyStr)
+                        .optJSONArray("choices")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("message")
+                        ?.optString("content", "")
+                        .orEmpty()
+                        .trim()
+                    val parsed = extractJsonObjectFromText(content)
+                    if (parsed != null && parsed.optString("reply_bn", "").isNotBlank()) {
+                        return@withContext parsed
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Pollinations OpenAI LLM note: ${e.message}")
+        }
+
+        null
+    }
+
+    private fun extractJsonObjectFromText(raw: String): JSONObject? {
+        val cleaned = raw.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val start = cleaned.indexOf('{')
+        val end = cleaned.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        return try {
+            JSONObject(cleaned.substring(start, end + 1))
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private suspend fun dispatchRawPayloadToGitHub(
@@ -1108,6 +1364,8 @@ class AiAgentRepository(
                         put("use_forum_topics", task.useForumTopics)
                         put("target_channel_title", task.targetChannelTitle)
                         put("target_chat_id", task.targetChatId.ifBlank { tg.defaultChatId })
+                        put("target_topic_id", task.targetTopicId)
+                        put("target_topic_title", task.targetTopicTitle)
                         put("extra_payload_json", extraObj)
                     }
                 )
@@ -1311,6 +1569,113 @@ class AiAgentRepository(
     }
 
     /**
+     * Builds a serialized JSONArray of lessons (with pre-resolved `playback_url` and `study_materials` PDFs!)
+     * from an explicit list of `StudentLessonItem`s (used when sending a single class or a specific chapter).
+     */
+    suspend fun buildBundledLessonsFromItems(
+        items: List<StudentLessonItem>
+    ): Pair<Int, JSONArray> = withContext(Dispatchers.IO) {
+        val arr = JSONArray()
+        val classItems = items.filter { !it.isExam && !it.isModelTest && !it.isLiveExam }
+        val shouldPreResolve = classItems.size <= 35
+
+        for (lesson in classItems) {
+            var streamUrl = lesson.candidateStreamUrls.firstOrNull().orEmpty()
+            var teacherName = lesson.live_class?.teacher?.name ?: ""
+            val slidesArr = JSONArray()
+
+            val initialSlide = lesson.resolvedSlideUrl.orEmpty()
+            if (initialSlide.isNotBlank() && initialSlide != "null") {
+                slidesArr.put(
+                    JSONObject().apply {
+                        put("title", "${lesson.title ?: "লেকচার"} - স্লাইড")
+                        put("url", initialSlide)
+                    }
+                )
+            }
+            lesson.allAttachments.forEach { att ->
+                val u = att.downloadUrl.orEmpty().trim()
+                if (u.isNotBlank() && u != "null" && u != initialSlide) {
+                    slidesArr.put(
+                        JSONObject().apply {
+                            put("title", att.displayTitle.ifBlank { "লেকচার স্লাইড" })
+                            put("url", u)
+                        }
+                    )
+                }
+            }
+
+            val candidateIds = listOfNotNull(
+                lesson.content_id?.takeIf { it.isNotBlank() },
+                lesson.live_class?.id?.takeIf { it.isNotBlank() },
+                lesson.id.takeIf { it.isNotBlank() },
+                lesson.session_id?.takeIf { it.isNotBlank() }
+            ).distinct()
+
+            if (shouldPreResolve && (streamUrl.isBlank() || slidesArr.length() == 0)) {
+                for (cid in candidateIds) {
+                    try {
+                        val detail = courseRepository.getLiveClassDetails(cid)
+                        if (detail != null) {
+                            if (streamUrl.isBlank() && !detail.playback_url.isNullOrBlank()) {
+                                streamUrl = detail.playback_url
+                            }
+                            if (teacherName.isBlank() && !detail.teacher?.name.isNullOrBlank()) {
+                                teacherName = detail.teacher?.name.orEmpty()
+                            }
+                            detail.study_materials?.forEach { mat ->
+                                val fUrl = mat.file_url?.trim().orEmpty()
+                                if (fUrl.isNotBlank() && fUrl != "null") {
+                                    var exists = false
+                                    for (k in 0 until slidesArr.length()) {
+                                        if (slidesArr.optJSONObject(k)?.optString("url") == fUrl) {
+                                            exists = true
+                                            break
+                                        }
+                                    }
+                                    if (!exists) {
+                                        slidesArr.put(
+                                            JSONObject().apply {
+                                                put("title", mat.name?.takeIf { it.isNotBlank() } ?: "${lesson.title ?: "লেকচার"} - স্লাইড")
+                                                put("url", fUrl)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            if (streamUrl.isNotBlank() || slidesArr.length() > 0) break
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
+            val primaryContentId = candidateIds.firstOrNull() ?: lesson.id
+            val primarySlideUrl = if (slidesArr.length() > 0) {
+                slidesArr.optJSONObject(0)?.optString("url", "").orEmpty()
+            } else ""
+
+            arr.put(
+                JSONObject().apply {
+                    put("id", lesson.id)
+                    put("content_id", primaryContentId)
+                    put("title", lesson.title ?: "লেকচার")
+                    put("content_type", lesson.content_type ?: "LiveClass")
+                    put("subject_code", lesson.subject_code ?: lesson.subject_id ?: "")
+                    put("subject_name", lesson.subject_name ?: "")
+                    put("chapter_id", lesson.chapter_id ?: "")
+                    put("chapter_name", lesson.chapter_name ?: "")
+                    put("teacher_name", teacherName)
+                    if (streamUrl.isNotBlank()) put("video_url", streamUrl)
+                    if (primarySlideUrl.isNotBlank()) put("slide_url", primarySlideUrl)
+                    if (slidesArr.length() > 0) put("slides", slidesArr)
+                }
+            )
+        }
+        Pair(classItems.size, arr)
+    }
+
+    /**
      * Builds a serialized JSONArray of lessons (with live_class/content_id and direct playback URLs)
      * so the GitHub Actions worker can download & upload every video and slide accurately.
      */
@@ -1320,7 +1685,6 @@ class AiAgentRepository(
         subjectCode: String = "",
         chapterId: String = ""
     ): Pair<Int, JSONArray> = withContext(Dispatchers.IO) {
-        val arr = JSONArray()
         val allLessons: List<StudentLessonItem> = try {
             courseRepository.fetchAllLessonsForProgram(programId, phaseId?.ifBlank { null })
         } catch (_: Exception) {
@@ -1339,30 +1703,7 @@ class AiAgentRepository(
             isClassLesson && matchesSubject && matchesChapter
         }
 
-        for (lesson in filtered) {
-            val streamUrl = lesson.candidateStreamUrls.firstOrNull().orEmpty()
-            val slideUrl = lesson.resolvedSlideUrl.orEmpty()
-            val liveClassId = lesson.live_class?.id?.takeIf { it.isNotBlank() }
-                ?: lesson.content_id?.takeIf { it.isNotBlank() }
-                ?: lesson.id
-
-            arr.put(
-                JSONObject().apply {
-                    put("id", lesson.id)
-                    put("content_id", liveClassId)
-                    put("title", lesson.title ?: "লেকচার")
-                    put("content_type", lesson.content_type ?: "LiveClass")
-                    put("subject_code", lesson.subject_code ?: lesson.subject_id ?: "")
-                    put("subject_name", lesson.subject_name ?: "")
-                    put("chapter_id", lesson.chapter_id ?: "")
-                    put("chapter_name", lesson.chapter_name ?: "")
-                    put("teacher_name", lesson.live_class?.teacher?.name ?: "")
-                    if (streamUrl.isNotBlank()) put("video_url", streamUrl)
-                    if (slideUrl.isNotBlank()) put("slide_url", slideUrl)
-                }
-            )
-        }
-        Pair(filtered.size, arr)
+        buildBundledLessonsFromItems(filtered)
     }
 
     // =========================================================================
@@ -1627,6 +1968,8 @@ class AiAgentRepository(
                     put("use_forum_topics", t.useForumTopics)
                     put("target_channel_title", t.targetChannelTitle)
                     put("target_chat_id", t.targetChatId)
+                    put("target_topic_id", t.targetTopicId)
+                    put("target_topic_title", t.targetTopicTitle)
                     put("telegram_invite_link", t.telegramInviteLink)
                     put("total_items", t.totalItems)
                     put("completed_items", t.completedItems)
@@ -1665,6 +2008,8 @@ class AiAgentRepository(
                     useForumTopics = obj.optBoolean("use_forum_topics", false),
                     targetChannelTitle = obj.optString("target_channel_title", ""),
                     targetChatId = obj.optString("target_chat_id", ""),
+                    targetTopicId = obj.optInt("target_topic_id", 0),
+                    targetTopicTitle = obj.optString("target_topic_title", ""),
                     telegramInviteLink = obj.optString("telegram_invite_link", ""),
                     totalItems = obj.optInt("total_items", 0),
                     completedItems = obj.optInt("completed_items", 0),

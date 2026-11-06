@@ -14,6 +14,22 @@ data class GitHubExtensionConfig(
     val isWorkflowDeployed: Boolean = false
 )
 
+data class TelegramForumTopic(
+    val id: Int,
+    val title: String
+)
+
+data class TelegramDialogDestination(
+    val id: String,
+    val title: String,
+    val username: String = "",
+    val isChannel: Boolean = true,
+    val isMegagroup: Boolean = false,
+    val isForum: Boolean = false,
+    val canPost: Boolean = true,
+    val topics: List<TelegramForumTopic> = emptyList()
+)
+
 data class TelegramExtensionConfig(
     val apiId: String = DEFAULT_TELEGRAM_API_ID,
     val apiHash: String = DEFAULT_TELEGRAM_API_HASH,
@@ -24,7 +40,8 @@ data class TelegramExtensionConfig(
     val accountDisplayName: String = "",
     val authState: String = "IDLE", // IDLE, SENDING_CODE, WAITING_FOR_OTP, VERIFYING_OTP, NEED_2FA, CONNECTED, ERROR
     val authMessage: String = "",
-    val isConnected: Boolean = false
+    val isConnected: Boolean = false,
+    val dialogs: List<TelegramDialogDestination> = emptyList()
 )
 
 data class GitHubRepoSummary(
@@ -56,6 +73,8 @@ data class ProposedAgentPlan(
     val chapterTitle: String = "",
     val targetChannelTitle: String = "",
     val targetChatId: String = "",
+    val targetTopicId: Int = 0,
+    val targetTopicTitle: String = "",
     val videoQuality: String = "720p",
     val includeVideos: Boolean = true,
     val includeSlides: Boolean = true,
@@ -96,6 +115,8 @@ data class AiAgentTask(
     val useForumTopics: Boolean = false,
     val targetChannelTitle: String = "",
     val targetChatId: String = "",
+    val targetTopicId: Int = 0,
+    val targetTopicTitle: String = "",
     val telegramInviteLink: String = "",
     val totalItems: Int = 0,
     val completedItems: Int = 0,

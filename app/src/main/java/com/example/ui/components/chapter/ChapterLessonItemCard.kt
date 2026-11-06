@@ -62,6 +62,7 @@ fun ChapterLessonItemCard(
     isCompleted: Boolean,
     subjectColor: Color,
     onClick: () -> Unit,
+    onSendToTelegram: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isModelTest = lesson.isModelTest
@@ -349,6 +350,36 @@ fun ChapterLessonItemCard(
                 )
 
                 Spacer(modifier = Modifier.width(8.dp))
+
+                if (onSendToTelegram != null && !isExam && !isLiveExam && !isModelTest) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0088CC).copy(alpha = 0.14f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSendToTelegram.invoke() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Send to Telegram",
+                                tint = Color(0xFF0088CC),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = "টেলিগ্রামে পাঠান",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0088CC)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

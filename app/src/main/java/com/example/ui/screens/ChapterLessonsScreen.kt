@@ -59,6 +59,13 @@ fun ChapterLessonsScreen(
     var lessonCompletionCounter by remember { mutableIntStateOf(0) }
     val uiState by viewModel.uiState.collectAsState()
 
+    val canUseTelegramAgent = remember {
+        com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context)
+    }
+    var telegramSheetLessons by remember { mutableStateOf<List<StudentLessonItem>?>(null) }
+    var telegramSheetTitle by remember { mutableStateOf("") }
+    var telegramSheetSubtitle by remember { mutableStateOf("") }
+
     var selectedFilter by remember(initialTab) {
         mutableStateOf(
             if (initialTab == 1) ChapterContentFilter.EXAM else ChapterContentFilter.ALL
@@ -305,6 +312,73 @@ fun ChapterLessonsScreen(
                             )
                         }
 
+                        // 2.5 Send Entire Chapter to Telegram Button (Gated by profile view permission)
+                        val sendableChapterLessons = uiState.lessons.filter { !it.isExam && !it.isLiveExam && !it.isModelTest }
+                        if (canUseTelegramAgent && sendableChapterLessons.isNotEmpty()) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFF0088CC).copy(alpha = 0.12f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF0088CC).copy(alpha = 0.4f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable {
+                                            telegramSheetTitle = chapterName.ifBlank { "অধ্যায়ের সকল ক্লাস" }
+                                            telegramSheetSubtitle = "${effectiveSubjectTitle.ifBlank { "বিষয়" }} • মোট ${toBengaliDigits(sendableChapterLessons.size)}টি ক্লাস"
+                                            telegramSheetLessons = sendableChapterLessons
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF0088CC)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Send,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(
+                                                    text = "এই অধ্যায়ের সব ভিডিও ও স্লাইড টেলিগ্রামে পাঠান",
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = "মোট ${toBengaliDigits(sendableChapterLessons.size)}টি ক্লাস • যেকোনো চ্যানেল, গ্রুপ বা নির্দিষ্ট টপিকে পাঠান",
+                                                    fontSize = 11.5.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.ChevronRight,
+                                            contentDescription = null,
+                                            tint = Color(0xFF0088CC)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // 3. Section Title with Count
                         item {
                             Row(
@@ -375,6 +449,13 @@ fun ChapterLessonsScreen(
                                     lesson = lesson,
                                     isCompleted = isCompleted,
                                     subjectColor = subjectColor,
+                                    onSendToTelegram = if (canUseTelegramAgent && !lesson.isExam && !lesson.isLiveExam && !lesson.isModelTest) {
+                                        {
+                                            telegramSheetTitle = ClassTypeUtils.formatLessonTitle(lesson.title ?: "ক্লাস লেকচার")
+                                            telegramSheetSubtitle = "${effectiveSubjectTitle.ifBlank { "বিষয়" }} • $chapterName"
+                                            telegramSheetLessons = listOf(lesson)
+                                        }
+                                    } else null,
                                     onClick = {
                                         sessionManager.markLessonCompleted(lesson.id)
                                         if (!lesson.content_id.isNullOrBlank()) sessionManager.markLessonCompleted(lesson.content_id)
@@ -427,6 +508,23 @@ fun ChapterLessonsScreen(
                         }
                     }
                 }
+            }
+
+            val activeSheetLessons = telegramSheetLessons
+            if (activeSheetLessons != null) {
+                com.example.ui.components.TelegramSendBottomSheet(
+                    title = telegramSheetTitle,
+                    subtitle = telegramSheetSubtitle,
+                    lessonsToSend = activeSheetLessons,
+                    programId = uiState.programId.orEmpty(),
+                    programTitle = uiState.programTitle.orEmpty(),
+                    phaseId = uiState.activePhaseId.orEmpty(),
+                    subjectCode = effectiveSubjectCode,
+                    subjectTitle = effectiveSubjectTitle,
+                    chapterId = chapterId,
+                    chapterTitle = chapterName,
+                    onDismiss = { telegramSheetLessons = null }
+                )
             }
         }
     }

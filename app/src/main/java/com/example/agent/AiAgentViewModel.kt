@@ -299,7 +299,7 @@ class AiAgentViewModel(
                     You are MaxBird Autonomous AI Agent inside the MaxBird Android App.
                     You have full control over:
                     1. GitHub Actions 24/7 Cloud Worker (Connected: ${state.githubConfig.isVerified}, Repo: ${state.githubConfig.owner}/${state.githubConfig.repo})
-                    2. Personal Telegram Account via Telethon MTProto (Connected: ${state.telegramConfig.isConnected}, Default Chat: ${state.telegramConfig.defaultChatId.ifBlank { "Auto-Create New Channel/Group" }})
+                    2. Personal Telegram Account via Telethon MTProto (Connected: ${state.telegramConfig.isConnected}, Account: ${state.telegramConfig.accountDisplayName}, Synced Channels/Groups: ${state.telegramConfig.dialogs.size})
                     3. Shikho Course Engine:
                        - Currently Selected Course: ${state.selectedProgramTitle} (ID: ${state.selectedProgramId})
                        - Selected Subject Filter: ${state.selectedSubjectTitle.ifBlank { "সকল বিষয় (All Subjects)" }} (${state.selectedSubjectCode})
@@ -312,21 +312,38 @@ class AiAgentViewModel(
                     5. Active 24/7 Schedules: ${state.schedules.count { it.isEnabled }} enabled.
 
                     Rules for choosing `action_type`:
-                    - If the user is asking a question, discussing strategy, or asking to inspect/plan before starting: choose `PROPOSE_PLAN` (if proposing a concrete upload/schedule plan) or `DISCUSS`.
+                    - If the user is greeting you (e.g., "হাই", "কেমন আছেন", "সালাম"), asking a general question, or chatting normally: choose `DISCUSS` and answer naturally, warmly, and intelligently in Bengali! Do NOT propose an upload plan if they are just chatting or asking how you are.
+                    - If the user asks for an upload plan, course analysis, or wants to review before starting: choose `PROPOSE_PLAN`.
                     - If the user explicitly commands to start uploading videos/slides now (e.g., "শুরু করো", "আপলোড করো", "টাস্ক চালু করো"): choose `START_UPLOAD_TASK`.
                     - If the user commands to set up a daily/recurring schedule (e.g., "প্রতিদিন সকাল ৮টায়...", "রুটিন অনুযায়ী প্রতিদিন..."): choose `CREATE_SCHEDULE`.
                     - If the user asks to only create a Telegram channel/group right now: choose `CREATE_TELEGRAM_CHANNEL`.
-                    - Always write `reply_bn` in natural, friendly, respectful Bengali.
+
+                    Return strictly a valid JSON object with these keys:
+                    {
+                      "reply_bn": "Your natural, helpful Bengali response to the user",
+                      "action_type": "DISCUSS" | "PROPOSE_PLAN" | "START_UPLOAD_TASK" | "CREATE_SCHEDULE" | "CREATE_TELEGRAM_CHANNEL",
+                      "task_title": "Short Bengali title if action_type != DISCUSS",
+                      "subject_code": "",
+                      "subject_title": "",
+                      "target_channel_title": "${state.selectedProgramTitle}",
+                      "video_quality": "720p",
+                      "include_videos": true,
+                      "include_slides": true,
+                      "create_new_channel": true,
+                      "use_forum_topics": false,
+                      "schedule_time_bn": "প্রতিদিন সকাল ০৮:০০",
+                      "cron_expression": "0 2 * * *"
+                    }
 
                     Recent Conversation History:
                     $recentHistoryText
 
-                    User's New Instruction:
+                    User's New Message:
                     $cleanPrompt
                 """.trimIndent()
 
                 val json: JSONObject = try {
-                    val response = withTimeout(45_000L) {
+                    val response = withTimeout(30_000L) {
                         generativeModel.generateContent(fullContextPrompt)
                     }
                     val rawJson = response.text ?: throw IllegalStateException("Empty AI response")
@@ -335,8 +352,9 @@ class AiAgentViewModel(
                     if (aiErr is CancellationException && aiErr !is TimeoutCancellationException) {
                         throw aiErr
                     }
-                    Log.w(TAG, "Using built-in Smart Agent Decision Engine due to: ${aiErr.message}")
-                    generateSmartAgentDecision(cleanPrompt, state, inspection)
+                    Log.w(TAG, "Firebase.ai unavailable (${aiErr.message}); switching to Real Cloud LLM Engine...")
+                    repository.generateCloudLlmAgentResponse(fullContextPrompt, cleanPrompt)
+                        ?: generateSmartAgentDecision(cleanPrompt, state, inspection)
                 }
 
                 val replyBn = json.optString("reply_bn", "আপনার নির্দেশ বুঝতে পেরেছি।")
@@ -361,7 +379,7 @@ class AiAgentViewModel(
                         (subjTitle.isNotBlank() && it.subjectTitle.contains(subjTitle, ignoreCase = true))
                 }
 
-                val proposedPlan = if (actionType != "DISCUSS") {
+                val proposedPlan = if (actionType != "DISCUSS" && actionType != "NONE") {
                     ProposedAgentPlan(
                         actionType = actionType,
                         taskTitle = taskTitle.ifBlank { "${state.selectedProgramTitle} আপলোড" },
@@ -414,9 +432,7 @@ class AiAgentViewModel(
     }
 
     /**
-     * Context-aware Bengali Autonomous Agent Decision Engine.
-     * Ensures 100% reliability on physical phones & custom-signed APKs even when Firebase App Check
-     * rejects unprovisioned release keystore tokens.
+     * Offline Fallback Decision Engine (used only if all Cloud LLMs are unreachable).
      */
     private fun generateSmartAgentDecision(
         userPrompt: String,
@@ -429,7 +445,6 @@ class AiAgentViewModel(
         val totalVideos = inspection?.videoLessonsCount ?: totalLessons
         val totalSlides = inspection?.slideAttachmentsCount ?: totalLessons
 
-        // 1. Detect if user mentioned a specific subject from the course breakdown
         val matchedSub = inspection?.subjectBreakdown?.firstOrNull { sub ->
             val t = sub.subjectTitle.lowercase()
             val c = sub.subjectCode.lowercase()
@@ -515,23 +530,22 @@ class AiAgentViewModel(
             isImmediateUploadCmd -> {
                 actionType = "START_UPLOAD_TASK"
                 taskTitle = "$channelTitle — টেলিগ্রাম আপলোড"
-                replyBn = "🚀 জি বস! এখনই **$channelTitle**-এর **${targetVideos}টি ভিডিও ($quality)** এবং **${targetSlides}টি লেকচার স্লাইড (PDF)** আপনার টেলিগ্রামে নতুন ${if (useForum) "গ্রুপ" else "চ্যানেল"} খুলে এক এক করে আপলোড করার ব্যাকগ্রাউন্ড টাস্ক চালু করে দিচ্ছি!\n\n" +
-                    "• GitHub Worker: $ghStatus\n" +
-                    "• Telegram Account: $tgStatus\n\n" +
-                    "আপনি অ্যাপ থেকে বের হয়ে গেলেও GitHub Actions ২৪/৭ ব্যাকগ্রাউন্ডে এই কাজ চালিয়ে যাবে।"
+                replyBn = "🚀 জি বস! এখনই **$channelTitle**-এর **${targetVideos}টি ভিডিও ($quality)** এবং **${targetSlides}টি লেকচার স্লাইড (PDF)** আপনার টেলিগ্রামে নতুন ${if (useForum) "গ্রুপ" else "চ্যানেল"} খুলে এক এক করে আপলোড করার ব্যাকগ্রাউন্ড টাস্ক চালু করে দিচ্ছি!"
             }
-            else -> {
+            isAskingPlanOnly || matchedSub != null -> {
                 actionType = "PROPOSE_PLAN"
                 taskTitle = "$channelTitle — ফুল কোর্স আপলোড"
-                replyBn = "ওয়ালাইকুম আসসালাম বস! 🤖 আমি আপনার **MaxBird 24/7 Autonomous AI Agent**—সম্পূর্ণ প্রস্তুত আছি!\n\n" +
-                    "🔌 **সংযুক্ত একাউন্ট স্ট্যাটাস:**\n" +
-                    "• GitHub Actions: $ghStatus\n" +
-                    "• Telegram Account: $tgStatus\n\n" +
-                    "📚 **সক্রিয় কোর্স বিশ্লেষণ ($courseTitle):**\n" +
+                replyBn = "📚 **$courseTitle** বিশ্লেষণ:\n" +
                     "• মোট ক্লাস ভিডিও: **${targetVideos}টি**\n" +
                     "• মোট লেকচার স্লাইড (PDF): **${targetSlides}টি**\n\n" +
                     "📂 **বিষয়ভিত্তিক তালিকা:**\n$subjectListText\n\n" +
-                    "আমি নিচে আপনার জন্য অ্যাকশন প্ল্যান কার্ড তৈরি করে দিয়েছি। আপনি চাইলে নিচের **'ব্যাকগ্রাউন্ডে আপলোড শুরু করুন'** বাটনে চাপ দিতে পারেন, অথবা কোনো নির্দিষ্ট বিষয়ের নাম লিখে আমাকে নির্দেশ দিতে পারেন!"
+                    "নিচে আপনার জন্য আপলোড প্ল্যান তৈরি করে দিয়েছি:"
+            }
+            else -> {
+                actionType = "DISCUSS"
+                taskTitle = ""
+                replyBn = "আলহামদুলিল্লাহ বস, আমি একদম ভালো আছি এবং আপনার সেবায় প্রস্তুত! 😊\n\n" +
+                    "আপনার **GitHub ($ghStatus)** এবং **Telegram ($tgStatus)** আমার সাথে যুক্ত আছে। আপনি চাইলে এখান থেকে যেকোনো নির্দেশ দিতে পারেন, অথবা যেকোনো অধ্যায় বা ক্লাসের ভেতরে ঢুকে **'✈️ এই ভিডিও টেলিগ্রামে পাঠান'** বাটনে ক্লিক করে আপনার যেকোনো চ্যানেল, গ্রুপ বা নির্দিষ্ট টপিকে সরাসরি ভিডিও ও লেকচার স্লাইড পাঠাতে পারেন!"
             }
         }
 
@@ -611,7 +625,8 @@ class AiAgentViewModel(
                         repository.buildBundledLessonsJson(
                             programId = progId,
                             phaseId = phaseId,
-                            subjectCode = plan.subjectCode
+                            subjectCode = plan.subjectCode,
+                            chapterId = plan.chapterId
                         )
                     }
 
@@ -631,6 +646,8 @@ class AiAgentViewModel(
                         phaseId = phaseId,
                         subjectCode = plan.subjectCode,
                         subjectTitle = plan.subjectTitle,
+                        chapterId = plan.chapterId,
+                        chapterTitle = plan.chapterTitle,
                         videoQuality = plan.videoQuality,
                         includeVideos = plan.includeVideos,
                         includeSlides = plan.includeSlides,
@@ -638,6 +655,8 @@ class AiAgentViewModel(
                         useForumTopics = plan.useForumTopics,
                         targetChannelTitle = plan.targetChannelTitle.ifBlank { progTitle },
                         targetChatId = plan.targetChatId.ifBlank { _uiState.value.telegramConfig.defaultChatId },
+                        targetTopicId = plan.targetTopicId,
+                        targetTopicTitle = plan.targetTopicTitle,
                         totalItems = lessonCount.coerceAtLeast(plan.estimatedVideos),
                         completedItems = 0,
                         statusMessage = "GitHub Actions ক্লাউড ওয়ার্কারে পাঠানো হচ্ছে..."

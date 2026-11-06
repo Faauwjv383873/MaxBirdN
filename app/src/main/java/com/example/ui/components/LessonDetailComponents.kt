@@ -174,6 +174,7 @@ fun LessonDocumentsSection(
     onViewAttachment: (LessonAttachmentItem) -> Unit,
     onOpenChapterResources: (() -> Unit)? = null,
     onOpenSubjectResources: (() -> Unit)? = null,
+    onSendSlideToTelegram: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isRefreshingSlide by remember { mutableStateOf(false) }
@@ -350,6 +351,19 @@ fun LessonDocumentsSection(
                                             )
                                         }
                                     }
+                                }
+                            }
+
+                            if (onSendSlideToTelegram != null) {
+                                IconButton(
+                                    onClick = { onSendSlideToTelegram.invoke() }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = "স্লাইড টেলিগ্রামে পাঠান",
+                                        tint = Color(0xFF0088CC),
+                                        modifier = Modifier.size(19.dp)
+                                    )
                                 }
                             }
 
