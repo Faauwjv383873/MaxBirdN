@@ -448,10 +448,16 @@ class SupabaseBridge:
             log(f"notify_task_completion warning: {exc}")
 
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import shutil
+import urllib.parse
+
+
 class ShikhoClient:
     """
-    Mirrors `ShikhoApiService.kt` and `CourseRepository.kt` exactly so that every
-    recorded/live class `playback_url` and `study_materials` PDF is resolved 100% accurately.
+    Mirrors `ShikhoApiService.kt` and `CourseRepository.kt` 100% accurately so that every
+    recorded/live class `playback_url`, Animated Lesson `playback_url`, and `study_materials` PDF
+    is resolved without GraphQL validation errors.
     """
 
     def __init__(self, access_token: str):
@@ -475,35 +481,49 @@ class ShikhoClient:
         all_items: List[Dict[str, Any]] = []
         seen_ids = set()
 
-        # 1. Primary query matching CourseRepository.fetchAllLessonsForProgram
-        if phase_id:
-            q_phase = """
-            query GetUpcomingLessonsPhaseWise($program_id: String!, $phase_id: String!) {
-              studentSpecificLessons(program_id: $program_id, phase_id: $phase_id, content_type: "ALL", filter: "ALL") {
-                data {
-                  id
-                  title
-                  content_id
-                  content_type
-                  subject_code
-                  subject_id
-                  subject_name
-                  chapter_id
-                  chapter_name
-                  start_time
-                  end_time
-                  live_class {
-                    id
-                    title
-                    playback_url
-                    teacher {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-            }
+        def add_rows(rows: Any) -> None:
+            if not isinstance(rows, list):
+                return
+            for item in rows:
+                if isinstance(item, dict):
+                    iid = str(item.get("id") or item.get("content_id") or "").strip()
+                    if iid and iid not in seen_ids:
+                        seen_ids.add(iid)
+                        all_items.append(item)
+
+        lesson_fields = """
+          id
+          title
+          content_id
+          content_type
+          access_level
+          start_time
+          end_time
+          subject_id
+          subject_name
+          batch_id
+          chapter_id
+          icon
+          color_code
+          user_activity_state
+          live_class {
+            id
+            playback_url
+            start_time
+            end_time
+          }
+        """
+
+        # 1. Phase-wise query (exact schema from CourseRepository.kt)
+        if phase_id and program_id:
+            q_phase = f"""
+            query GetUpcomingLessonsPhaseWise($program_id: String!, $phase_id: String!) {{
+              studentSpecificLessons(program_id: $program_id, phase_id: $phase_id) {{
+                data {{
+                  {lesson_fields}
+                }}
+              }}
+            }}
             """
             try:
                 r = self.session.post(
@@ -516,44 +536,50 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    rows = (((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")) or []
-                    for item in rows:
-                        if isinstance(item, dict):
-                            iid = str(item.get("id") or "")
-                            if iid and iid not in seen_ids:
-                                seen_ids.add(iid)
-                                all_items.append(item)
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
             except Exception as exc:
                 log(f"GetUpcomingLessonsPhaseWise note: {exc}")
 
-        if not all_items:
-            q_all = """
-            query GetUpcomingLessons($program_id: String!) {
-              studentSpecificLessons(program_id: $program_id, content_type: "ALL", filter: "ALL") {
-                data {
-                  id
-                  title
-                  content_id
-                  content_type
-                  subject_code
-                  subject_id
-                  subject_name
-                  chapter_id
-                  chapter_name
-                  start_time
-                  end_time
-                  live_class {
-                    id
-                    title
-                    playback_url
-                    teacher {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-            }
+            # 1b. Wide date-window phase query to include all past recorded classes
+            q_phase_date = f"""
+            query GetStudentLessonsPhaseDate($program_id: String!, $phase_id: String!, $start_date: String, $end_date: String) {{
+              studentSpecificLessons(program_id: $program_id, phase_id: $phase_id, start_date: $start_date, end_date: $end_date) {{
+                data {{
+                  {lesson_fields}
+                }}
+              }}
+            }}
+            """
+            try:
+                r = self.session.post(
+                    SHIKHO_GRAPHQL_URL,
+                    json={
+                        "operationName": "GetStudentLessonsPhaseDate",
+                        "query": q_phase_date,
+                        "variables": {
+                            "program_id": program_id,
+                            "phase_id": phase_id,
+                            "start_date": "2020-01-01",
+                            "end_date": "2030-12-31",
+                        },
+                    },
+                    timeout=35,
+                )
+                if r.ok:
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
+            except Exception as exc:
+                log(f"GetStudentLessonsPhaseDate note: {exc}")
+
+        # 2. Program-wide query without phase_id
+        if program_id:
+            q_all = f"""
+            query GetUpcomingLessons($program_id: String!) {{
+              studentSpecificLessons(program_id: $program_id) {{
+                data {{
+                  {lesson_fields}
+                }}
+              }}
+            }}
             """
             try:
                 r = self.session.post(
@@ -566,23 +592,55 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    rows = (((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")) or []
-                    for item in rows:
-                        if isinstance(item, dict):
-                            iid = str(item.get("id") or "")
-                            if iid and iid not in seen_ids:
-                                seen_ids.add(iid)
-                                all_items.append(item)
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
             except Exception as exc:
                 log(f"GetUpcomingLessons note: {exc}")
 
+            q_date = f"""
+            query GetStudentLessonsDateOnly($program_id: String!, $start_date: String, $end_date: String) {{
+              studentSpecificLessons(program_id: $program_id, start_date: $start_date, end_date: $end_date) {{
+                data {{
+                  {lesson_fields}
+                }}
+              }}
+            }}
+            """
+            try:
+                r = self.session.post(
+                    SHIKHO_GRAPHQL_URL,
+                    json={
+                        "operationName": "GetStudentLessonsDateOnly",
+                        "query": q_date,
+                        "variables": {
+                            "program_id": program_id,
+                            "start_date": "2020-01-01",
+                            "end_date": "2030-12-31",
+                        },
+                    },
+                    timeout=35,
+                )
+                if r.ok:
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
+            except Exception as exc:
+                log(f"GetStudentLessonsDateOnly note: {exc}")
+
+        # 3. Filter by non-exam, subject, and chapter
         filtered: List[Dict[str, Any]] = []
         subj_q = subject_code.strip().lower()
         chap_q = chapter_id.strip().lower()
+        now_ms = int(time.time() * 1000)
+
         for item in all_items:
             ctype = str(item.get("content_type") or "").lower()
             if "exam" in ctype or "modeltest" in ctype or "quiz" in ctype or item.get("model_test"):
                 continue
+            # Skip strictly future upcoming classes that haven't started yet unless they already have a playback_url
+            live_obj = item.get("live_class") if isinstance(item.get("live_class"), dict) else {}
+            has_pb = bool(str(live_obj.get("playback_url") or item.get("video_url") or "").strip())
+            start_raw = str(item.get("start_time") or live_obj.get("start_time") or "").strip()
+            if start_raw.isdigit() and int(start_raw) > now_ms + 3600_000 and not has_pb:
+                continue
+
             if subj_q:
                 s_code = str(item.get("subject_code") or "").lower()
                 s_id = str(item.get("subject_id") or "").lower()
@@ -595,12 +653,72 @@ class ShikhoClient:
                 if chap_q != c_id and chap_q not in c_name:
                     continue
             filtered.append(item)
+
+        # 4. If a chapter_id was requested and no live classes matched, also check Animated Lessons (GetTopics)
+        if chap_q and not filtered:
+            filtered.extend(self.fetch_animated_topics_for_chapter(chapter_id))
+
         return filtered
+
+    def fetch_animated_topics_for_chapter(self, chapter_id: str) -> List[Dict[str, Any]]:
+        if not chapter_id:
+            return []
+        q_topics = """
+        query GetTopics($chapter_id: ID!) {
+          topics(chapter_id: $chapter_id) {
+            id
+            name
+            no
+            description
+            videos {
+              data {
+                id
+                playback_url
+              }
+            }
+          }
+        }
+        """
+        out: List[Dict[str, Any]] = []
+        try:
+            r = self.session.post(
+                SHIKHO_GRAPHQL_URL,
+                json={
+                    "operationName": "GetTopics",
+                    "query": q_topics,
+                    "variables": {"chapter_id": chapter_id},
+                },
+                timeout=25,
+            )
+            if r.ok:
+                topics = (r.json().get("data") or {}).get("topics") or []
+                for idx, t in enumerate(topics, start=1):
+                    if not isinstance(t, dict):
+                        continue
+                    v_list = ((t.get("videos") or {}).get("data")) or []
+                    pb = ""
+                    for v in v_list:
+                        if isinstance(v, dict) and str(v.get("playback_url") or "").strip():
+                            pb = str(v.get("playback_url")).strip()
+                            break
+                    if pb:
+                        out.append(
+                            {
+                                "id": str(t.get("id") or f"topic_{idx}"),
+                                "title": str(t.get("name") or f"অ্যানিমেটেড লেসন {idx}"),
+                                "content_type": "AnimatedLesson",
+                                "chapter_id": chapter_id,
+                                "video_url": pb,
+                            }
+                        )
+        except Exception as exc:
+            log(f"fetch_animated_topics_for_chapter note: {exc}")
+        return out
 
     def resolve_stream_and_slide(self, lesson: Dict[str, Any]) -> Tuple[str, List[Dict[str, str]], str]:
         """
         Resolves the HLS/MP4 `playback_url`, `study_materials` PDFs, and `teacher` name for a lesson.
-        Uses the exact `GetAcademicLiveClassDetails($id: String!)` schema from `CourseRepository.kt`.
+        Mirrors the exact 4-stage fallback from `CourseRepository.getLiveClassDetails` in Android.
         """
         live_obj = lesson.get("live_class") if isinstance(lesson.get("live_class"), dict) else {}
         video_url = (
@@ -637,95 +755,148 @@ class ShikhoClient:
         if not teacher_name and isinstance(live_obj.get("teacher"), dict):
             teacher_name = str(live_obj["teacher"].get("name") or "").strip()
 
-        # Candidate IDs in exact priority order from CourseViewModel.selectLesson
         candidate_ids: List[str] = []
-        for raw_cid in (
+        raw_candidates = list(lesson.get("candidate_ids") or []) + [
             lesson.get("content_id"),
+            lesson.get("live_class_id"),
             live_obj.get("id"),
             lesson.get("id"),
             lesson.get("session_id"),
-        ):
+        ]
+        for raw_cid in raw_candidates:
             cid = str(raw_cid or "").strip()
             if cid and cid != "null" and cid not in candidate_ids:
                 candidate_ids.append(cid)
 
-        detail_query = """
-        query GetAcademicLiveClassDetails($id: String!) {
-          academicProgramLiveClass(id: $id) {
-            id
-            title
-            playback_url
-            start_time
-            end_time
-            on_going
-            study_materials {
-              id
-              name
-              file_url
+        q_stage1 = (
+            "GetAcademicLiveClassDetails",
+            """
+            query GetAcademicLiveClassDetails($id: String!) {
+              academicProgramLiveClass(id: $id) {
+                id
+                title
+                playback_url
+                start_time
+                end_time
+                on_going
+                study_materials {
+                  file_url
+                  id
+                  name
+                }
+                subject {
+                  code
+                  display_bn
+                }
+                chapter {
+                  id
+                  name
+                  no
+                }
+                teacher {
+                  id
+                  name
+                }
+              }
             }
-            subject {
-              code
-              display_bn
+            """,
+        )
+        q_stage2 = (
+            "GetAcademicLiveClassMinimal",
+            """
+            query GetAcademicLiveClassMinimal($id: String!) {
+              academicProgramLiveClass(id: $id) {
+                id
+                title
+                playback_url
+                start_time
+                end_time
+                study_materials {
+                  file_url
+                  id
+                  name
+                }
+              }
             }
-            chapter {
-              id
-              name
-              no
+            """,
+        )
+        q_stage3 = (
+            "GetAcademicLiveClassUltraMinimal",
+            """
+            query GetAcademicLiveClassUltraMinimal($id: String!) {
+              academicProgramLiveClass(id: $id) {
+                id
+                title
+                playback_url
+              }
             }
-            teacher {
-              id
-              name
+            """,
+        )
+        q_stage4 = (
+            "GetAcademicLiveClassByIdType",
+            """
+            query GetAcademicLiveClassByIdType($id: ID!) {
+              academicProgramLiveClass(id: $id) {
+                id
+                title
+                playback_url
+                study_materials {
+                  file_url
+                  id
+                  name
+                }
+              }
             }
-          }
-        }
-        """
+            """,
+        )
 
-        if candidate_ids and (not video_url or len(slides) == 0 or not teacher_name):
+        if candidate_ids and (not video_url or len(slides) == 0):
             for cid in candidate_ids:
-                try:
-                    payload = {
-                        "operationName": "GetAcademicLiveClassDetails",
-                        "query": detail_query,
-                        "variables": {"id": cid},
-                    }
-                    r = self.session.post(SHIKHO_GRAPHQL_URL, json=payload, timeout=25)
-                    if not r.ok:
-                        continue
-                    res = r.json()
-                    if res.get("errors"):
-                        log(f"GraphQL note for id={cid}: {res.get('errors')}")
-                    detail = (res.get("data") or {}).get("academicProgramLiveClass")
-                    if isinstance(detail, dict):
-                        pb = str(detail.get("playback_url") or "").strip()
-                        if pb and pb != "null" and not video_url:
-                            video_url = pb
+                for op_name, query_str in (q_stage1, q_stage2, q_stage3, q_stage4):
+                    try:
+                        payload = {
+                            "operationName": op_name,
+                            "query": query_str,
+                            "variables": {"id": cid},
+                        }
+                        r = self.session.post(SHIKHO_GRAPHQL_URL, json=payload, timeout=22)
+                        if not r.ok:
+                            continue
+                        res = r.json()
+                        detail = (res.get("data") or {}).get("academicProgramLiveClass")
+                        if isinstance(detail, dict):
+                            pb = str(detail.get("playback_url") or "").strip()
+                            if pb and pb != "null" and not video_url:
+                                video_url = pb
 
-                        t_obj = detail.get("teacher")
-                        if isinstance(t_obj, dict) and t_obj.get("name") and not teacher_name:
-                            teacher_name = str(t_obj.get("name") or "").strip()
+                            t_obj = detail.get("teacher")
+                            if isinstance(t_obj, dict) and t_obj.get("name") and not teacher_name:
+                                teacher_name = str(t_obj.get("name") or "").strip()
 
-                        subj_obj = detail.get("subject")
-                        if isinstance(subj_obj, dict) and subj_obj.get("display_bn") and not lesson.get("subject_name"):
-                            lesson["subject_name"] = str(subj_obj.get("display_bn") or "").strip()
+                            subj_obj = detail.get("subject")
+                            if isinstance(subj_obj, dict) and subj_obj.get("display_bn") and not lesson.get("subject_name"):
+                                lesson["subject_name"] = str(subj_obj.get("display_bn") or "").strip()
 
-                        chap_obj = detail.get("chapter")
-                        if isinstance(chap_obj, dict) and chap_obj.get("name") and not lesson.get("chapter_name"):
-                            lesson["chapter_name"] = str(chap_obj.get("name") or "").strip()
+                            chap_obj = detail.get("chapter")
+                            if isinstance(chap_obj, dict) and chap_obj.get("name") and not lesson.get("chapter_name"):
+                                lesson["chapter_name"] = str(chap_obj.get("name") or "").strip()
 
-                        for mat in detail.get("study_materials") or []:
-                            if isinstance(mat, dict):
-                                u = str(mat.get("file_url") or mat.get("url") or "").strip()
-                                if u and u != "null" and all(s["url"] != u for s in slides):
-                                    slides.append(
-                                        {
-                                            "title": str(mat.get("name") or f"{lesson.get('title', 'লেকচার')} - স্লাইড"),
-                                            "url": u,
-                                        }
-                                    )
-                        if video_url or slides:
-                            break
-                except Exception as exc:
-                    log(f"GetAcademicLiveClassDetails query note for {cid}: {exc}")
+                            for mat in detail.get("study_materials") or []:
+                                if isinstance(mat, dict):
+                                    u = str(mat.get("file_url") or mat.get("url") or "").strip()
+                                    if u and u != "null" and all(s["url"] != u for s in slides):
+                                        slides.append(
+                                            {
+                                                "title": str(mat.get("name") or f"{lesson.get('title', 'লেকচার')} - স্লাইড"),
+                                                "url": u,
+                                            }
+                                        )
+                            if video_url or slides:
+                                break
+                    except Exception as exc:
+                        log(f"{op_name} note for {cid}: {exc}")
+                if video_url or slides:
+                    break
 
         return video_url, slides, (teacher_name or "শিক্ষক")
 
@@ -762,10 +933,271 @@ def resolve_candidate_video_urls(base_url: str, quality: str = "720p") -> List[s
     return urls
 
 
+def _resolve_relative_url(base_url: str, relative_path: str) -> str:
+    rel = relative_path.strip()
+    if rel.startswith("http://") or rel.startswith("https://"):
+        return rel
+    return urllib.parse.urljoin(base_url, rel)
+
+
+def _fetch_text_with_shikho_headers(url: str, timeout: int = 25) -> str:
+    headers = {
+        "User-Agent": SHIKHO_CDN_USER_AGENT,
+        "Referer": SHIKHO_REFERER,
+        "Origin": SHIKHO_ORIGIN,
+        "Accept": "*/*",
+    }
+    r = requests.get(url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.text
+
+
+def _download_binary_with_retries(url: str, dest: Path, retries: int = 3) -> bool:
+    headers = {
+        "User-Agent": SHIKHO_CDN_USER_AGENT,
+        "Referer": SHIKHO_REFERER,
+        "Origin": SHIKHO_ORIGIN,
+        "Accept": "*/*",
+    }
+    for attempt in range(retries):
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=40) as r:
+                r.raise_for_status()
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+            if dest.exists() and dest.stat().st_size > 0:
+                return True
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(0.6 * (attempt + 1))
+    return False
+
+
+def _download_media_playlist_segments(playlist_url: str, playlist_text: str, seg_dir: Path, prefix: str) -> Optional[Path]:
+    """
+    Downloads all segments + #EXT-X-MAP + #EXT-X-KEY from a media .m3u8 playlist in parallel
+    (20 threads) and writes a local .m3u8 file pointing to the downloaded local files.
+    Exact port of `AppFileDownloadManager.kt` so Shikho CDN streams never fail.
+    """
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    lines = playlist_text.splitlines()
+    download_jobs: List[Tuple[str, Path]] = []
+    rewritten_lines: List[str] = []
+    seg_index = 0
+    uri_attr_regex = re.compile(r'URI="([^"]+)"')
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            if line.startswith("#EXT-X-KEY") or line.startswith("#EXT-X-MAP"):
+                m = uri_attr_regex.search(line)
+                if m and m.group(1):
+                    orig_uri = m.group(1)
+                    abs_uri = _resolve_relative_url(playlist_url, orig_uri)
+                    ext = "key" if line.startswith("#EXT-X-KEY") else "mp4"
+                    local_name = f"{prefix}_init_{seg_index}.{ext}"
+                    seg_index += 1
+                    local_file = seg_dir / local_name
+                    download_jobs.append((abs_uri, local_file))
+                    rewritten_lines.append(line.replace(f'URI="{orig_uri}"', f'URI="{local_file.name}"'))
+                else:
+                    rewritten_lines.append(line)
+            else:
+                rewritten_lines.append(line)
+        else:
+            abs_seg_url = _resolve_relative_url(playlist_url, line)
+            clean_path = abs_seg_url.split("?")[0].lower()
+            ext = "m4s" if clean_path.endswith(".m4s") else ("aac" if clean_path.endswith(".aac") else "ts")
+            local_name = f"{prefix}_seg_{seg_index:05d}.{ext}"
+            seg_index += 1
+            local_file = seg_dir / local_name
+            download_jobs.append((abs_seg_url, local_file))
+            rewritten_lines.append(local_file.name)
+
+    if not download_jobs:
+        return None
+
+    log(f"⬇️ [Native HLS] Downloading {len(download_jobs)} '{prefix}' segments with 20 parallel workers...")
+    failed_count = 0
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_download_binary_with_retries, url, dst): (url, dst) for url, dst in download_jobs}
+        for fut in as_completed(futures):
+            ok = False
+            try:
+                ok = fut.result()
+            except Exception:
+                ok = False
+            if not ok:
+                failed_count += 1
+
+    if failed_count > max(3, len(download_jobs) // 10):
+        log(f"⚠️ Too many failed segments ({failed_count}/{len(download_jobs)}) for {prefix}")
+        return None
+
+    local_m3u8 = seg_dir / f"{prefix}_local.m3u8"
+    local_m3u8.write_text("\n".join(rewritten_lines) + "\n", encoding="utf-8")
+    return local_m3u8
+
+
+def download_shikho_hls_native(video_url: str, output_path: Path, quality: str = "720p") -> bool:
+    """
+    Mirrors `AppFileDownloadManager.kt`'s exact HLS & MP4 download engine:
+    - Handles direct .mp4 files
+    - Handles master .m3u8 playlists with separate #EXT-X-MEDIA:TYPE=AUDIO tracks
+    - Downloads segments concurrently with Shikho headers and remuxes into a faststart .mp4 via ffmpeg.
+    """
+    clean_url = video_url.strip()
+    if not clean_url:
+        return False
+
+    # Direct MP4 download if not HLS
+    if ".m3u8" not in clean_url.lower():
+        log(f"⬇️ [Direct MP4] Downloading {clean_url[:90]}...")
+        return _download_binary_with_retries(clean_url, output_path, retries=3) and output_path.stat().st_size > 20_000
+
+    temp_dir = WORK_DIR / f"hls_tmp_{int(time.time() * 1000)}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        master_text = _fetch_text_with_shikho_headers(clean_url)
+        video_playlist_url = clean_url
+        audio_playlist_url = ""
+
+        target_height = 720
+        if "1080" in quality:
+            target_height = 1080
+        elif "480" in quality:
+            target_height = 480
+        elif "360" in quality:
+            target_height = 360
+
+        if "#EXT-X-STREAM-INF" in master_text:
+            lines = [l.strip() for l in master_text.splitlines() if l.strip()]
+            audio_groups: Dict[str, str] = {}
+            first_audio_uri = ""
+            uri_re = re.compile(r'URI="([^"]+)"')
+            grp_re = re.compile(r'GROUP-ID="([^"]+)"')
+            res_re = re.compile(r"RESOLUTION=(\d+)x(\d+)")
+
+            for line in lines:
+                if line.startswith("#EXT-X-MEDIA") and "TYPE=AUDIO" in line:
+                    u_m = uri_re.search(line)
+                    g_m = grp_re.search(line)
+                    if u_m:
+                        resolved_a = _resolve_relative_url(clean_url, u_m.group(1))
+                        if not first_audio_uri:
+                            first_audio_uri = resolved_a
+                        if g_m:
+                            audio_groups[g_m.group(1)] = resolved_a
+
+            variants: List[Tuple[int, str, str]] = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if line.startswith("#EXT-X-STREAM-INF"):
+                    r_m = res_re.search(line)
+                    h = int(r_m.group(2)) if r_m else 720
+                    a_grp_m = re.search(r'AUDIO="([^"]+)"', line)
+                    a_grp = a_grp_m.group(1) if a_grp_m else ""
+                    j = i + 1
+                    while j < len(lines) and lines[j].startswith("#"):
+                        j += 1
+                    if j < len(lines):
+                        v_uri = _resolve_relative_url(clean_url, lines[j])
+                        variants.append((h, v_uri, a_grp))
+                    i = j
+                i += 1
+
+            if variants:
+                # Pick variant closest to target_height
+                variants.sort(key=lambda item: abs(item[0] - target_height))
+                chosen_h, video_playlist_url, chosen_agrp = variants[0]
+                audio_playlist_url = audio_groups.get(chosen_agrp) or first_audio_uri
+                log(f"🎯 Selected HLS variant {chosen_h}p (separate audio: {'YES' if audio_playlist_url else 'NO'})")
+
+        video_m3u8_text = (
+            master_text if video_playlist_url == clean_url else _fetch_text_with_shikho_headers(video_playlist_url)
+        )
+        local_video_m3u8 = _download_media_playlist_segments(video_playlist_url, video_m3u8_text, temp_dir, "vid")
+        if not local_video_m3u8:
+            return False
+
+        local_audio_m3u8: Optional[Path] = None
+        if audio_playlist_url:
+            try:
+                audio_m3u8_text = _fetch_text_with_shikho_headers(audio_playlist_url)
+                local_audio_m3u8 = _download_media_playlist_segments(
+                    audio_playlist_url, audio_m3u8_text, temp_dir, "aud"
+                )
+            except Exception as a_exc:
+                log(f"Audio playlist download note: {a_exc}")
+
+        if output_path.exists():
+            output_path.unlink()
+
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-allowed_extensions",
+            "ALL",
+            "-protocol_whitelist",
+            "file,http,https,tcp,tls,crypto,data",
+            "-i",
+            str(local_video_m3u8),
+        ]
+        if local_audio_m3u8 and local_audio_m3u8.exists():
+            ffmpeg_cmd.extend(
+                [
+                    "-allowed_extensions",
+                    "ALL",
+                    "-protocol_whitelist",
+                    "file,http,https,tcp,tls,crypto,data",
+                    "-i",
+                    str(local_audio_m3u8),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "1:a:0",
+                ]
+            )
+        ffmpeg_cmd.extend(
+            [
+                "-c",
+                "copy",
+                "-bsf:a",
+                "aac_adtstoasc",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+        res = subprocess.run(ffmpeg_cmd, cwd=str(temp_dir), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if res.returncode == 0 and output_path.exists() and output_path.stat().st_size > 20_000:
+            size_mb = output_path.stat().st_size / (1024 * 1024)
+            log(f"✅ Video downloaded & remuxed via Native Shikho HLS Engine ({size_mb:.2f} MB)")
+            return True
+        else:
+            log(f"ℹ️ Native HLS ffmpeg mux note: {(res.stdout or '')[-350:].strip()}")
+            return False
+    except Exception as exc:
+        log(f"ℹ️ Native HLS engine note: {exc}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def download_video_file(video_url: str, output_path: Path, quality: str = "720p") -> bool:
     if output_path.exists():
         output_path.unlink()
 
+    # 1. Primary: Native Shikho HLS / MP4 Downloader (exact port of AppFileDownloadManager.kt)
+    if download_shikho_hls_native(video_url, output_path, quality):
+        return True
+
+    # 2. Secondary: yt-dlp with Shikho headers
     height = "720"
     if "1080" in quality:
         height = "1080"
@@ -787,7 +1219,7 @@ def download_video_file(video_url: str, output_path: Path, quality: str = "720p"
             "--no-playlist",
             "--no-check-certificates",
             "--concurrent-fragments",
-            "8",
+            "10",
             "--user-agent",
             SHIKHO_CDN_USER_AGENT,
             "--add-header",
@@ -804,14 +1236,15 @@ def download_video_file(video_url: str, output_path: Path, quality: str = "720p"
         ]
         log(f"⬇️ [yt-dlp] Downloading video ({quality}): {candidate[:95]}...")
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if res.returncode == 0 and output_path.exists() and output_path.stat().st_size > 10_000:
+        if res.returncode == 0 and output_path.exists() and output_path.stat().st_size > 20_000:
             size_mb = output_path.stat().st_size / (1024 * 1024)
             log(f"✅ Video downloaded via yt-dlp ({size_mb:.2f} MB)")
             return True
         else:
-            tail = (res.stdout or "")[-400:].strip()
+            tail = (res.stdout or "")[-350:].strip()
             log(f"ℹ️ yt-dlp attempt note: {tail}")
 
+        # 3. Fallback: direct ffmpeg HLS/MP4 remux with Shikho CDN headers
         if output_path.exists():
             output_path.unlink()
         ffmpeg_headers = f"Referer: {SHIKHO_REFERER}\r\nOrigin: {SHIKHO_ORIGIN}\r\n"
@@ -834,18 +1267,22 @@ def download_video_file(video_url: str, output_path: Path, quality: str = "720p"
         ]
         log(f"⬇️ [ffmpeg] Downloading HLS/MP4 stream: {candidate[:95]}...")
         res2 = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if res2.returncode == 0 and output_path.exists() and output_path.stat().st_size > 10_000:
+        if res2.returncode == 0 and output_path.exists() and output_path.stat().st_size > 20_000:
             size_mb = output_path.stat().st_size / (1024 * 1024)
             log(f"✅ Video downloaded via ffmpeg ({size_mb:.2f} MB)")
             return True
         else:
-            tail2 = (res2.stdout or "")[-400:].strip()
+            tail2 = (res2.stdout or "")[-350:].strip()
             log(f"⚠️ ffmpeg attempt note: {tail2}")
 
     return False
 
 
 def get_video_metadata(video_path: Path) -> Tuple[int, int, int]:
+    """
+    Extracts (duration_sec, width, height) using ffprobe so Telegram renders the video
+    as a proper streamable player with accurate duration & aspect ratio.
+    """
     try:
         cmd = [
             "ffprobe",
@@ -899,6 +1336,11 @@ async def fetch_and_sync_telegram_dialogs(
     client: TelegramClient,
     gh_bridge: GitHubAuthBridge,
 ) -> List[Dict[str, Any]]:
+    """
+    Fetches all Telegram Channels and Groups (including Forum Topics inside Supergroups)
+    from the user's connected Telegram account and saves them to `scripts/agent_auth_state.json`
+    so the Android app can display a real Channel / Group / Topic picker sheet!
+    """
     dialogs_data: List[Dict[str, Any]] = []
     try:
         dialogs = await client.get_dialogs(limit=120)
@@ -916,6 +1358,7 @@ async def fetch_and_sync_telegram_dialogs(
             creator = bool(getattr(entity, "creator", False))
             admin_rights = getattr(entity, "admin_rights", None)
 
+            # For broadcast channels, only include channels where the user is creator or has post_messages admin rights
             if is_broadcast and not creator:
                 if not admin_rights or not getattr(admin_rights, "post_messages", False):
                     continue
@@ -1301,6 +1744,12 @@ async def ensure_telegram_destination(
     task: Dict[str, Any],
     supabase: SupabaseBridge,
 ) -> Tuple[Any, str]:
+    """
+    Ensures the target Telegram Channel or Supergroup exists.
+    If the user selected an existing Channel/Group (`target_chat_id` is non-empty and `create_new_channel` is False),
+    resolves that exact entity (warming up dialogs cache first if needed).
+    Otherwise creates a new Channel or Supergroup on the user's Telegram account.
+    """
     existing_chat_id = str(task.get("target_chat_id") or "").strip()
     create_new = bool(task.get("create_new_channel", False))
     existing_invite = str(task.get("telegram_invite_link") or "").strip()
@@ -1319,6 +1768,7 @@ async def ensure_telegram_destination(
             try:
                 entity = await client.get_entity(entity_key)
             except Exception:
+                # Warm up Telethon entity cache by fetching dialogs
                 await client.get_dialogs(limit=120)
                 entity = await client.get_entity(entity_key)
             if not existing_invite:
@@ -1330,6 +1780,7 @@ async def ensure_telegram_destination(
             log(f"Existing chat_id {existing_chat_id} lookup note: {exc}. Falling back to channel creation...")
 
     if existing_chat_id and create_new:
+        # Check if task already created its channel in an earlier run
         try:
             entity_key = int(existing_chat_id) if existing_chat_id.lstrip("-").isdigit() else existing_chat_id
             entity = await client.get_entity(entity_key)
@@ -1482,6 +1933,7 @@ async def execute_task_async(
         me = await tg_client.get_me()
         log(f"🤖 Connected to Personal Telegram Account: {getattr(me, 'first_name', 'User')} (@{getattr(me, 'username', '')})")
 
+        # Keep user's Channels, Groups & Forum Topics synced for the in-app picker
         await fetch_and_sync_telegram_dialogs(tg_client, gh_bridge)
 
         target_entity, invite_link = await ensure_telegram_destination(tg_client, task, supabase)
@@ -1517,6 +1969,21 @@ async def execute_task_async(
                 extra = {}
 
         bundled_lessons = extra.get("lessons") if isinstance(extra, dict) else None
+
+        # Also check `scripts/active_task_payload.json` written by the Android app prior to dispatch
+        if not (isinstance(bundled_lessons, list) and len(bundled_lessons) > 0):
+            active_payload_file = Path(__file__).resolve().parent / "active_task_payload.json"
+            if active_payload_file.exists():
+                try:
+                    file_data = json.loads(active_payload_file.read_text(encoding="utf-8"))
+                    if isinstance(file_data, dict):
+                        file_lessons = file_data.get("lessons") or (file_data.get("extra_payload_json") or {}).get("lessons")
+                        if isinstance(file_lessons, list) and len(file_lessons) > 0:
+                            bundled_lessons = file_lessons
+                            log(f"📂 Loaded {len(bundled_lessons)} pre-resolved lessons from scripts/active_task_payload.json")
+                except Exception as exc:
+                    log(f"active_task_payload.json read note: {exc}")
+
         shikho_client = ShikhoClient(shikho_token)
 
         if isinstance(bundled_lessons, list) and len(bundled_lessons) > 0:
@@ -1593,6 +2060,7 @@ async def execute_task_async(
 
             # 1. Upload Video if enabled
             if include_videos and video_url:
+                # For single-lesson or chapter manual sends (total_lessons <= 25), always upload even if previously sent
                 already_done = (
                     total_lessons > 25
                     and supabase.is_item_already_uploaded(program_id, lesson_id, "VIDEO", dedup_scope)
@@ -1813,6 +2281,7 @@ async def main_async() -> None:
                 merged[k] = unseal_secret(str(v)) if isinstance(v, str) else v
         agent_cfg = merged
 
+    # 0. Check if this run is an interactive in-app Telegram OTP / StringSession or Dialogs sync request
     auth_action = str(payload.get("auth_action") or "").strip().upper()
     if auth_action in ("TELEGRAM_SEND_CODE", "TELEGRAM_SIGN_IN", "TELEGRAM_FETCH_DIALOGS"):
         auth_payload = payload.get("auth_payload") if isinstance(payload.get("auth_payload"), dict) else {}
@@ -1827,6 +2296,7 @@ async def main_async() -> None:
 
     input_task_id = os.environ.get("INPUT_TASK_ID", "ALL_PENDING").strip()
 
+    # 1. If a direct task was passed in workflow_dispatch payload, run it immediately
     if payload.get("task") and isinstance(payload["task"], dict):
         await execute_task_async(
             task=payload["task"],
@@ -1837,6 +2307,7 @@ async def main_async() -> None:
         )
         return
 
+    # 2. Otherwise check Supabase pending/resuming tasks
     pending_tasks = supabase.fetch_pending_tasks(input_task_id)
     for task in pending_tasks:
         task_device_hash = str(task.get("created_by_device_hash") or device_hash).strip()
@@ -1849,6 +2320,7 @@ async def main_async() -> None:
             payload_b64="",
         )
 
+    # 3. If triggered by hourly schedule cron, also check enabled recurring schedules
     if os.environ.get("TRIGGER_EVENT") == "schedule":
         schedules = supabase.fetch_enabled_schedules()
         for sched in schedules:

@@ -13,6 +13,9 @@ import com.example.security.DeviceActivationRepository
 import com.example.security.DeviceSecurityManager
 import com.example.security.applyAntiCaptureSecurity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -1321,6 +1324,25 @@ class AiAgentRepository(
             // Always ensure the latest worker script & workflow are pushed before dispatching
             runCatching { deployAgentWorkflowToGitHub(gh) }
 
+            // Write full lessons payload to `scripts/active_task_payload.json` in the repo so even 200+ lessons
+            // never exceed GitHub's workflow_dispatch input size limit (HTTP 422) and never get stripped!
+            if (bundledLessonsJson != null && bundledLessonsJson.length() > 0) {
+                runCatching {
+                    val activePayloadFileJson = JSONObject().apply {
+                        put("task_id", task.id)
+                        put("updated_at", System.currentTimeMillis())
+                        put("lessons", bundledLessonsJson)
+                    }
+                    putFileToGitHubRepo(
+                        gh = gh,
+                        path = "scripts/active_task_payload.json",
+                        content = activePayloadFileJson.toString(2),
+                        commitMessage = "chore(ai-agent): stage active task lessons payload (${bundledLessonsJson.length()} items)",
+                        branch = gh.branch.ifBlank { "main" }
+                    )
+                }
+            }
+
             val payloadJson = JSONObject().apply {
                 put("supabase_url", supabaseUrl)
                 put("supabase_anon_key", supabaseKey)
@@ -1376,7 +1398,9 @@ class AiAgentRepository(
                 Base64.NO_WRAP
             )
 
-            val safePayloadB64 = if (payloadB64.length < 58000) {
+            // Keep workflow_dispatch input under 10KB so GitHub API never rejects with HTTP 422;
+            // the full `lessons` array is already committed in `scripts/active_task_payload.json` above!
+            val safePayloadB64 = if (payloadB64.length < 10000) {
                 payloadB64
             } else {
                 payloadJson.getJSONObject("task").remove("extra_payload_json")
@@ -1528,18 +1552,13 @@ class AiAgentRepository(
         var totalVideos = 0
         var totalSlides = 0
         val breakdown = bySubject.map { (subjPair, subjLessons) ->
-            // In Shikho's studentSpecificLessons, content_type is "LiveClass" or "RecordedClass" (non-exam)
-            val classLessons = subjLessons.filter { !it.isExam && !it.isModelTest && !it.isLiveExam }
-            val vCount = classLessons.size.coerceAtLeast(
-                subjLessons.count {
-                    it.isLiveClass ||
-                        it.content_type?.contains("Class", ignoreCase = true) == true ||
-                        it.content_type?.contains("Video", ignoreCase = true) == true ||
-                        it.candidateStreamUrls.isNotEmpty()
-                }
-            )
-            // Study materials (PDF slides & class notes) are attached per class in academicProgramLiveClass(id)
-            val directSlides = subjLessons.sumOf { lesson ->
+            // Exclude exams and strictly future upcoming classes that don't have recordings yet
+            val classLessons = subjLessons.filter {
+                !it.isExam && !it.isModelTest && !it.isLiveExam &&
+                    (!it.isUpcoming || it.candidateStreamUrls.isNotEmpty() || !it.resolvedSlideUrl.isNullOrBlank())
+            }
+            val vCount = classLessons.size
+            val directSlides = classLessons.sumOf { lesson ->
                 val hasPrimary = if (!lesson.resolvedSlideUrl.isNullOrBlank()) 1 else 0
                 val extra = lesson.allAttachments.count { !it.downloadUrl.isNullOrBlank() }
                 maxOf(hasPrimary, extra)
@@ -1550,7 +1569,7 @@ class AiAgentRepository(
             SubjectInspectionItem(
                 subjectCode = subjPair.first,
                 subjectTitle = subjPair.second,
-                lessonsCount = subjLessons.size,
+                lessonsCount = classLessons.size,
                 videosCount = vCount,
                 slidesCount = sCount
             )
@@ -1561,7 +1580,7 @@ class AiAgentRepository(
             programTitle = programTitle.ifBlank { sessionManager.getActiveProgramTitleBn() ?: "সক্রিয় কোর্স" },
             phaseId = cleanPhaseId,
             subjectsCount = breakdown.size,
-            totalLessonsCount = lessons.size,
+            totalLessonsCount = totalVideos,
             videoLessonsCount = totalVideos,
             slideAttachmentsCount = totalSlides,
             subjectBreakdown = breakdown
@@ -1570,109 +1589,142 @@ class AiAgentRepository(
 
     /**
      * Builds a serialized JSONArray of lessons (with pre-resolved `playback_url` and `study_materials` PDFs!)
-     * from an explicit list of `StudentLessonItem`s (used when sending a single class or a specific chapter).
+     * from an explicit list of `StudentLessonItem`s (used when sending a single class, a chapter, or a full course).
+     * Uses a 10-worker coroutine Semaphore so even 100 lessons resolve their live-class URLs in ~2 seconds!
      */
     suspend fun buildBundledLessonsFromItems(
         items: List<StudentLessonItem>
     ): Pair<Int, JSONArray> = withContext(Dispatchers.IO) {
-        val arr = JSONArray()
-        val classItems = items.filter { !it.isExam && !it.isModelTest && !it.isLiveExam }
-        val shouldPreResolve = classItems.size <= 35
+        val nonExamItems = items.filter { !it.isExam && !it.isModelTest && !it.isLiveExam }
+        val recordedOrActiveItems = nonExamItems.filter {
+            !it.isUpcoming || it.candidateStreamUrls.isNotEmpty() || !it.resolvedSlideUrl.isNullOrBlank()
+        }.ifEmpty { nonExamItems }
 
-        for (lesson in classItems) {
-            var streamUrl = lesson.candidateStreamUrls.firstOrNull().orEmpty()
-            var teacherName = lesson.live_class?.teacher?.name ?: ""
-            val slidesArr = JSONArray()
+        val shouldPreResolve = recordedOrActiveItems.size <= 140
+        val semaphore = Semaphore(10)
 
-            val initialSlide = lesson.resolvedSlideUrl.orEmpty()
-            if (initialSlide.isNotBlank() && initialSlide != "null") {
-                slidesArr.put(
-                    JSONObject().apply {
-                        put("title", "${lesson.title ?: "লেকচার"} - স্লাইড")
-                        put("url", initialSlide)
+        val resolvedObjects = coroutineScope {
+            recordedOrActiveItems.map { lesson ->
+                async {
+                    var streamUrl = lesson.candidateStreamUrls.firstOrNull().orEmpty()
+                    var teacherName = lesson.live_class?.teacher?.name ?: ""
+                    val slidesArr = JSONArray()
+
+                    val initialSlide = lesson.resolvedSlideUrl.orEmpty()
+                    if (initialSlide.isNotBlank() && initialSlide != "null") {
+                        slidesArr.put(
+                            JSONObject().apply {
+                                put("title", "${lesson.title ?: "লেকচার"} - স্লাইড")
+                                put("url", initialSlide)
+                            }
+                        )
                     }
-                )
-            }
-            lesson.allAttachments.forEach { att ->
-                val u = att.downloadUrl.orEmpty().trim()
-                if (u.isNotBlank() && u != "null" && u != initialSlide) {
-                    slidesArr.put(
-                        JSONObject().apply {
-                            put("title", att.displayTitle.ifBlank { "লেকচার স্লাইড" })
-                            put("url", u)
+                    lesson.allAttachments.forEach { att ->
+                        val u = att.downloadUrl.orEmpty().trim()
+                        if (u.isNotBlank() && u != "null" && u != initialSlide) {
+                            slidesArr.put(
+                                JSONObject().apply {
+                                    put("title", att.displayTitle.ifBlank { "লেকচার স্লাইড" })
+                                    put("url", u)
+                                }
+                            )
                         }
-                    )
-                }
-            }
+                    }
 
-            val candidateIds = listOfNotNull(
-                lesson.content_id?.takeIf { it.isNotBlank() },
-                lesson.live_class?.id?.takeIf { it.isNotBlank() },
-                lesson.id.takeIf { it.isNotBlank() },
-                lesson.session_id?.takeIf { it.isNotBlank() }
-            ).distinct()
+                    val candidateIds = listOfNotNull(
+                        lesson.content_id?.takeIf { it.isNotBlank() },
+                        lesson.live_class?.id?.takeIf { it.isNotBlank() },
+                        lesson.id.takeIf { it.isNotBlank() },
+                        lesson.session_id?.takeIf { it.isNotBlank() }
+                    ).distinct()
 
-            if (shouldPreResolve && (streamUrl.isBlank() || slidesArr.length() == 0)) {
-                for (cid in candidateIds) {
-                    try {
-                        val detail = courseRepository.getLiveClassDetails(cid)
-                        if (detail != null) {
-                            if (streamUrl.isBlank() && !detail.playback_url.isNullOrBlank()) {
-                                streamUrl = detail.playback_url
-                            }
-                            if (teacherName.isBlank() && !detail.teacher?.name.isNullOrBlank()) {
-                                teacherName = detail.teacher?.name.orEmpty()
-                            }
-                            detail.study_materials?.forEach { mat ->
-                                val fUrl = mat.file_url?.trim().orEmpty()
-                                if (fUrl.isNotBlank() && fUrl != "null") {
-                                    var exists = false
-                                    for (k in 0 until slidesArr.length()) {
-                                        if (slidesArr.optJSONObject(k)?.optString("url") == fUrl) {
-                                            exists = true
-                                            break
+                    if (shouldPreResolve && (streamUrl.isBlank() || slidesArr.length() == 0)) {
+                        semaphore.acquire()
+                        try {
+                            for (cid in candidateIds) {
+                                try {
+                                    val detail = courseRepository.getLiveClassDetails(cid)
+                                    if (detail != null) {
+                                        if (streamUrl.isBlank() && !detail.playback_url.isNullOrBlank()) {
+                                            streamUrl = detail.playback_url
                                         }
-                                    }
-                                    if (!exists) {
-                                        slidesArr.put(
-                                            JSONObject().apply {
-                                                put("title", mat.name?.takeIf { it.isNotBlank() } ?: "${lesson.title ?: "লেকচার"} - স্লাইড")
-                                                put("url", fUrl)
+                                        if (teacherName.isBlank() && !detail.teacher?.name.isNullOrBlank()) {
+                                            teacherName = detail.teacher?.name.orEmpty()
+                                        }
+                                        detail.study_materials?.forEach { mat ->
+                                            val fUrl = mat.file_url?.trim().orEmpty()
+                                            if (fUrl.isNotBlank() && fUrl != "null") {
+                                                var exists = false
+                                                for (k in 0 until slidesArr.length()) {
+                                                    if (slidesArr.optJSONObject(k)?.optString("url") == fUrl) {
+                                                        exists = true
+                                                        break
+                                                    }
+                                                }
+                                                if (!exists) {
+                                                    slidesArr.put(
+                                                        JSONObject().apply {
+                                                            put(
+                                                                "title",
+                                                                mat.name?.takeIf { it.isNotBlank() }
+                                                                    ?: "${lesson.title ?: "লেকচার"} - স্লাইড"
+                                                            )
+                                                            put("url", fUrl)
+                                                        }
+                                                    )
+                                                }
                                             }
-                                        )
+                                        }
+                                        if (streamUrl.isNotBlank() || slidesArr.length() > 0) break
                                     }
+                                } catch (_: Exception) {
                                 }
                             }
-                            if (streamUrl.isNotBlank() || slidesArr.length() > 0) break
+                        } finally {
+                            semaphore.release()
                         }
-                    } catch (_: Exception) {
+                    }
+
+                    val primaryContentId = candidateIds.firstOrNull() ?: lesson.id
+                    val primarySlideUrl = if (slidesArr.length() > 0) {
+                        slidesArr.optJSONObject(0)?.optString("url", "").orEmpty()
+                    } else ""
+
+                    val candJsonArr = JSONArray().apply {
+                        candidateIds.forEach { put(it) }
+                    }
+
+                    JSONObject().apply {
+                        put("id", lesson.id)
+                        put("content_id", primaryContentId)
+                        put("live_class_id", lesson.live_class?.id ?: "")
+                        put("session_id", lesson.session_id ?: "")
+                        put("candidate_ids", candJsonArr)
+                        put("title", lesson.title ?: "লেকচার")
+                        put("content_type", lesson.content_type ?: "LiveClass")
+                        put("subject_code", lesson.subject_code ?: lesson.subject_id ?: "")
+                        put("subject_name", lesson.subject_name ?: "")
+                        put("chapter_id", lesson.chapter_id ?: "")
+                        put("chapter_name", lesson.chapter_name ?: "")
+                        put("teacher_name", teacherName)
+                        if (streamUrl.isNotBlank()) put("video_url", streamUrl)
+                        if (primarySlideUrl.isNotBlank()) put("slide_url", primarySlideUrl)
+                        if (slidesArr.length() > 0) put("slides", slidesArr)
                     }
                 }
-            }
-
-            val primaryContentId = candidateIds.firstOrNull() ?: lesson.id
-            val primarySlideUrl = if (slidesArr.length() > 0) {
-                slidesArr.optJSONObject(0)?.optString("url", "").orEmpty()
-            } else ""
-
-            arr.put(
-                JSONObject().apply {
-                    put("id", lesson.id)
-                    put("content_id", primaryContentId)
-                    put("title", lesson.title ?: "লেকচার")
-                    put("content_type", lesson.content_type ?: "LiveClass")
-                    put("subject_code", lesson.subject_code ?: lesson.subject_id ?: "")
-                    put("subject_name", lesson.subject_name ?: "")
-                    put("chapter_id", lesson.chapter_id ?: "")
-                    put("chapter_name", lesson.chapter_name ?: "")
-                    put("teacher_name", teacherName)
-                    if (streamUrl.isNotBlank()) put("video_url", streamUrl)
-                    if (primarySlideUrl.isNotBlank()) put("slide_url", primarySlideUrl)
-                    if (slidesArr.length() > 0) put("slides", slidesArr)
-                }
-            )
+            }.map { it.await() }
         }
-        Pair(classItems.size, arr)
+
+        val arr = JSONArray()
+        // Prefer items that actually resolved a video or slide first; if none did yet, include all so worker can retry
+        val withMedia = resolvedObjects.filter {
+            it.optString("video_url").isNotBlank() ||
+                it.optString("slide_url").isNotBlank() ||
+                (it.optJSONArray("slides")?.length() ?: 0) > 0
+        }
+        val finalObjects = withMedia.ifEmpty { resolvedObjects }
+        finalObjects.forEach { arr.put(it) }
+        Pair(finalObjects.size, arr)
     }
 
     /**
@@ -1703,7 +1755,34 @@ class AiAgentRepository(
             isClassLesson && matchesSubject && matchesChapter
         }
 
-        buildBundledLessonsFromItems(filtered)
+        val (count, bundledArr) = buildBundledLessonsFromItems(filtered)
+        if (count > 0) {
+            return@withContext Pair(count, bundledArr)
+        }
+
+        // Fallback: if a chapterId was requested and had 0 live classes, check Animated Lessons (GetTopics)!
+        if (chapterId.isNotBlank()) {
+            try {
+                val topics = courseRepository.getTopics(chapterId = chapterId)
+                val animatedItems = topics.mapIndexedNotNull { idx, topic ->
+                    val pbUrl = topic.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
+                        ?: return@mapIndexedNotNull null
+                    StudentLessonItem(
+                        id = topic.id ?: "anim_${chapterId}_$idx",
+                        title = topic.name ?: "অ্যানিমেটেড লেসন ${idx + 1}",
+                        content_type = "AnimatedLesson",
+                        chapter_id = chapterId,
+                        video_url = pbUrl
+                    )
+                }
+                if (animatedItems.isNotEmpty()) {
+                    return@withContext buildBundledLessonsFromItems(animatedItems)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        Pair(count, bundledArr)
     }
 
     // =========================================================================

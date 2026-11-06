@@ -715,6 +715,39 @@ private fun AiAgentChatTab(
 
                             // Interactive Plan Execution Card inside AI response
                             msg.proposedPlan?.let { plan ->
+                                val dialogs = uiState.telegramConfig.dialogs
+                                var selectedDialog by remember(plan, dialogs) {
+                                    mutableStateOf(dialogs.firstOrNull { it.id == plan.targetChatId })
+                                }
+                                var selectedTopic by remember(selectedDialog) {
+                                    mutableStateOf<TelegramForumTopic?>(null)
+                                }
+                                var createNewMode by remember(plan) {
+                                    mutableStateOf(plan.targetChatId.isBlank() || plan.createNewChannel)
+                                }
+                                var showDialogSelector by remember { mutableStateOf(false) }
+
+                                val curDialog = selectedDialog
+                                val curTopic = selectedTopic
+
+                                val effectivePlan = remember(plan, curDialog, curTopic, createNewMode) {
+                                    if (!createNewMode && curDialog != null) {
+                                        plan.copy(
+                                            createNewChannel = false,
+                                            targetChatId = curDialog.id,
+                                            targetChannelTitle = curDialog.title,
+                                            targetTopicId = curTopic?.id ?: 0,
+                                            targetTopicTitle = curTopic?.title ?: ""
+                                        )
+                                    } else {
+                                        plan.copy(
+                                            createNewChannel = true,
+                                            targetTopicId = 0,
+                                            targetTopicTitle = ""
+                                        )
+                                    }
+                                }
+
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -741,18 +774,135 @@ private fun AiAgentChatTab(
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(6.dp))
+                                        val destDisplay = if (!createNewMode && curDialog != null) {
+                                            buildString {
+                                                append(curDialog.title)
+                                                if (curTopic != null) {
+                                                    append(" ➔ টপিক: ${curTopic.title}")
+                                                }
+                                            }
+                                        } else {
+                                            "${plan.targetChannelTitle} (নতুন চ্যানেল)"
+                                        }
                                         Text(
                                             text = "• টাস্ক: ${plan.taskTitle}\n" +
-                                                "• চ্যানেল/গ্রুপ: ${plan.targetChannelTitle}\n" +
+                                                "• গন্তব্য চ্যানেল/গ্রুপ: $destDisplay\n" +
                                                 "• কন্টেন্ট: ${if (plan.includeVideos) "ভিডিও (${plan.videoQuality})" else ""} ${if (plan.includeSlides) "+ লেকচার স্লাইড (PDF)" else ""}\n" +
                                                 "• আনুমানিক আইটেম: ${plan.estimatedVideos}টি ভিডিও ও ${plan.estimatedSlides}টি স্লাইড",
                                             fontSize = 12.sp,
                                             color = secondaryText,
                                             lineHeight = 18.sp
                                         )
+
+                                        if (dialogs.isNotEmpty() && plan.actionType != "CREATE_TELEGRAM_CHANNEL") {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            OutlinedButton(
+                                                onClick = { showDialogSelector = !showDialogSelector },
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Campaign,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF38BDF8),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (showDialogSelector) {
+                                                        "চ্যানেল / গ্রুপ তালিকা লুকান"
+                                                    } else {
+                                                        "চ্যানেল / গ্রুপ / টপিক পরিবর্তন করুন (${dialogs.size}টি)"
+                                                    },
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF38BDF8)
+                                                )
+                                            }
+
+                                            AnimatedVisibility(visible = showDialogSelector) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(top = 8.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        FilterChip(
+                                                            selected = !createNewMode,
+                                                            onClick = {
+                                                                createNewMode = false
+                                                                if (selectedDialog == null) {
+                                                                    selectedDialog = dialogs.firstOrNull()
+                                                                }
+                                                            },
+                                                            label = { Text("আমার চ্যানেল/গ্রুপ", fontSize = 11.sp) }
+                                                        )
+                                                        FilterChip(
+                                                            selected = createNewMode,
+                                                            onClick = { createNewMode = true },
+                                                            label = { Text("নতুন চ্যানেল খুলুন", fontSize = 11.sp) }
+                                                        )
+                                                    }
+
+                                                    if (!createNewMode) {
+                                                        dialogs.take(12).forEach { dlg ->
+                                                            val isSel = selectedDialog?.id == dlg.id
+                                                            Surface(
+                                                                shape = RoundedCornerShape(10.dp),
+                                                                color = if (isSel) Color(0xFF0EA5E9).copy(alpha = 0.18f) else Color.Transparent,
+                                                                border = BorderStroke(
+                                                                    1.dp,
+                                                                    if (isSel) Color(0xFF38BDF8) else secondaryText.copy(alpha = 0.25f)
+                                                                ),
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .clickable {
+                                                                        selectedDialog = dlg
+                                                                        selectedTopic = dlg.topics.firstOrNull()
+                                                                    }
+                                                            ) {
+                                                                Column(modifier = Modifier.padding(8.dp)) {
+                                                                    Text(
+                                                                        text = "${if (dlg.isChannel) "📢" else "👥"} ${dlg.title}",
+                                                                        fontSize = 12.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = primaryText
+                                                                    )
+                                                                    if (isSel && dlg.topics.isNotEmpty()) {
+                                                                        Spacer(modifier = Modifier.height(6.dp))
+                                                                        Row(
+                                                                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                                        ) {
+                                                                            FilterChip(
+                                                                                selected = selectedTopic == null,
+                                                                                onClick = { selectedTopic = null },
+                                                                                label = { Text("মূল গ্রুপ", fontSize = 10.5.sp) }
+                                                                            )
+                                                                            dlg.topics.forEach { top ->
+                                                                                FilterChip(
+                                                                                    selected = selectedTopic?.id == top.id,
+                                                                                    onClick = { selectedTopic = top },
+                                                                                    label = { Text("# ${top.title}", fontSize = 10.5.sp) }
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         Spacer(modifier = Modifier.height(10.dp))
                                         Button(
-                                            onClick = { onExecutePlan(plan) },
+                                            onClick = { onExecutePlan(effectivePlan) },
                                             enabled = !uiState.isDispatchingTask,
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                                             shape = RoundedCornerShape(10.dp),

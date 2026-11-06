@@ -62,6 +62,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.LocalPictureInPictureMode
 import com.example.R
+import com.example.api.StudentLessonItem
 import com.example.api.TopicFullItem
 import com.example.database.DownloadedItemEntity
 import com.example.download.AppFileDownloadManager
@@ -70,7 +71,9 @@ import com.example.player.EqualizerManager
 import com.example.player.PlayerClassType
 import com.example.player.ShikhoPlayerManager
 import com.example.player.VideoProgressManager
+import com.example.security.DeviceActivationRepository
 import com.example.ui.components.EqualizerBottomSheet
+import com.example.ui.components.TelegramSendBottomSheet
 import com.example.ui.components.VideoDownloadQualityDialog
 import com.example.utils.PipHelper
 import com.example.utils.SetupPipController
@@ -130,6 +133,17 @@ fun AnimatedLessonPlayerScreen(
     var activeVideoUrl by remember(videoUrl) { mutableStateOf(videoUrl) }
     var activeTitle by remember(title) { mutableStateOf(title) }
     var watchedUrls by remember { mutableStateOf(StudentGamificationManager.getWatchedAnimatedUrls(context)) }
+
+    var canUseTelegramAgent by remember {
+        mutableStateOf(DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
+    var telegramSendSheetLessons by remember { mutableStateOf<List<StudentLessonItem>?>(null) }
+    var telegramSendSheetTitle by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val allowed = DeviceActivationRepository.checkProfileViewPermission(context, forceRefresh = false)
+        canUseTelegramAgent = allowed
+    }
 
     // Build normalized playlist entries
     val playlistEntries = remember(playlist, activeVideoUrl, activeTitle) {
@@ -1223,6 +1237,33 @@ fun AnimatedLessonPlayerScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                         }
 
+                        // Send to Telegram Quick Button in Player Top Bar
+                        if (canUseTelegramAgent && activeVideoUrl.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    telegramSendSheetTitle = activeTitle.ifBlank { "অ্যানিমেটেড লেসন" }
+                                    telegramSendSheetLessons = listOf(
+                                        StudentLessonItem(
+                                            id = "anim_${activeVideoUrl.hashCode()}",
+                                            title = activeTitle.ifBlank { "অ্যানিমেটেড লেসন" },
+                                            content_type = "AnimatedLesson",
+                                            subject_name = subjectName,
+                                            chapter_name = chapterName,
+                                            video_url = activeVideoUrl
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = "টেলিগ্রামে পাঠান",
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
                         // Picture-in-Picture Button
                         IconButton(
                             onClick = {
@@ -2210,6 +2251,76 @@ fun AnimatedLessonPlayerScreen(
                                 )
                             }
                         }
+
+                        if (canUseTelegramAgent && activeVideoUrl.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        telegramSendSheetTitle = activeTitle.ifBlank { "অ্যানিমেটেড লেসন" }
+                                        telegramSendSheetLessons = listOf(
+                                            StudentLessonItem(
+                                                id = "anim_${activeVideoUrl.hashCode()}",
+                                                title = activeTitle.ifBlank { "অ্যানিমেটেড লেসন" },
+                                                content_type = "AnimatedLesson",
+                                                subject_name = subjectName,
+                                                chapter_name = chapterName,
+                                                video_url = activeVideoUrl
+                                            )
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "এই ভিডিও টেলিগ্রামে পাঠান",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                if (playlistEntries.size > 1) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            telegramSendSheetTitle = "${chapterName.ifBlank { "অধ্যায়" }} — সব অ্যানিমেটেড ভিডিও"
+                                            telegramSendSheetLessons = playlistEntries.map { entry ->
+                                                StudentLessonItem(
+                                                    id = entry.id,
+                                                    title = entry.title,
+                                                    content_type = "AnimatedLesson",
+                                                    subject_name = subjectName,
+                                                    chapter_name = chapterName,
+                                                    video_url = entry.videoUrl
+                                                )
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "সব পাঠান (${toBengaliDigits(playlistEntries.size)})",
+                                            color = Color(0xFF38BDF8),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2511,6 +2622,26 @@ fun AnimatedLessonPlayerScreen(
     if (showEqualizerBottomSheet) {
         EqualizerBottomSheet(
             onDismiss = { showEqualizerBottomSheet = false }
+        )
+    }
+
+    // ==================== TELEGRAM SEND BOTTOM SHEET ====================
+    telegramSendSheetLessons?.let { targetLessons ->
+        TelegramSendBottomSheet(
+            title = telegramSendSheetTitle,
+            subtitle = listOf(subjectName, chapterName).filter { it.isNotBlank() }.joinToString(" • ")
+                .ifBlank { "অ্যানিমেটেড লেসন (${targetLessons.size}টি)" },
+            lessonsToSend = targetLessons,
+            programId = "",
+            programTitle = subjectName,
+            phaseId = "",
+            subjectCode = "",
+            subjectTitle = subjectName,
+            chapterId = "",
+            chapterTitle = chapterName,
+            initialIncludeVideos = true,
+            initialIncludeSlides = false,
+            onDismiss = { telegramSendSheetLessons = null }
         )
     }
 }

@@ -28,9 +28,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.api.StudentLessonItem
 import com.example.api.TopicFullItem
 import com.example.course.CourseViewModel
 import com.example.gamification.StudentGamificationManager
+import com.example.security.DeviceActivationRepository
+import com.example.ui.components.TelegramSendBottomSheet
 import com.example.utils.toBengaliDigits
 import kotlinx.coroutines.launch
 
@@ -52,6 +55,17 @@ fun AnimatedLessonListScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var topicsList by remember { mutableStateOf<List<TopicFullItem>>(emptyList()) }
     val watchedUrls = remember(topicsList) { StudentGamificationManager.getWatchedAnimatedUrls(context) }
+
+    var canUseTelegramAgent by remember {
+        mutableStateOf(DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
+    var telegramSendSheetLessons by remember { mutableStateOf<List<StudentLessonItem>?>(null) }
+    var telegramSendSheetTitle by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val allowed = DeviceActivationRepository.checkProfileViewPermission(context, forceRefresh = false)
+        canUseTelegramAgent = allowed
+    }
 
     val themeColor = remember(subjectColorHex) {
         try {
@@ -288,58 +302,101 @@ fun AnimatedLessonListScreen(
                                         )
                                         .padding(16.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Row(
+                                            modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                            modifier = Modifier.weight(1f)
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(14.dp),
-                                                color = themeColor.copy(alpha = 0.25f),
-                                                border = BorderStroke(1.dp, themeColor.copy(alpha = 0.6f)),
-                                                modifier = Modifier.size(44.dp)
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.MovieFilter,
-                                                        contentDescription = null,
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(22.dp)
+                                                Surface(
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    color = themeColor.copy(alpha = 0.25f),
+                                                    border = BorderStroke(1.dp, themeColor.copy(alpha = 0.6f)),
+                                                    modifier = Modifier.size(44.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.MovieFilter,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(22.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Column {
+                                                    Text(
+                                                        text = "অ্যানিমেটেড ভিডিও প্লেলিস্ট: ${toBengaliDigits(topicsList.size)}টি",
+                                                        fontSize = 14.5.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = Color.White
+                                                    )
+                                                    Text(
+                                                        text = "একটি প্লে করলে প্লেয়ারের ভেতরেই সব ভিডিও পরপর দেখতে পারবেন!",
+                                                        fontSize = 11.5.sp,
+                                                        color = Color(0xFFCBD5E1)
                                                     )
                                                 }
                                             }
-                                            Column {
-                                                Text(
-                                                    text = "অ্যানিমেটেড ভিডিও প্লেলিস্ট: ${toBengaliDigits(topicsList.size)}টি",
-                                                    fontSize = 14.5.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = Color.White
-                                                )
-                                                Text(
-                                                    text = "একটি প্লে করলে প্লেয়ারের ভেতরেই সব ভিডিও পরপর দেখতে পারবেন!",
-                                                    fontSize = 11.5.sp,
-                                                    color = Color(0xFFCBD5E1)
-                                                )
+
+                                            if (watchedCount > 0) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color(0xFF10B981).copy(alpha = 0.2f),
+                                                    border = BorderStroke(1.dp, Color(0xFF34D399).copy(alpha = 0.5f))
+                                                ) {
+                                                    Text(
+                                                        text = "${toBengaliDigits(watchedCount)}/${toBengaliDigits(topicsList.size)} সম্পন্ন",
+                                                        color = Color(0xFF34D399),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    )
+                                                }
                                             }
                                         }
 
-                                        if (watchedCount > 0) {
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = Color(0xFF10B981).copy(alpha = 0.2f),
-                                                border = BorderStroke(1.dp, Color(0xFF34D399).copy(alpha = 0.5f))
+                                        if (canUseTelegramAgent && topicsList.isNotEmpty()) {
+                                            Button(
+                                                onClick = {
+                                                    val mapped = topicsList.mapIndexedNotNull { idx, t ->
+                                                        val pb = t.videos?.data?.firstOrNull { !it.playback_url.isNullOrBlank() }?.playback_url
+                                                            ?: return@mapIndexedNotNull null
+                                                        StudentLessonItem(
+                                                            id = t.id ?: "anim_${chapterId}_$idx",
+                                                            title = t.name ?: "অ্যানিমেটেড লেসন ${idx + 1}",
+                                                            content_type = "AnimatedLesson",
+                                                            chapter_id = chapterId,
+                                                            chapter_name = chapterName,
+                                                            video_url = pb
+                                                        )
+                                                    }
+                                                    telegramSendSheetTitle = "${chapterName.ifBlank { "অধ্যায়" }} — সব অ্যানিমেটেড ভিডিও"
+                                                    telegramSendSheetLessons = mapped
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                                                shape = RoundedCornerShape(12.dp),
+                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("send_all_animated_to_telegram_button")
                                             ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Send,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = "${toBengaliDigits(watchedCount)}/${toBengaliDigits(topicsList.size)} সম্পন্ন",
-                                                    color = Color(0xFF34D399),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    text = "এই অধ্যায়ের সব অ্যানিমেটেড ভিডিও টেলিগ্রামে পাঠান (${toBengaliDigits(topicsList.size)}টি)",
+                                                    color = Color.White,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.ExtraBold
                                                 )
                                             }
                                         }
@@ -368,13 +425,47 @@ fun AnimatedLessonListScreen(
                                         viewModel.setAnimatedPlaylist(topicsList)
                                         onPlayVideo(playbackUrl, topicTitle)
                                     }
-                                }
+                                },
+                                onSendToTelegram = if (canUseTelegramAgent && playbackUrl.isNotBlank()) {
+                                    {
+                                        telegramSendSheetTitle = topicTitle
+                                        telegramSendSheetLessons = listOf(
+                                            StudentLessonItem(
+                                                id = topic.id ?: "anim_${chapterId}_$index",
+                                                title = topicTitle,
+                                                content_type = "AnimatedLesson",
+                                                chapter_id = chapterId,
+                                                chapter_name = chapterName,
+                                                video_url = playbackUrl
+                                            )
+                                        )
+                                    }
+                                } else null
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    val courseUiState by viewModel.uiState.collectAsState()
+    telegramSendSheetLessons?.let { targetLessons ->
+        TelegramSendBottomSheet(
+            title = telegramSendSheetTitle,
+            subtitle = "$chapterName • মোট ${targetLessons.size}টি অ্যানিমেটেড ভিডিও",
+            lessonsToSend = targetLessons,
+            programId = courseUiState.programId.orEmpty(),
+            programTitle = courseUiState.programTitle.orEmpty(),
+            phaseId = courseUiState.activePhaseId.orEmpty(),
+            subjectCode = courseUiState.selectedSubjectCode,
+            subjectTitle = courseUiState.selectedSubjectTitle,
+            chapterId = chapterId,
+            chapterTitle = chapterName,
+            initialIncludeVideos = true,
+            initialIncludeSlides = false,
+            onDismiss = { telegramSendSheetLessons = null }
+        )
     }
 }
 
@@ -387,6 +478,7 @@ fun AnimatedVideoCard(
     themeColor: Color,
     isWatched: Boolean = false,
     onClick: () -> Unit,
+    onSendToTelegram: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -498,14 +590,52 @@ fun AnimatedVideoCard(
                     .fillMaxWidth()
                     .padding(14.dp)
             ) {
-                Text(
-                    text = title,
-                    fontSize = 15.5.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (onSendToTelegram != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF0EA5E9).copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, Color(0xFF0EA5E9).copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onSendToTelegram() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = "টেলিগ্রামে পাঠান",
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "টেলিগ্রামে পাঠান",
+                                    color = Color(0xFF0284C7),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
 
                 if (!description.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
