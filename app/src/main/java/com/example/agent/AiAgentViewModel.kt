@@ -624,10 +624,15 @@ class AiAgentViewModel(
         }
     }
 
-    fun requestTelegramOtpCode(apiId: String, apiHash: String, phone: String) {
+    fun requestTelegramOtpCode(
+        apiId: String,
+        apiHash: String,
+        phone: String,
+        twoFaPassword: String = ""
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingTelegramAuth = true) }
-            val result = repository.requestTelegramOtpCode(apiId, apiHash, phone)
+            val result = repository.requestTelegramOtpCode(apiId, apiHash, phone, twoFaPassword)
             _uiState.update {
                 it.copy(
                     isProcessingTelegramAuth = false,
@@ -645,14 +650,15 @@ class AiAgentViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isProcessingTelegramAuth = true) }
             val result = repository.verifyTelegramOtpAndCreateSession(otpCode, twoFaPassword)
+            val updatedTg = repository.getTelegramConfig()
             _uiState.update {
                 it.copy(
                     isProcessingTelegramAuth = false,
-                    telegramConfig = repository.getTelegramConfig(),
+                    telegramConfig = updatedTg,
                     statusBannerMessage = result.getOrElse { err -> "❌ ${err.message}" }
                 )
             }
-            if (result.isSuccess) {
+            if (result.isSuccess && !updatedTg.isConnected) {
                 startTelegramAuthPolling()
             }
         }
@@ -661,33 +667,31 @@ class AiAgentViewModel(
     private fun startTelegramAuthPolling() {
         tgAuthPollingJob?.cancel()
         tgAuthPollingJob = viewModelScope.launch {
-            repeat(60) { // Poll every 3s for up to 3 minutes while GitHub worker executes Telethon OTP flow
-                delay(3_000L)
-                val latestTg = repository.pollTelegramAuthStatusFromSupabase()
+            repeat(80) { // Poll every 2.5s for up to 3.5 minutes while GitHub worker executes Telethon OTP flow
+                delay(2_500L)
                 val prevState = _uiState.value.telegramConfig.authState
+                val latestTg = repository.pollTelegramAuthStatusFromSupabase()
                 _uiState.update { it.copy(telegramConfig = latestTg) }
 
                 if (latestTg.authState == "WAITING_FOR_OTP" && prevState != "WAITING_FOR_OTP") {
                     _uiState.update {
-                        it.copy(statusBannerMessage = "📲 আপনার টেলিগ্রামে ৫ সংখ্যার ওটিপি (OTP) কোড গেছে! নিচে কোডটি লিখে ভেরিফাই করুন।")
+                        it.copy(statusBannerMessage = "📲 আপনার টেলিগ্রামে ৫ সংখ্যার ওটিপি (OTP) কোড গেছে! নিচে কোডটি লিখে ভেরিফাই চাপুন।")
                     }
-                    return@launch
                 }
                 if (latestTg.authState == "NEED_2FA" && prevState != "NEED_2FA") {
                     _uiState.update {
                         it.copy(statusBannerMessage = "🔒 আপনার টেলিগ্রামে 2FA পাসওয়ার্ড দেওয়া আছে। পাসওয়ার্ডটি লিখে ভেরিফাই চাপুন।")
                     }
-                    return@launch
                 }
                 if (latestTg.authState == "CONNECTED" && latestTg.sessionString.isNotBlank()) {
                     _uiState.update {
                         it.copy(
-                            statusBannerMessage = "✅ অটোমেটিক STRING_SESSION তৈরি হয়ে আপনার ডিভাইসের আন্ডারে ক্লাউডে সেভ হয়েছে!"
+                            statusBannerMessage = "🎉 আপনার টেলিগ্রাম একাউন্ট (${latestTg.accountDisplayName}) সফলভাবে কানেক্ট হয়েছে ও ডিভাইসের আন্ডারে স্থায়ীভাবে সেভ হয়েছে!"
                         )
                     }
                     return@launch
                 }
-                if (latestTg.authState == "ERROR") {
+                if (latestTg.authState == "ERROR" && prevState != "ERROR") {
                     _uiState.update {
                         it.copy(statusBannerMessage = latestTg.authMessage.ifBlank { "❌ টেলিগ্রাম ওটিপি প্রক্রিয়ায় ত্রুটি ঘটেছে।" })
                     }

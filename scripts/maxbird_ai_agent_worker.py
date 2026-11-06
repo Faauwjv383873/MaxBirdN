@@ -21,6 +21,7 @@ Executes background tasks and 24/7 scheduled routines dispatched by the MaxBird 
 import asyncio
 import base64
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -53,6 +54,31 @@ def log(msg: str) -> None:
     print(f"[{now}] {msg}", flush=True)
 
 
+def seal_secret(plain: str) -> str:
+    if not plain:
+        return ""
+    if plain.startswith("ENC1:"):
+        return plain
+    key = hashlib.sha256(DEFAULT_TELEGRAM_API_HASH.encode("utf-8")).digest()
+    raw = plain.encode("utf-8")
+    xored = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+    return "ENC1:" + base64.b64encode(xored).decode("ascii")
+
+
+def unseal_secret(value: str) -> str:
+    if not value:
+        return ""
+    if not value.startswith("ENC1:"):
+        return value
+    try:
+        key = hashlib.sha256(DEFAULT_TELEGRAM_API_HASH.encode("utf-8")).digest()
+        raw = base64.b64decode(value[5:])
+        plain = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+        return plain.decode("utf-8")
+    except Exception:
+        return ""
+
+
 def decode_payload_env() -> Dict[str, Any]:
     raw_b64 = os.environ.get("INPUT_TASK_PAYLOAD_B64", "").strip()
     if not raw_b64:
@@ -63,6 +89,87 @@ def decode_payload_env() -> Dict[str, Any]:
     except Exception as exc:
         log(f"⚠️ Warning: Could not decode INPUT_TASK_PAYLOAD_B64: {exc}")
         return {}
+
+
+class GitHubAuthBridge:
+    """
+    Zero-SQL-dependency bridge using `scripts/agent_auth_state.json` via the GitHub Contents API.
+    Guarantees that Telegram OTP & StringSession generation works 100% even if Supabase has
+    missing columns or SQL hasn't been executed!
+    """
+
+    def __init__(self, token: str = "", repository: str = "", branch: str = "main"):
+        self.token = (token or os.environ.get("GITHUB_TOKEN", "")).strip()
+        self.repository = (repository or os.environ.get("GITHUB_REPOSITORY", "")).strip()
+        self.branch = (branch or "main").strip() or "main"
+        self.path = "scripts/agent_auth_state.json"
+        self.enabled = bool(self.token and self.repository and "/" in self.repository)
+        self.headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github+json",
+            "Cache-Control": "no-cache",
+        }
+
+    def read_state(self) -> Dict[str, Any]:
+        if not self.enabled:
+            return {}
+        api_url = f"https://api.github.com/repos/{self.repository}/contents/{self.path}?ref={self.branch}&_t={int(time.time() * 1000)}"
+        try:
+            r = requests.get(api_url, headers=self.headers, timeout=12)
+            if r.ok:
+                data = r.json()
+                content_b64 = data.get("content", "")
+                if content_b64:
+                    raw_json = base64.b64decode(content_b64).decode("utf-8")
+                    parsed = json.loads(raw_json)
+                    if isinstance(parsed, dict):
+                        for k in ("telegram_session_string", "telegram_partial_session", "telegram_2fa_password"):
+                            if parsed.get(k):
+                                parsed[k] = unseal_secret(str(parsed[k]))
+                        return parsed
+        except Exception as exc:
+            log(f"GitHubAuthBridge read note: {exc}")
+        return {}
+
+    def write_state(self, patch: Dict[str, Any]) -> bool:
+        if not self.enabled:
+            return False
+        api_url = f"https://api.github.com/repos/{self.repository}/contents/{self.path}"
+        existing_sha = ""
+        merged: Dict[str, Any] = {}
+        try:
+            r = requests.get(f"{api_url}?ref={self.branch}&_t={int(time.time() * 1000)}", headers=self.headers, timeout=12)
+            if r.ok:
+                data = r.json()
+                existing_sha = str(data.get("sha") or "")
+                content_b64 = data.get("content", "")
+                if content_b64:
+                    merged = json.loads(base64.b64decode(content_b64).decode("utf-8"))
+        except Exception:
+            pass
+
+        for k, v in patch.items():
+            if k in ("telegram_session_string", "telegram_partial_session", "telegram_2fa_password") and v:
+                merged[k] = seal_secret(str(v))
+            else:
+                merged[k] = v
+        merged["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        encoded = base64.b64encode(json.dumps(merged, indent=2).encode("utf-8")).decode("ascii")
+        body: Dict[str, Any] = {
+            "message": "chore(ai-agent): sync telegram session vault state",
+            "content": encoded,
+            "branch": self.branch,
+        }
+        if existing_sha:
+            body["sha"] = existing_sha
+
+        try:
+            put_r = requests.put(api_url, headers=self.headers, json=body, timeout=15)
+            return put_r.ok or put_r.status_code in (200, 201)
+        except Exception as exc:
+            log(f"GitHubAuthBridge write note: {exc}")
+            return False
 
 
 class SupabaseBridge:
@@ -81,61 +188,109 @@ class SupabaseBridge:
         if not self.enabled:
             return {}
         clean_hash = (device_hash or "").strip()
-        try:
-            if clean_hash:
-                r = requests.get(
-                    f"{self.url}/rest/v1/ai_agent_configs?or=(device_hash.eq.{clean_hash},updated_by_device_hash.eq.{clean_hash})&order=updated_at.desc&limit=1",
-                    headers=self.headers,
-                    timeout=15,
-                )
-                if r.ok and isinstance(r.json(), list) and r.json():
-                    return r.json()[0]
-
-            r_fallback = requests.get(
-                f"{self.url}/rest/v1/ai_agent_configs?order=updated_at.desc&limit=1",
-                headers=self.headers,
-                timeout=15,
+        urls_to_try = []
+        if clean_hash:
+            urls_to_try.append(
+                f"{self.url}/rest/v1/ai_agent_configs?device_hash=eq.{clean_hash}&order=updated_at.desc&limit=1"
             )
-            if r_fallback.ok and isinstance(r_fallback.json(), list) and r_fallback.json():
-                return r_fallback.json()[0]
-        except Exception as exc:
-            log(f"Supabase get_agent_config warning: {exc}")
+            urls_to_try.append(
+                f"{self.url}/rest/v1/ai_agent_configs?user_phone=eq.{clean_hash}&order=updated_at.desc&limit=1"
+            )
+        urls_to_try.append(f"{self.url}/rest/v1/ai_agent_configs?order=updated_at.desc&limit=1")
+
+        for u in urls_to_try:
+            try:
+                r = requests.get(u, headers=self.headers, timeout=12)
+                if r.ok and isinstance(r.json(), list) and r.json():
+                    row = r.json()[0]
+                    for k in ("telegram_session_string", "telegram_partial_session", "telegram_2fa_password"):
+                        if row.get(k):
+                            row[k] = unseal_secret(str(row[k]))
+                    return row
+            except Exception:
+                pass
         return {}
 
     def update_agent_config(self, device_hash: str, patch: Dict[str, Any]) -> None:
         if not self.enabled:
             return
         clean_hash = (device_hash or "GLOBAL_DEFAULT").strip() or "GLOBAL_DEFAULT"
-        patch["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        patch["updated_by_device_hash"] = clean_hash
+        # Only include columns guaranteed to exist in the user's SQL schema
+        allowed_cols = {
+            "user_phone",
+            "device_hash",
+            "github_pat",
+            "github_owner",
+            "github_repo",
+            "github_branch",
+            "github_username",
+            "github_avatar_url",
+            "telegram_api_id",
+            "telegram_api_hash",
+            "telegram_phone",
+            "telegram_session_string",
+            "telegram_bot_token",
+            "telegram_default_chat_id",
+            "telegram_account_name",
+            "telegram_auth_state",
+            "telegram_auth_message",
+            "telegram_phone_code_hash",
+            "telegram_partial_session",
+            "telegram_otp_code",
+            "telegram_2fa_password",
+            "updated_at",
+        }
+        safe_patch: Dict[str, Any] = {
+            "device_hash": clean_hash,
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        for k, v in patch.items():
+            if k == "default_telegram_chat_id":
+                safe_patch["telegram_default_chat_id"] = v
+            elif k in allowed_cols:
+                safe_patch[k] = v
+
         try:
-            # First try PATCH by device_hash or updated_by_device_hash
+            # 1. Try PATCH by device_hash
             r = requests.patch(
-                f"{self.url}/rest/v1/ai_agent_configs?or=(device_hash.eq.{clean_hash},updated_by_device_hash.eq.{clean_hash})",
+                f"{self.url}/rest/v1/ai_agent_configs?device_hash=eq.{clean_hash}",
                 headers=self.headers,
-                json=patch,
-                timeout=15,
+                json=safe_patch,
+                timeout=12,
             )
             if r.ok and isinstance(r.json(), list) and len(r.json()) > 0:
                 return
-            # Fallback: patch id=1 or insert
+
+            # 2. Try PATCH by user_phone=device_hash
             r2 = requests.patch(
-                f"{self.url}/rest/v1/ai_agent_configs?id=eq.1",
+                f"{self.url}/rest/v1/ai_agent_configs?user_phone=eq.{clean_hash}",
                 headers=self.headers,
-                json=patch,
-                timeout=15,
+                json=safe_patch,
+                timeout=12,
             )
             if r2.ok and isinstance(r2.json(), list) and len(r2.json()) > 0:
                 return
-            insert_payload = dict(patch)
+
+            # 3. Insert / Upsert with user_phone = clean_hash (satisfies NOT NULL UNIQUE on user_phone)
+            insert_payload = dict(safe_patch)
+            insert_payload["user_phone"] = clean_hash
             insert_payload["device_hash"] = clean_hash
             hdrs = dict(self.headers)
             hdrs["Prefer"] = "resolution=merge-duplicates"
-            requests.post(
-                f"{self.url}/rest/v1/ai_agent_configs",
+            r3 = requests.post(
+                f"{self.url}/rest/v1/ai_agent_configs?on_conflict=user_phone",
                 headers=hdrs,
                 json=insert_payload,
-                timeout=15,
+                timeout=12,
+            )
+            if r3.ok:
+                return
+
+            requests.post(
+                f"{self.url}/rest/v1/ai_agent_configs?on_conflict=device_hash",
+                headers=hdrs,
+                json=insert_payload,
+                timeout=12,
             )
         except Exception as exc:
             log(f"Supabase update_agent_config warning: {exc}")
@@ -547,167 +702,286 @@ def trigger_self_continuation(
         return False
 
 
+async def complete_sign_in_and_persist(
+    client: TelegramClient,
+    device_hash: str,
+    api_id: int,
+    api_hash: str,
+    phone: str,
+    otp_code: str,
+    two_fa_password: str,
+    phone_code_hash: str,
+    gh_bridge: GitHubAuthBridge,
+    supabase: SupabaseBridge,
+) -> bool:
+    """
+    Signs into Telegram using the active `client` with `otp_code` (and `two_fa_password` if 2FA is enabled).
+    If 2FA is required and `two_fa_password` is not yet provided, sets state to `NEED_2FA` and returns False
+    so the caller can keep waiting for the user to enter their 2FA password.
+    """
+    try:
+        if otp_code:
+            await client.sign_in(
+                phone=phone,
+                code=otp_code,
+                phone_code_hash=phone_code_hash,
+            )
+        elif two_fa_password:
+            await client.sign_in(password=two_fa_password)
+    except SessionPasswordNeededError:
+        if two_fa_password:
+            await client.sign_in(password=two_fa_password)
+        else:
+            saved_partial = client.session.save()
+            need_2fa_patch = {
+                "device_hash": device_hash,
+                "telegram_partial_session": saved_partial,
+                "telegram_auth_state": "NEED_2FA",
+                "telegram_auth_message": "🔒 আপনার টেলিগ্রামে Two-Step (2FA) পাসওয়ার্ড চালু আছে। 2FA পাসওয়ার্ড বক্সে পাসওয়ার্ড লিখে ভেরিফাই চাপুন।",
+            }
+            gh_bridge.write_state(need_2fa_patch)
+            supabase.update_agent_config(device_hash, need_2fa_patch)
+            log("🔒 2FA password required; waiting for 2FA password...")
+            return False
+
+    final_string_session = client.session.save()
+    me = await client.get_me()
+    first_name = getattr(me, "first_name", "") or "Telegram User"
+    username = getattr(me, "username", "") or ""
+    account_display = f"{first_name} (@{username})" if username else first_name
+
+    try:
+        await client.send_message(
+            "me",
+            f"✅ **MaxBird 24/7 Autonomous AI Agent** আপনার টেলিগ্রাম একাউন্টে ({account_display}) সফলভাবে কানেক্ট হয়েছে!\n"
+            f"এখন আপনি অ্যাপের ভেতরে যা নির্দেশ দেবেন, এজেন্ট স্বয়ংক্রিয়ভাবে তা সম্পন্ন করবে।",
+        )
+    except Exception:
+        pass
+
+    success_patch = {
+        "device_hash": device_hash,
+        "telegram_api_id": str(api_id),
+        "telegram_api_hash": api_hash,
+        "telegram_phone": phone,
+        "telegram_session_string": final_string_session,
+        "telegram_account_name": account_display,
+        "telegram_auth_state": "CONNECTED",
+        "telegram_auth_message": f"✅ টেলিগ্রাম সফলভাবে কানেক্ট হয়েছে! ({account_display})",
+        "telegram_partial_session": "",
+        "telegram_otp_code": "",
+        "telegram_2fa_password": "",
+    }
+    gh_bridge.write_state(success_patch)
+    supabase.update_agent_config(device_hash, success_patch)
+    log(f"✅ Permanent STRING_SESSION generated & saved for {account_display}!")
+    return True
+
+
 async def handle_telegram_auth_flow(
     auth_action: str,
     auth_payload: Dict[str, Any],
     agent_cfg: Dict[str, Any],
+    gh_bridge: GitHubAuthBridge,
     supabase: SupabaseBridge,
 ) -> None:
     """
     Handles automatic in-app Telegram StringSession generation:
-    - TELEGRAM_SEND_CODE: Sends OTP to user's Telegram phone and saves partial StringSession + phone_code_hash to Supabase.
-    - TELEGRAM_SIGN_IN: Completes sign_in with OTP (and optional 2FA password), generates final StringSession, and saves it to Supabase under device_hash.
+    - TELEGRAM_SEND_CODE: Connects to Telegram, sends OTP, AND stays connected live for up to 4 minutes
+      polling GitHubAuthBridge & Supabase every 2.5s for the OTP code so sign_in happens on the
+      EXACT same live TCP connection (preventing PhoneCodeExpiredError!).
+    - TELEGRAM_SIGN_IN: Fallback sign-in if the live worker had already exited.
     """
+    gh_state = gh_bridge.read_state()
     device_hash = (
         str(auth_payload.get("device_hash") or "")
         or str(agent_cfg.get("device_hash") or "")
-        or str(agent_cfg.get("updated_by_device_hash") or "GLOBAL_DEFAULT")
+        or str(gh_state.get("device_hash") or "GLOBAL_DEFAULT")
     ).strip()
 
     api_id_raw = (
         str(auth_payload.get("telegram_api_id") or "")
         or str(agent_cfg.get("telegram_api_id") or "")
+        or str(gh_state.get("telegram_api_id") or "")
         or DEFAULT_TELEGRAM_API_ID
     ).strip()
     api_hash = (
         str(auth_payload.get("telegram_api_hash") or "")
         or str(agent_cfg.get("telegram_api_hash") or "")
+        or str(gh_state.get("telegram_api_hash") or "")
         or DEFAULT_TELEGRAM_API_HASH
     ).strip()
     phone = (
         str(auth_payload.get("telegram_phone") or "")
         or str(agent_cfg.get("telegram_phone") or "")
+        or str(gh_state.get("telegram_phone") or "")
+    ).strip()
+    initial_two_fa = (
+        str(auth_payload.get("telegram_2fa_password") or "")
+        or str(agent_cfg.get("telegram_2fa_password") or "")
+        or str(gh_state.get("telegram_2fa_password") or "")
     ).strip()
 
     if not api_id_raw.isdigit() or not api_hash or not phone:
-        msg = "❌ টেলিগ্রাম API_ID, API_HASH বা ফোন নাম্বার সঠিক নয়।"
+        msg = "❌ টেলিগ্রাম ফোন নাম্বার সঠিক নয়। কান্ট্রি কোডসহ নাম্বার দিন (যেমন: +88017XXXXXXXX)।"
         log(msg)
-        supabase.update_agent_config(
-            device_hash,
-            {"telegram_auth_state": "ERROR", "telegram_auth_message": msg},
-        )
+        err_patch = {"device_hash": device_hash, "telegram_auth_state": "ERROR", "telegram_auth_message": msg}
+        gh_bridge.write_state(err_patch)
+        supabase.update_agent_config(device_hash, err_patch)
         return
 
     api_id = int(api_id_raw)
 
     if auth_action == "TELEGRAM_SEND_CODE":
-        log(f"📲 Sending Telegram login code to {phone} (API_ID={api_id})...")
+        log(f"📲 Connecting & sending Telegram login code to {phone} (API_ID={api_id})...")
         client = TelegramClient(StringSession(), api_id, api_hash)
         try:
             await client.connect()
             sent = await client.send_code_request(phone)
             partial_session = client.session.save()
-            supabase.update_agent_config(
-                device_hash,
-                {
-                    "telegram_api_id": str(api_id),
-                    "telegram_api_hash": api_hash,
-                    "telegram_phone": phone,
-                    "telegram_phone_code_hash": sent.phone_code_hash,
-                    "telegram_partial_session": partial_session,
-                    "telegram_auth_state": "WAITING_FOR_OTP",
-                    "telegram_auth_message": "✅ আপনার টেলিগ্রাম অ্যাপে ৫ সংখ্যার ওটিপি (OTP) কোড পাঠানো হয়েছে! নিচে কোডটি লিখে ভেরিফাই চাপুন।",
-                },
-            )
-            log("✅ OTP sent and partial session saved to Supabase.")
+            waiting_patch = {
+                "device_hash": device_hash,
+                "telegram_api_id": str(api_id),
+                "telegram_api_hash": api_hash,
+                "telegram_phone": phone,
+                "telegram_phone_code_hash": sent.phone_code_hash,
+                "telegram_partial_session": partial_session,
+                "telegram_otp_code": "",
+                "telegram_auth_state": "WAITING_FOR_OTP",
+                "telegram_auth_message": "✅ আপনার টেলিগ্রাম অ্যাপে ৫ সংখ্যার OTP কোড গেছে! নিচে কোডটি লিখে 'ওটিপি ভেরিফাই ও কানেক্ট করুন' চাপুন।",
+            }
+            gh_bridge.write_state(waiting_patch)
+            supabase.update_agent_config(device_hash, waiting_patch)
+            log("✅ OTP sent! Staying connected live on the same socket for up to 240s waiting for user OTP...")
+
+            # Stay connected on the SAME live socket so Telegram never expires the code!
+            deadline = time.time() + 240
+            signed_in_otp = False
+            while time.time() < deadline:
+                await asyncio.sleep(2.5)
+                latest_gh = gh_bridge.read_state()
+                latest_supa = supabase.get_agent_config(device_hash)
+
+                otp_code = (
+                    str(latest_gh.get("telegram_otp_code") or "").strip()
+                    or str(latest_supa.get("telegram_otp_code") or "").strip()
+                )
+                two_fa = (
+                    str(latest_gh.get("telegram_2fa_password") or "").strip()
+                    or str(latest_supa.get("telegram_2fa_password") or "").strip()
+                    or initial_two_fa
+                )
+
+                if otp_code and not signed_in_otp:
+                    log(f"🔐 Received OTP code live ({len(otp_code)} chars)! Signing in on live connection...")
+                    done = await complete_sign_in_and_persist(
+                        client=client,
+                        device_hash=device_hash,
+                        api_id=api_id,
+                        api_hash=api_hash,
+                        phone=phone,
+                        otp_code=otp_code,
+                        two_fa_password=two_fa,
+                        phone_code_hash=sent.phone_code_hash,
+                        gh_bridge=gh_bridge,
+                        supabase=supabase,
+                    )
+                    if done:
+                        return
+                    # If not done, it means 2FA password is needed! Keep waiting on this socket for 2FA password
+                    signed_in_otp = True
+
+                elif signed_in_otp and two_fa:
+                    log("🔐 Received 2FA password live! Completing 2FA sign-in...")
+                    done = await complete_sign_in_and_persist(
+                        client=client,
+                        device_hash=device_hash,
+                        api_id=api_id,
+                        api_hash=api_hash,
+                        phone=phone,
+                        otp_code="",
+                        two_fa_password=two_fa,
+                        phone_code_hash=sent.phone_code_hash,
+                        gh_bridge=gh_bridge,
+                        supabase=supabase,
+                    )
+                    if done:
+                        return
+
         except Exception as exc:
-            err_msg = f"❌ ওটিপি পাঠাতে সমস্যা হয়েছে: {exc}"
+            err_msg = f"❌ টেলিগ্রাম ভেরিফিকেশন ত্রুটি: {exc}"
             log(err_msg)
-            supabase.update_agent_config(
-                device_hash,
-                {
-                    "telegram_auth_state": "ERROR",
-                    "telegram_auth_message": err_msg,
-                },
-            )
+            err_patch = {
+                "device_hash": device_hash,
+                "telegram_auth_state": "ERROR",
+                "telegram_auth_message": err_msg,
+            }
+            gh_bridge.write_state(err_patch)
+            supabase.update_agent_config(device_hash, err_patch)
         finally:
             await client.disconnect()
 
     elif auth_action == "TELEGRAM_SIGN_IN":
         otp_code = (
             str(auth_payload.get("telegram_otp_code") or "")
+            or str(gh_state.get("telegram_otp_code") or "")
             or str(agent_cfg.get("telegram_otp_code") or "")
         ).strip()
         two_fa_password = (
             str(auth_payload.get("telegram_2fa_password") or "")
+            or str(gh_state.get("telegram_2fa_password") or "")
             or str(agent_cfg.get("telegram_2fa_password") or "")
         ).strip()
         phone_code_hash = (
             str(auth_payload.get("telegram_phone_code_hash") or "")
+            or str(gh_state.get("telegram_phone_code_hash") or "")
             or str(agent_cfg.get("telegram_phone_code_hash") or "")
         ).strip()
         partial_session = (
-            str(auth_payload.get("telegram_partial_session") or "")
-            or str(agent_cfg.get("telegram_partial_session") or "")
+            unseal_secret(str(auth_payload.get("telegram_partial_session") or ""))
+            or unseal_secret(str(gh_state.get("telegram_partial_session") or ""))
+            or unseal_secret(str(agent_cfg.get("telegram_partial_session") or ""))
         ).strip()
 
-        if not partial_session or not phone_code_hash:
-            err_msg = "❌ ওটিপি সেশন পাওয়া যায়নি। অনুগ্রহ করে পুনরায় 'ওটিপি পাঠান' বাটনে চাপুন।"
-            log(err_msg)
-            supabase.update_agent_config(
-                device_hash,
-                {"telegram_auth_state": "ERROR", "telegram_auth_message": err_msg},
-            )
+        # Check if the live TELEGRAM_SEND_CODE worker already completed the sign-in!
+        existing_session = (
+            unseal_secret(str(gh_state.get("telegram_session_string") or ""))
+            or unseal_secret(str(agent_cfg.get("telegram_session_string") or ""))
+        ).strip()
+        if existing_session and (gh_state.get("telegram_auth_state") == "CONNECTED" or agent_cfg.get("telegram_auth_state") == "CONNECTED"):
+            log("✅ Session already connected by live worker! Exiting cleanly.")
             return
 
-        log(f"🔐 Verifying Telegram OTP for {phone} and generating permanent STRING_SESSION...")
+        if not partial_session or not phone_code_hash:
+            err_msg = "❌ ওটিপি সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে আবার 'ধাপ ১: টেলিগ্রামে OTP কোড পাঠান' চাপুন।"
+            log(err_msg)
+            err_patch = {"device_hash": device_hash, "telegram_auth_state": "ERROR", "telegram_auth_message": err_msg}
+            gh_bridge.write_state(err_patch)
+            supabase.update_agent_config(device_hash, err_patch)
+            return
+
+        log(f"🔐 Verifying Telegram OTP (fallback run) for {phone}...")
         client = TelegramClient(StringSession(partial_session), api_id, api_hash)
         try:
             await client.connect()
-            try:
-                if otp_code:
-                    await client.sign_in(
-                        phone=phone,
-                        code=otp_code,
-                        phone_code_hash=phone_code_hash,
-                    )
-                elif two_fa_password:
-                    await client.sign_in(password=two_fa_password)
-            except SessionPasswordNeededError:
-                if two_fa_password:
-                    await client.sign_in(password=two_fa_password)
-                else:
-                    saved_partial = client.session.save()
-                    supabase.update_agent_config(
-                        device_hash,
-                        {
-                            "telegram_partial_session": saved_partial,
-                            "telegram_auth_state": "NEED_2FA",
-                            "telegram_auth_message": "🔒 আপনার টেলিগ্রামে Two-Step Verification (2FA) পাসওয়ার্ড চালু আছে। নিচে 2FA পাসওয়ার্ডটি লিখে ভেরিফাই চাপুন।",
-                        },
-                    )
-                    log("🔒 2FA password required; notified app via Supabase.")
-                    return
-
-            final_string_session = client.session.save()
-            me = await client.get_me()
-            first_name = getattr(me, "first_name", "") or "Telegram User"
-            username = getattr(me, "username", "") or ""
-            account_display = f"{first_name} (@{username})" if username else first_name
-
-            supabase.update_agent_config(
-                device_hash,
-                {
-                    "telegram_api_id": str(api_id),
-                    "telegram_api_hash": api_hash,
-                    "telegram_phone": phone,
-                    "telegram_session_string": final_string_session,
-                    "telegram_account_name": account_display,
-                    "telegram_auth_state": "CONNECTED",
-                    "telegram_auth_message": f"✅ অটোমেটিক STRING_SESSION তৈরি ও সেভ সম্পন্ন! কানেক্টেড: {account_display}",
-                    "telegram_partial_session": "",
-                    "telegram_otp_code": "",
-                    "telegram_2fa_password": "",
-                },
+            await complete_sign_in_and_persist(
+                client=client,
+                device_hash=device_hash,
+                api_id=api_id,
+                api_hash=api_hash,
+                phone=phone,
+                otp_code=otp_code,
+                two_fa_password=two_fa_password,
+                phone_code_hash=phone_code_hash,
+                gh_bridge=gh_bridge,
+                supabase=supabase,
             )
-            log(f"✅ Permanent STRING_SESSION generated & saved to Supabase for {account_display}!")
         except Exception as exc:
             err_msg = f"❌ ওটিপি ভেরিফাই ব্যর্থ: {exc}"
             log(err_msg)
-            supabase.update_agent_config(
-                device_hash,
-                {"telegram_auth_state": "ERROR", "telegram_auth_message": err_msg},
-            )
+            err_patch = {"device_hash": device_hash, "telegram_auth_state": "ERROR", "telegram_auth_message": err_msg}
+            gh_bridge.write_state(err_patch)
+            supabase.update_agent_config(device_hash, err_patch)
         finally:
             await client.disconnect()
 
@@ -1090,7 +1364,17 @@ async def main_async() -> None:
     )
 
     supabase = SupabaseBridge(supabase_url, supabase_key)
+    gh_bridge = GitHubAuthBridge(
+        token=str(payload.get("github_pat") or os.environ.get("GITHUB_TOKEN", "")),
+        repository=str(payload.get("github_repository") or os.environ.get("GITHUB_REPOSITORY", "")),
+        branch=str(payload.get("github_branch") or "main"),
+    )
     agent_cfg = supabase.get_agent_config(device_hash=device_hash)
+    gh_state = gh_bridge.read_state()
+    if gh_state:
+        for k, v in gh_state.items():
+            if v and not agent_cfg.get(k):
+                agent_cfg[k] = v
 
     # Merge any direct credentials from payload
     if payload.get("agent_config") and isinstance(payload["agent_config"], dict):
@@ -1108,6 +1392,7 @@ async def main_async() -> None:
             auth_action=auth_action,
             auth_payload=auth_payload,
             agent_cfg=agent_cfg,
+            gh_bridge=gh_bridge,
             supabase=supabase,
         )
         return

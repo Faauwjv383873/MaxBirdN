@@ -20,6 +20,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -155,14 +156,146 @@ class AiAgentRepository(
             .apply()
     }
 
+    private fun sealSecret(plain: String): String {
+        if (plain.isBlank()) return ""
+        if (plain.startsWith("ENC1:")) return plain
+        val key = MessageDigest.getInstance("SHA-256")
+            .digest(DEFAULT_TELEGRAM_API_HASH.toByteArray(Charsets.UTF_8))
+        val raw = plain.toByteArray(Charsets.UTF_8)
+        val xored = ByteArray(raw.size) { i ->
+            (raw[i].toInt() xor key[i % key.size].toInt()).toByte()
+        }
+        return "ENC1:" + Base64.encodeToString(xored, Base64.NO_WRAP)
+    }
+
+    private fun unsealSecret(value: String): String {
+        if (value.isBlank()) return ""
+        if (!value.startsWith("ENC1:")) return value
+        return try {
+            val key = MessageDigest.getInstance("SHA-256")
+                .digest(DEFAULT_TELEGRAM_API_HASH.toByteArray(Charsets.UTF_8))
+            val raw = Base64.decode(value.removePrefix("ENC1:"), Base64.DEFAULT)
+            val plain = ByteArray(raw.size) { i ->
+                (raw[i].toInt() xor key[i % key.size].toInt()).toByte()
+            }
+            String(plain, Charsets.UTF_8)
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun readGitHubAuthState(gh: GitHubExtensionConfig = getGitHubConfig()): JSONObject? {
+        if (gh.personalAccessToken.isBlank() || gh.owner.isBlank() || gh.repo.isBlank()) return null
+        val branch = gh.branch.ifBlank { "main" }
+        val apiUrl = "https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/scripts/agent_auth_state.json?ref=$branch&_t=${System.currentTimeMillis()}"
+        return try {
+            val req = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
+                .addHeader("Accept", "application/vnd.github+json")
+                .addHeader("Cache-Control", "no-cache")
+                .get()
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string().orEmpty()
+                if (!body.trim().startsWith("{")) return null
+                val wrapper = JSONObject(body)
+                val b64 = wrapper.optString("content", "").replace("\n", "").replace("\r", "")
+                if (b64.isBlank()) return null
+                val rawJson = String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8)
+                val obj = JSONObject(rawJson)
+                for (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password")) {
+                    val v = obj.optString(k, "")
+                    if (v.isNotBlank()) {
+                        obj.put(k, unsealSecret(v))
+                    }
+                }
+                obj
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun writeGitHubAuthState(gh: GitHubExtensionConfig, patch: JSONObject): Boolean {
+        if (gh.personalAccessToken.isBlank() || gh.owner.isBlank() || gh.repo.isBlank()) return false
+        val branch = gh.branch.ifBlank { "main" }
+        val apiUrl = "https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/scripts/agent_auth_state.json"
+        var existingSha: String? = null
+        var merged = JSONObject()
+
+        try {
+            val getReq = Request.Builder()
+                .url("$apiUrl?ref=$branch&_t=${System.currentTimeMillis()}")
+                .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
+                .addHeader("Accept", "application/vnd.github+json")
+                .addHeader("Cache-Control", "no-cache")
+                .get()
+                .build()
+            httpClient.newCall(getReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    if (body.trim().startsWith("{")) {
+                        val wrapper = JSONObject(body)
+                        existingSha = wrapper.optString("sha", "").takeIf { it.isNotBlank() }
+                        val b64 = wrapper.optString("content", "").replace("\n", "").replace("\r", "")
+                        if (b64.isNotBlank()) {
+                            merged = JSONObject(String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8))
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        val keys = patch.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val v = patch.opt(k)
+            if (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password") &&
+                v is String && v.isNotBlank()
+            ) {
+                merged.put(k, sealSecret(v))
+            } else {
+                merged.put(k, v)
+            }
+        }
+
+        val b64Content = Base64.encodeToString(merged.toString(2).toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val putBody = JSONObject().apply {
+            put("message", "chore(ai-agent): sync telegram otp/session state")
+            put("content", b64Content)
+            put("branch", branch)
+            if (!existingSha.isNullOrBlank()) {
+                put("sha", existingSha)
+            }
+        }
+
+        return try {
+            val putReq = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
+                .addHeader("Accept", "application/vnd.github+json")
+                .put(putBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            httpClient.newCall(putReq).execute().use { resp ->
+                resp.isSuccessful || resp.code == 200 || resp.code == 201
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun fetchRemoteConfigObjectFromSupabase(
         supabaseUrl: String,
         anonKey: String,
         deviceHash: String
     ): JSONObject? {
+        if (supabaseUrl.isBlank() || anonKey.isBlank()) return null
         val urlsToTry = listOf(
-            "${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_configs?or=(device_hash.eq.$deviceHash,updated_by_device_hash.eq.$deviceHash)&order=updated_at.desc&limit=1",
-            "${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_configs?updated_by_device_hash=eq.$deviceHash&order=updated_at.desc&limit=1",
+            "${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_configs?device_hash=eq.$deviceHash&order=updated_at.desc&limit=1",
+            "${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_configs?user_phone=eq.$deviceHash&order=updated_at.desc&limit=1",
             "${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_configs?order=updated_at.desc&limit=1"
         )
         for (url in urlsToTry) {
@@ -179,7 +312,14 @@ class AiAgentRepository(
                         if (body.startsWith("[")) {
                             val arr = JSONArray(body)
                             if (arr.length() > 0) {
-                                return arr.getJSONObject(0)
+                                val obj = arr.getJSONObject(0)
+                                for (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password")) {
+                                    val v = obj.optString(k, "")
+                                    if (v.isNotBlank()) {
+                                        obj.put(k, unsealSecret(v))
+                                    }
+                                }
+                                return obj
                             }
                         }
                     }
@@ -191,24 +331,21 @@ class AiAgentRepository(
     }
 
     /**
-     * Synchronizes both GitHub and Telegram credentials with the Device-Bound Cloud Vault in Supabase (`ai_agent_configs`).
+     * Synchronizes both GitHub and Telegram credentials with the Device-Bound Cloud Vault in Supabase (`ai_agent_configs`)
+     * AND `scripts/agent_auth_state.json` on GitHub.
      * If the user deletes/uninstalls the app and reinstalls it on the same device, all saved tokens, repos,
      * API_ID, API_HASH, and STRING_SESSION are automatically restored!
      */
     suspend fun syncAgentConfigWithSupabase() = withContext(Dispatchers.IO) {
         val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
-        if (supabaseUrl.isBlank() || anonKey.isBlank()) return@withContext
-
         val gh = getGitHubConfig()
         val tg = getTelegramConfig()
-        val shikhoAccess = sessionManager.getAccessToken() ?: ""
-        val shikhoRefresh = sessionManager.getRefreshToken() ?: ""
         val deviceHash = getCurrentDeviceHash()
 
         try {
-            // 1. Pull remote config for this device to restore any missing fields after app reinstall
-            //    or pick up newly generated STRING_SESSION from GitHub Actions
+            // 1. Pull remote config from Supabase OR GitHub auth state to restore any missing fields after app reinstall
             val remoteObj = fetchRemoteConfigObjectFromSupabase(supabaseUrl, anonKey, deviceHash)
+                ?: readGitHubAuthState(gh)
             if (remoteObj != null) {
                 val remotePat = remoteObj.optString("github_pat", "")
                 val remoteOwner = remoteObj.optString("github_owner", "")
@@ -237,15 +374,16 @@ class AiAgentRepository(
                 val remoteApiId = remoteObj.optString("telegram_api_id", "").ifBlank { DEFAULT_TELEGRAM_API_ID }
                 val remoteApiHash = remoteObj.optString("telegram_api_hash", "").ifBlank { DEFAULT_TELEGRAM_API_HASH }
                 val remotePhone = remoteObj.optString("telegram_phone", "")
-                val remoteSession = remoteObj.optString("telegram_session_string", "")
+                val remoteSession = unsealSecret(remoteObj.optString("telegram_session_string", ""))
                 val remoteAccountName = remoteObj.optString("telegram_account_name", "")
                 val remoteAuthState = remoteObj.optString("telegram_auth_state", "IDLE")
                 val remoteAuthMsg = remoteObj.optString("telegram_auth_message", "")
                 val remoteBot = remoteObj.optString("telegram_bot_token", "")
-                val remoteChat = remoteObj.optString("default_telegram_chat_id", "")
+                val remoteChat = remoteObj.optString("telegram_default_chat_id", "")
+                    .ifBlank { remoteObj.optString("default_telegram_chat_id", "") }
 
                 if (remoteSession.isNotBlank() || remoteBot.isNotBlank() || tg.sessionString.isBlank()) {
-                    val mergedSession = tg.sessionString.ifBlank { remoteSession }
+                    val mergedSession = remoteSession.ifBlank { tg.sessionString }
                     saveTelegramConfig(
                         tg.copy(
                             apiId = tg.apiId.ifBlank { remoteApiId },
@@ -254,7 +392,7 @@ class AiAgentRepository(
                             sessionString = mergedSession,
                             botToken = tg.botToken.ifBlank { remoteBot },
                             defaultChatId = tg.defaultChatId.ifBlank { remoteChat },
-                            accountDisplayName = tg.accountDisplayName.ifBlank { remoteAccountName },
+                            accountDisplayName = remoteAccountName.ifBlank { tg.accountDisplayName },
                             authState = if (mergedSession.isNotBlank()) "CONNECTED" else remoteAuthState.ifBlank { tg.authState },
                             authMessage = remoteAuthMsg.ifBlank { tg.authMessage },
                             isConnected = mergedSession.isNotBlank() || tg.botToken.ifBlank { remoteBot }.isNotBlank()
@@ -268,7 +406,6 @@ class AiAgentRepository(
             val latestTg = getTelegramConfig()
             val fullPayload = JSONObject().apply {
                 put("device_hash", deviceHash)
-                put("updated_by_device_hash", deviceHash)
                 if (latestGh.personalAccessToken.isNotBlank()) put("github_pat", latestGh.personalAccessToken)
                 if (latestGh.owner.isNotBlank()) put("github_owner", latestGh.owner)
                 if (latestGh.repo.isNotBlank()) put("github_repo", latestGh.repo)
@@ -281,12 +418,12 @@ class AiAgentRepository(
                 if (latestTg.sessionString.isNotBlank()) put("telegram_session_string", latestTg.sessionString)
                 if (latestTg.accountDisplayName.isNotBlank()) put("telegram_account_name", latestTg.accountDisplayName)
                 if (latestTg.botToken.isNotBlank()) put("telegram_bot_token", latestTg.botToken)
-                if (latestTg.defaultChatId.isNotBlank()) put("default_telegram_chat_id", latestTg.defaultChatId)
-                if (shikhoAccess.isNotBlank()) put("shikho_access_token", shikhoAccess)
-                if (shikhoRefresh.isNotBlank()) put("shikho_refresh_token", shikhoRefresh)
+                if (latestTg.defaultChatId.isNotBlank()) put("telegram_default_chat_id", latestTg.defaultChatId)
             }
 
-            upsertAgentConfigToSupabase(supabaseUrl, anonKey, deviceHash, fullPayload)
+            if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
+                upsertAgentConfigToSupabase(supabaseUrl, anonKey, deviceHash, fullPayload)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "syncAgentConfigWithSupabase note: ${e.message}")
         }
@@ -298,16 +435,55 @@ class AiAgentRepository(
         deviceHash: String,
         payload: JSONObject
     ) {
+        if (supabaseUrl.isBlank() || anonKey.isBlank()) return
         val baseUrl = "${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_configs"
+
+        // Filter out any unknown columns so PostgREST never returns 400
+        val allowedCols = setOf(
+            "user_phone",
+            "device_hash",
+            "github_pat",
+            "github_owner",
+            "github_repo",
+            "github_branch",
+            "github_username",
+            "github_avatar_url",
+            "telegram_api_id",
+            "telegram_api_hash",
+            "telegram_phone",
+            "telegram_session_string",
+            "telegram_bot_token",
+            "telegram_default_chat_id",
+            "telegram_account_name",
+            "telegram_auth_state",
+            "telegram_auth_message",
+            "telegram_phone_code_hash",
+            "telegram_partial_session",
+            "telegram_otp_code",
+            "telegram_2fa_password"
+        )
+        val safePatch = JSONObject().apply {
+            put("device_hash", deviceHash)
+        }
+        val keys = payload.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            if (k == "default_telegram_chat_id") {
+                safePatch.put("telegram_default_chat_id", payload.opt(k))
+            } else if (k in allowedCols) {
+                safePatch.put(k, payload.opt(k))
+            }
+        }
+
         // 1. Try PATCH on existing device_hash row
         try {
             val patchReq = Request.Builder()
-                .url("$baseUrl?or=(device_hash.eq.$deviceHash,updated_by_device_hash.eq.$deviceHash)")
+                .url("$baseUrl?device_hash=eq.$deviceHash")
                 .addHeader("apikey", anonKey)
                 .addHeader("Authorization", "Bearer $anonKey")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Prefer", "return=representation")
-                .patch(payload.toString().toRequestBody("application/json".toMediaType()))
+                .patch(safePatch.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             httpClient.newCall(patchReq).execute().use { resp ->
                 val body = resp.body?.string()?.trim().orEmpty()
@@ -318,15 +494,38 @@ class AiAgentRepository(
         } catch (_: Exception) {
         }
 
-        // 2. Try POST with full columns
+        // 2. Try PATCH on user_phone=deviceHash row
+        try {
+            val patchReq2 = Request.Builder()
+                .url("$baseUrl?user_phone=eq.$deviceHash")
+                .addHeader("apikey", anonKey)
+                .addHeader("Authorization", "Bearer $anonKey")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "return=representation")
+                .patch(safePatch.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            httpClient.newCall(patchReq2).execute().use { resp ->
+                val body = resp.body?.string()?.trim().orEmpty()
+                if (resp.isSuccessful && body.startsWith("[") && JSONArray(body).length() > 0) {
+                    return
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 3. Try POST with user_phone = deviceHash (satisfies NOT NULL UNIQUE on user_phone)
+        val insertPayload = JSONObject(safePatch.toString()).apply {
+            put("user_phone", deviceHash)
+            put("device_hash", deviceHash)
+        }
         try {
             val postReq = Request.Builder()
-                .url("$baseUrl?on_conflict=device_hash")
+                .url("$baseUrl?on_conflict=user_phone")
                 .addHeader("apikey", anonKey)
                 .addHeader("Authorization", "Bearer $anonKey")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Prefer", "resolution=merge-duplicates")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .post(insertPayload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             httpClient.newCall(postReq).execute().use { resp ->
                 if (resp.isSuccessful) return
@@ -334,31 +533,17 @@ class AiAgentRepository(
         } catch (_: Exception) {
         }
 
-        // 3. Fallback for legacy table schema (before user runs the updated SQL)
+        // 4. Fallback POST on_conflict=device_hash
         try {
-            val legacyPayload = JSONObject().apply {
-                put("id", 1)
-                if (payload.has("github_owner")) put("github_owner", payload.optString("github_owner"))
-                if (payload.has("github_repo")) put("github_repo", payload.optString("github_repo"))
-                if (payload.has("github_branch")) put("github_branch", payload.optString("github_branch"))
-                put("telegram_api_id", payload.optString("telegram_api_id", DEFAULT_TELEGRAM_API_ID))
-                put("telegram_api_hash", payload.optString("telegram_api_hash", DEFAULT_TELEGRAM_API_HASH))
-                if (payload.has("telegram_session_string")) put("telegram_session_string", payload.optString("telegram_session_string"))
-                if (payload.has("telegram_bot_token")) put("telegram_bot_token", payload.optString("telegram_bot_token"))
-                if (payload.has("default_telegram_chat_id")) put("default_telegram_chat_id", payload.optString("default_telegram_chat_id"))
-                if (payload.has("shikho_access_token")) put("shikho_access_token", payload.optString("shikho_access_token"))
-                if (payload.has("shikho_refresh_token")) put("shikho_refresh_token", payload.optString("shikho_refresh_token"))
-                put("updated_by_device_hash", deviceHash)
-            }
-            val legacyReq = Request.Builder()
-                .url(baseUrl)
+            val postReq2 = Request.Builder()
+                .url("$baseUrl?on_conflict=device_hash")
                 .addHeader("apikey", anonKey)
                 .addHeader("Authorization", "Bearer $anonKey")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Prefer", "resolution=merge-duplicates")
-                .post(legacyPayload.toString().toRequestBody("application/json".toMediaType()))
+                .post(safePatch.toString().toRequestBody("application/json".toMediaType()))
                 .build()
-            httpClient.newCall(legacyReq).execute().close()
+            httpClient.newCall(postReq2).execute().close()
         } catch (_: Exception) {
         }
     }
@@ -578,11 +763,14 @@ class AiAgentRepository(
     suspend fun requestTelegramOtpCode(
         apiId: String,
         apiHash: String,
-        phone: String
+        phone: String,
+        twoFaPassword: String = ""
     ): Result<String> = withContext(Dispatchers.IO) {
         val cleanApiId = apiId.trim().ifBlank { DEFAULT_TELEGRAM_API_ID }
         val cleanApiHash = apiHash.trim().ifBlank { DEFAULT_TELEGRAM_API_HASH }
-        val cleanPhone = phone.trim().let { if (!it.startsWith("+") && it.isNotBlank()) "+$it" else it }
+        val cleanPhone = phone.trim().replace(" ", "").replace("-", "")
+            .let { if (!it.startsWith("+") && it.isNotBlank()) "+$it" else it }
+        val clean2Fa = twoFaPassword.trim()
 
         if (cleanPhone.length < 8) {
             return@withContext Result.failure(Exception("অনুগ্রহ করে কান্ট্রি কোডসহ আপনার টেলিগ্রাম নাম্বার দিন (যেমন: +88017XXXXXXXX)।"))
@@ -591,7 +779,7 @@ class AiAgentRepository(
         val gh = getGitHubConfig()
         if (gh.personalAccessToken.isBlank() || gh.owner.isBlank() || gh.repo.isBlank()) {
             return@withContext Result.failure(
-                Exception("অটোমেটিক STRING_SESSION তৈরির জন্য আগে উপরের GitHub কার্ডে আপনার GitHub Token দিয়ে রিপোজিটরি সিলেক্ট করুন।")
+                Exception("টেলিগ্রাম কানেক্ট করার জন্য আগে উপরের ১ নং কার্ডে আপনার GitHub Token দিয়ে রিপোজিটরি সিলেক্ট করুন।")
             )
         }
 
@@ -603,31 +791,35 @@ class AiAgentRepository(
             apiHash = cleanApiHash,
             phone = cleanPhone,
             authState = "SENDING_CODE",
-            authMessage = "📲 আপনার টেলিগ্রাম নাম্বারে ($cleanPhone) ওটিপি কোড পাঠানো হচ্ছে (১৫-২০ সেকেন্ড অপেক্ষা করুন)..."
+            authMessage = "📲 আপনার টেলিগ্রাম নাম্বারে ($cleanPhone) ওটিপি কোড পাঠানো হচ্ছে (১০-১৫ সেকেন্ড অপেক্ষা করুন)..."
         )
         saveTelegramConfig(updatedTg)
 
-        // Update Supabase state
-        val supaPatch = JSONObject().apply {
+        // Update both GitHubAuthBridge (zero-SQL) and Supabase state
+        val initPatch = JSONObject().apply {
             put("device_hash", deviceHash)
-            put("updated_by_device_hash", deviceHash)
             put("telegram_api_id", cleanApiId)
             put("telegram_api_hash", cleanApiHash)
             put("telegram_phone", cleanPhone)
+            put("telegram_otp_code", "")
+            put("telegram_2fa_password", clean2Fa)
             put("telegram_auth_state", "SENDING_CODE")
             put("telegram_auth_message", updatedTg.authMessage)
         }
-        upsertAgentConfigToSupabase(supabaseUrl, supabaseKey, deviceHash, supaPatch)
+        writeGitHubAuthState(gh, initPatch)
+        upsertAgentConfigToSupabase(supabaseUrl, supabaseKey, deviceHash, initPatch)
 
-        // Ensure workflow exists in repo
-        if (!gh.isWorkflowDeployed) {
-            deployAgentWorkflowToGitHub(gh)
-        }
+        // Always push the latest fast-mode workflow & live-session worker before sending OTP
+        deployAgentWorkflowToGitHub(gh)
+        kotlinx.coroutines.delay(1200L)
 
         val payloadJson = JSONObject().apply {
             put("supabase_url", supabaseUrl)
             put("supabase_anon_key", supabaseKey)
             put("device_hash", deviceHash)
+            put("github_pat", gh.personalAccessToken)
+            put("github_repository", "${gh.owner}/${gh.repo}")
+            put("github_branch", gh.branch.ifBlank { "main" })
             put("auth_action", "TELEGRAM_SEND_CODE")
             put(
                 "auth_payload",
@@ -636,6 +828,7 @@ class AiAgentRepository(
                     put("telegram_api_id", cleanApiId)
                     put("telegram_api_hash", cleanApiHash)
                     put("telegram_phone", cleanPhone)
+                    put("telegram_2fa_password", clean2Fa)
                 }
             )
         }
@@ -644,7 +837,7 @@ class AiAgentRepository(
             gh = gh,
             taskId = "tg_send_code_${System.currentTimeMillis()}",
             payloadJson = payloadJson,
-            successMessage = "📲 টেলিগ্রামে ওটিপি রিকোয়েস্ট পাঠানো হয়েছে! ১৫-২০ সেকেন্ডের মধ্যে আপনার টেলিগ্রাম অ্যাপে কোড যাবে।"
+            successMessage = "📲 টেলিগ্রামে ওটিপি রিকোয়েস্ট পাঠানো হয়েছে! ১০-১৫ সেকেন্ডের মধ্যে আপনার টেলিগ্রাম অ্যাপে কোড যাবে।"
         )
     }
 
@@ -668,31 +861,56 @@ class AiAgentRepository(
         val (supabaseUrl, supabaseKey) = DeviceActivationRepository.getSupabaseConfig()
         val deviceHash = getCurrentDeviceHash()
 
-        // Fetch partial session & phone_code_hash stored by TELEGRAM_SEND_CODE in Supabase
-        val remoteObj = fetchRemoteConfigObjectFromSupabase(supabaseUrl, supabaseKey, deviceHash)
-        val phoneCodeHash = remoteObj?.optString("telegram_phone_code_hash", "").orEmpty()
-        val partialSession = remoteObj?.optString("telegram_partial_session", "").orEmpty()
-
         val verifyingTg = tg.copy(
             authState = "VERIFYING_OTP",
-            authMessage = "🔐 ওটিপি যাচাই করে অটোমেটিক STRING_SESSION তৈরি ও আপনার ডিভাইসের আন্ডারে সেভ করা হচ্ছে..."
+            authMessage = "🔐 ওটিপি ভেরিফাই হচ্ছে... (মাত্র ৫-১০ সেকেন্ড অপেক্ষা করুন)"
         )
         saveTelegramConfig(verifyingTg)
 
-        val supaPatch = JSONObject().apply {
+        // 1. Write OTP and 2FA password IMMEDIATELY to both GitHubAuthBridge and Supabase.
+        //    The already-connected live TELEGRAM_SEND_CODE worker polls these every 2.5s and signs in on the live socket!
+        val otpPatch = JSONObject().apply {
             put("device_hash", deviceHash)
-            put("updated_by_device_hash", deviceHash)
-            put("telegram_otp_code", cleanOtp)
-            put("telegram_2fa_password", clean2Fa)
+            if (cleanOtp.isNotBlank()) put("telegram_otp_code", cleanOtp)
+            if (clean2Fa.isNotBlank()) put("telegram_2fa_password", clean2Fa)
             put("telegram_auth_state", "VERIFYING_OTP")
             put("telegram_auth_message", verifyingTg.authMessage)
         }
-        upsertAgentConfigToSupabase(supabaseUrl, supabaseKey, deviceHash, supaPatch)
+        writeGitHubAuthState(gh, otpPatch)
+        upsertAgentConfigToSupabase(supabaseUrl, supabaseKey, deviceHash, otpPatch)
+
+        // 2. Wait up to 12 seconds for the live-connected worker to finish sign-in on the active socket!
+        for (attempt in 1..5) {
+            kotlinx.coroutines.delay(2400L)
+            val polled = pollTelegramAuthStatusFromSupabase()
+            if (polled.isConnected && polled.sessionString.isNotBlank()) {
+                return@withContext Result.success(
+                    "🎉 অভিনন্দন! আপনার টেলিগ্রাম একাউন্ট (${polled.accountDisplayName}) সফলভাবে কানেক্ট হয়েছে এবং এই ডিভাইসে স্থায়ীভাবে সেভ হয়েছে!"
+                )
+            }
+            if (polled.authState == "NEED_2FA") {
+                return@withContext Result.failure(Exception(polled.authMessage))
+            }
+            if (polled.authState == "ERROR") {
+                return@withContext Result.failure(Exception(polled.authMessage))
+            }
+        }
+
+        // 3. Fallback: if the live worker was still starting up or had already exited, also dispatch TELEGRAM_SIGN_IN
+        val ghState = readGitHubAuthState(gh)
+        val supaState = fetchRemoteConfigObjectFromSupabase(supabaseUrl, supabaseKey, deviceHash)
+        val phoneCodeHash = ghState?.optString("telegram_phone_code_hash", "").orEmpty()
+            .ifBlank { supaState?.optString("telegram_phone_code_hash", "").orEmpty() }
+        val partialSession = ghState?.optString("telegram_partial_session", "").orEmpty()
+            .ifBlank { supaState?.optString("telegram_partial_session", "").orEmpty() }
 
         val payloadJson = JSONObject().apply {
             put("supabase_url", supabaseUrl)
             put("supabase_anon_key", supabaseKey)
             put("device_hash", deviceHash)
+            put("github_pat", gh.personalAccessToken)
+            put("github_repository", "${gh.owner}/${gh.repo}")
+            put("github_branch", gh.branch.ifBlank { "main" })
             put("auth_action", "TELEGRAM_SIGN_IN")
             put(
                 "auth_payload",
@@ -713,25 +931,44 @@ class AiAgentRepository(
             gh = gh,
             taskId = "tg_verify_otp_${System.currentTimeMillis()}",
             payloadJson = payloadJson,
-            successMessage = "🔐 ওটিপি ভেরিফাই চলছে! কয়েক সেকেন্ডের মধ্যে অটোমেটিক STRING_SESSION তৈরি হয়ে যাবে..."
+            successMessage = "🔐 ওটিপি ভেরিফাই চলছে! কয়েক সেকেন্ডের মধ্যে অটোমেটিক কানেক্ট হয়ে যাবে..."
         )
     }
 
     suspend fun pollTelegramAuthStatusFromSupabase(): TelegramExtensionConfig = withContext(Dispatchers.IO) {
         val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
         val current = getTelegramConfig()
-        if (supabaseUrl.isBlank() || anonKey.isBlank()) return@withContext current
-
+        val gh = getGitHubConfig()
         val deviceHash = getCurrentDeviceHash()
-        val remoteObj = fetchRemoteConfigObjectFromSupabase(supabaseUrl, anonKey, deviceHash) ?: return@withContext current
 
-        val remoteSession = remoteObj.optString("telegram_session_string", "").trim()
-        val remoteState = remoteObj.optString("telegram_auth_state", current.authState).trim()
-        val remoteMsg = remoteObj.optString("telegram_auth_message", current.authMessage).trim()
-        val remoteAccount = remoteObj.optString("telegram_account_name", current.accountDisplayName).trim()
-        val remotePhone = remoteObj.optString("telegram_phone", current.phone).trim()
-        val remoteApiId = remoteObj.optString("telegram_api_id", current.apiId).trim().ifBlank { DEFAULT_TELEGRAM_API_ID }
-        val remoteApiHash = remoteObj.optString("telegram_api_hash", current.apiHash).trim().ifBlank { DEFAULT_TELEGRAM_API_HASH }
+        // Check both GitHubAuthBridge (`scripts/agent_auth_state.json`) and Supabase
+        val ghObj = readGitHubAuthState(gh)
+        val supaObj = fetchRemoteConfigObjectFromSupabase(supabaseUrl, anonKey, deviceHash)
+
+        if (ghObj == null && supaObj == null) return@withContext current
+
+        val remoteSession = unsealSecret(ghObj?.optString("telegram_session_string", "").orEmpty().trim())
+            .ifBlank { unsealSecret(supaObj?.optString("telegram_session_string", "").orEmpty().trim()) }
+
+        val remoteState = ghObj?.optString("telegram_auth_state", "").orEmpty().trim()
+            .ifBlank { supaObj?.optString("telegram_auth_state", current.authState).orEmpty().trim() }
+
+        val remoteMsg = ghObj?.optString("telegram_auth_message", "").orEmpty().trim()
+            .ifBlank { supaObj?.optString("telegram_auth_message", current.authMessage).orEmpty().trim() }
+
+        val remoteAccount = ghObj?.optString("telegram_account_name", "").orEmpty().trim()
+            .ifBlank { supaObj?.optString("telegram_account_name", current.accountDisplayName).orEmpty().trim() }
+
+        val remotePhone = ghObj?.optString("telegram_phone", "").orEmpty().trim()
+            .ifBlank { supaObj?.optString("telegram_phone", current.phone).orEmpty().trim() }
+
+        val remoteApiId = ghObj?.optString("telegram_api_id", "").orEmpty().trim()
+            .ifBlank { supaObj?.optString("telegram_api_id", current.apiId).orEmpty().trim() }
+            .ifBlank { DEFAULT_TELEGRAM_API_ID }
+
+        val remoteApiHash = ghObj?.optString("telegram_api_hash", "").orEmpty().trim()
+            .ifBlank { supaObj?.optString("telegram_api_hash", current.apiHash).orEmpty().trim() }
+            .ifBlank { DEFAULT_TELEGRAM_API_HASH }
 
         val updated = current.copy(
             apiId = remoteApiId,

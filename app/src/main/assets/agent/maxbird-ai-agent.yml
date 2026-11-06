@@ -49,12 +49,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11 & FFmpeg
+      - name: Set up Python & Dependencies
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y ffmpeg aria2
-          python3 -m pip install --upgrade pip
-          pip3 install telethon cryptg yt-dlp requests aiohttp
+          if [[ "${INPUT_TASK_ID}" == tg_* ]]; then
+            echo "⚡ Fast Telegram OTP Auth Mode (3s startup)..."
+            pip3 install --quiet telethon requests
+          else
+            sudo apt-get update -y
+            sudo apt-get install -y ffmpeg aria2
+            python3 -m pip install --upgrade pip
+            pip3 install telethon cryptg yt-dlp requests aiohttp
+          fi
 
       - name: Execute Autonomous AI Agent Worker
         run: |

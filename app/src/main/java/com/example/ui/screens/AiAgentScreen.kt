@@ -439,8 +439,8 @@ fun AiAgentScreen(
                     onDeployGitHubWorkflow = {
                         viewModel.deployWorkflowToGitHubRepo()
                     },
-                    onRequestTelegramOtp = { apiId, apiHash, phone ->
-                        viewModel.requestTelegramOtpCode(apiId, apiHash, phone)
+                    onRequestTelegramOtp = { apiId, apiHash, phone, twoFaPassword ->
+                        viewModel.requestTelegramOtpCode(apiId, apiHash, phone, twoFaPassword)
                     },
                     onVerifyTelegramOtp = { otpCode, twoFaPassword ->
                         viewModel.verifyTelegramOtpAndCreateSession(otpCode, twoFaPassword)
@@ -1238,7 +1238,7 @@ private fun AiAgentExtensionsTab(
     onSaveGitHub: (String, String, String, String) -> Unit,
     onSelectRepo: (GitHubRepoSummary) -> Unit,
     onDeployGitHubWorkflow: () -> Unit,
-    onRequestTelegramOtp: (String, String, String) -> Unit,
+    onRequestTelegramOtp: (String, String, String, String) -> Unit,
     onVerifyTelegramOtp: (String, String) -> Unit,
     onSaveTelegram: (String, String, String, String, String, String, String) -> Unit,
     isDark: Boolean
@@ -1483,6 +1483,8 @@ private fun AiAgentExtensionsTab(
         }
 
         // 2. Telegram Personal Account Full Access + Auto STRING_SESSION Generator Card
+        var showAdvancedTg by remember { mutableStateOf(false) }
+
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = cardBg),
@@ -1503,7 +1505,7 @@ private fun AiAgentExtensionsTab(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "২. Telegram Account ও অটো STRING_SESSION জেনারেটর",
+                            text = "২. Telegram Account কানেক্ট (ফুল অটোমেটিক)",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = primaryText
@@ -1512,7 +1514,7 @@ private fun AiAgentExtensionsTab(
                             text = if (uiState.telegramConfig.isConnected) {
                                 "✅ কানেক্টেড: ${uiState.telegramConfig.accountDisplayName.ifBlank { "Telegram ফুল এক্সেস সক্রিয়" }} (এই ডিভাইসে স্থায়ীভাবে সেভড)"
                             } else {
-                                "আপনার API_ID (38634154) ও API_HASH বসানো আছে — শুধু ফোন নাম্বার ও OTP দিয়ে অটোমেটিক STRING_SESSION তৈরি করুন"
+                                "শুধু ফোন নাম্বার ও OTP দিন — আলাদা করে STRING_SESSION বা অন্য কিছু দিতে হবে না!"
                             },
                             fontSize = 12.sp,
                             color = if (uiState.telegramConfig.isConnected) Color(0xFF10B981) else secondaryText
@@ -1520,38 +1522,7 @@ private fun AiAgentExtensionsTab(
                     }
                 }
 
-                // Pre-filled API_ID & API_HASH
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = tgApiId,
-                        onValueChange = { tgApiId = it },
-                        label = { Text("TELEGRAM_API_ID") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("telegram_api_id_input")
-                    )
-                    OutlinedTextField(
-                        value = tgApiHash,
-                        onValueChange = { tgApiHash = it },
-                        label = { Text("TELEGRAM_API_HASH") },
-                        visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
-                                Icon(
-                                    if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("telegram_api_hash_input")
-                    )
-                }
-
-                // Automatic In-App STRING_SESSION Generator Box
+                // Clean 2-Step Automatic Telegram Login Box
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = if (isDark) Color(0xFF172036) else Color(0xFFF0F9FF),
@@ -1562,19 +1533,6 @@ private fun AiAgentExtensionsTab(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "⚡ অটোমেটিক STRING_SESSION জেনারেটর (অ্যাপের ভেতরেই তৈরি করুন)",
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF38BDF8)
-                        )
-                        Text(
-                            text = "ধাপ ১: আপনার টেলিগ্রাম ফোন নাম্বার (+8801...) লিখে 'OTP পাঠান' বাটনে চাপ দিন।\nধাপ ২: টেলিগ্রাম অ্যাপে যে ৫ সংখ্যার কোড যাবে সেটি বসিয়ে 'ভেরিফাই ও অটো সেভ' চাপুন।",
-                            fontSize = 11.5.sp,
-                            color = secondaryText,
-                            lineHeight = 16.sp
-                        )
-
                         OutlinedTextField(
                             value = tgPhone,
                             onValueChange = { tgPhone = it },
@@ -1586,7 +1544,7 @@ private fun AiAgentExtensionsTab(
                         )
 
                         Button(
-                            onClick = { onRequestTelegramOtp(tgApiId, tgApiHash, tgPhone) },
+                            onClick = { onRequestTelegramOtp(tgApiId, tgApiHash, tgPhone, tgTwoFaPassword) },
                             enabled = !uiState.isProcessingTelegramAuth,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                             shape = RoundedCornerShape(12.dp),
@@ -1607,7 +1565,7 @@ private fun AiAgentExtensionsTab(
                             Text("📲 ধাপ ১: টেলিগ্রামে OTP কোড পাঠান", fontWeight = FontWeight.Bold)
                         }
 
-                        // Show live status message from Supabase / Telethon worker
+                        // Show live status message from GitHub/Supabase worker
                         if (uiState.telegramConfig.authMessage.isNotBlank()) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
@@ -1660,7 +1618,8 @@ private fun AiAgentExtensionsTab(
 
                         Button(
                             onClick = { onVerifyTelegramOtp(tgOtpCode, tgTwoFaPassword) },
-                            enabled = !uiState.isProcessingTelegramAuth && tgOtpCode.isNotBlank(),
+                            enabled = !uiState.isProcessingTelegramAuth &&
+                                (tgOtpCode.isNotBlank() || tgTwoFaPassword.isNotBlank()),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
@@ -1678,52 +1637,98 @@ private fun AiAgentExtensionsTab(
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
                             Text(
-                                text = "🔐 ধাপ ২: ভেরিফাই ও অটো STRING_SESSION তৈরি করুন",
+                                text = "✅ ধাপ ২: ওটিপি ভেরিফাই ও কানেক্ট করুন",
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
 
-                OutlinedTextField(
-                    value = tgSession,
-                    onValueChange = { tgSession = it },
-                    label = { Text("Telethon STRING_SESSION (অটোমেটিক তৈরি হবে অথবা ম্যানুয়ালি দিন)") },
-                    visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
-                            Icon(
-                                if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = null
+                // Collapsible Advanced Options (API_ID, API_HASH, Manual STRING_SESSION, Default Chat ID)
+                TextButton(
+                    onClick = { showAdvancedTg = !showAdvancedTg },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(
+                        text = if (showAdvancedTg) "🔼 অ্যাডভান্সড অপশন লুকান" else "⚙️ অ্যাডভান্সড অপশন (API_ID / STRING_SESSION)",
+                        fontSize = 12.sp,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
+
+                AnimatedVisibility(visible = showAdvancedTg) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = tgApiId,
+                                onValueChange = { tgApiId = it },
+                                label = { Text("TELEGRAM_API_ID") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("telegram_api_id_input")
+                            )
+                            OutlinedTextField(
+                                value = tgApiHash,
+                                onValueChange = { tgApiHash = it },
+                                label = { Text("TELEGRAM_API_HASH") },
+                                visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
+                                        Icon(
+                                            if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = null
+                                        )
+                                    }
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("telegram_api_hash_input")
                             )
                         }
-                    },
-                    maxLines = 3,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("telegram_session_input")
-                )
 
-                OutlinedTextField(
-                    value = tgDefaultChat,
-                    onValueChange = { tgDefaultChat = it },
-                    label = { Text("ডিফল্ট চ্যানেল/গ্রুপ Chat ID (ঐচ্ছিক, খালি রাখলে এজেন্ট নিজে চ্যানেল খুলবে)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                        OutlinedTextField(
+                            value = tgSession,
+                            onValueChange = { tgSession = it },
+                            label = { Text("Telethon STRING_SESSION (অটোমেটিক তৈরি হবে)") },
+                            visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
+                                    Icon(
+                                        if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null
+                                    )
+                                }
+                            },
+                            maxLines = 3,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("telegram_session_input")
+                        )
 
-                Button(
-                    onClick = {
-                        onSaveTelegram(tgApiId, tgApiHash, tgPhone, tgSession, tgBotToken, tgDefaultChat, tgDisplayName)
-                        Toast.makeText(context, "টেলিগ্রাম কনফিগারেশন ডিভাইসের আন্ডারে ক্লাউডে সেভ হয়েছে!", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF229ED9)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("save_telegram_config_button")
-                ) {
-                    Text("টেলিগ্রাম কনফিগারেশন ডিভাইস ভল্টে সেভ করুন", fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = tgDefaultChat,
+                            onValueChange = { tgDefaultChat = it },
+                            label = { Text("ডিফল্ট চ্যানেল/গ্রুপ Chat ID (ঐচ্ছিক)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Button(
+                            onClick = {
+                                onSaveTelegram(tgApiId, tgApiHash, tgPhone, tgSession, tgBotToken, tgDefaultChat, tgDisplayName)
+                                Toast.makeText(context, "টেলিগ্রাম কনফিগারেশন ডিভাইসের আন্ডারে ক্লাউডে সেভ হয়েছে!", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF229ED9)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("save_telegram_config_button")
+                        ) {
+                            Text("ম্যানুয়াল কনফিগারেশন সেভ করুন", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }
