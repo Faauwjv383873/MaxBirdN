@@ -102,6 +102,45 @@ object ShikhoNotificationManager {
         }
     }
 
+    private const val SHIKHO_FIREBASE_APP_NAME = "shikho-tech-fcm"
+    private const val SHIKHO_PROJECT_ID = "shikho-tech"
+    private const val SHIKHO_APP_ID = "1:173696198638:android:a7dd172fc44d09216c50ff"
+    private const val SHIKHO_SENDER_ID = "173696198638"
+    private const val SHIKHO_API_KEY_B64 = "QUl6YVN5QVZqbVBBWUtWdE9henBhcC1Ycnk4M1BGYzhxNUoxczhN"
+
+    fun getShikhoFirebaseMessaging(context: Context): FirebaseMessaging? {
+        return try {
+            val appContext = context.applicationContext
+            val existingApps = com.google.firebase.FirebaseApp.getApps(appContext)
+            if (existingApps.isEmpty()) {
+                com.google.firebase.FirebaseApp.initializeApp(appContext)
+            }
+            val defaultApp = runCatching { com.google.firebase.FirebaseApp.getInstance() }.getOrNull()
+            if (defaultApp?.options?.projectId == SHIKHO_PROJECT_ID) {
+                return FirebaseMessaging.getInstance()
+            }
+            val existingShikhoApp = com.google.firebase.FirebaseApp.getApps(appContext)
+                .firstOrNull { it.name == SHIKHO_FIREBASE_APP_NAME }
+                ?: run {
+                    val apiKey = String(
+                        android.util.Base64.decode(SHIKHO_API_KEY_B64, android.util.Base64.DEFAULT)
+                    ).trim()
+                    val options = com.google.firebase.FirebaseOptions.Builder()
+                        .setProjectId(SHIKHO_PROJECT_ID)
+                        .setApplicationId(SHIKHO_APP_ID)
+                        .setGcmSenderId(SHIKHO_SENDER_ID)
+                        .setApiKey(apiKey)
+                        .setStorageBucket("shikho-tech.appspot.com")
+                        .build()
+                    com.google.firebase.FirebaseApp.initializeApp(appContext, options, SHIKHO_FIREBASE_APP_NAME)
+                }
+            runCatching { existingShikhoApp.get(FirebaseMessaging::class.java) }
+                .getOrElse { FirebaseMessaging.getInstance() }
+        } catch (_: Throwable) {
+            runCatching { FirebaseMessaging.getInstance() }.getOrNull()
+        }
+    }
+
     /**
      * Synchronizes all authentic Shikho FCM topic subscriptions on `projects/shikho-tech`:
      * 1. `SHIKHO_ALL`
@@ -118,7 +157,7 @@ object ShikhoNotificationManager {
 
             val appContext = context.applicationContext
             val sessionManager = SessionManager(appContext)
-            val fcm = try { FirebaseMessaging.getInstance() } catch (_: Exception) { null } ?: return
+            val fcm = getShikhoFirebaseMessaging(appContext) ?: return
             try {
                 fcm.isAutoInitEnabled = true
             } catch (_: Throwable) {}
@@ -198,7 +237,7 @@ object ShikhoNotificationManager {
                 return
             }
 
-            val fcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null } ?: return
+            val fcm = getShikhoFirebaseMessaging(appContext) ?: return
             val userId = sessionManager.getUserId()?.trim()
 
             // Ensure base topics (SHIKHO_ALL and userId) are also active
@@ -318,7 +357,7 @@ object ShikhoNotificationManager {
             }
 
             if (isGooglePlayServicesAvailable(appContext)) {
-                val fcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null }
+                val fcm = getShikhoFirebaseMessaging(appContext)
                 if (fcm != null) {
                     for (topic in topicsToRemove) {
                         try {
@@ -349,7 +388,7 @@ object ShikhoNotificationManager {
             unsubscribeActiveCourseTopics(appContext)
 
             if (isGooglePlayServicesAvailable(appContext) && !userId.isNullOrBlank()) {
-                val fcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null }
+                val fcm = getShikhoFirebaseMessaging(appContext)
                 try {
                     fcm?.unsubscribeFromTopic(userId)
                 } catch (_: Throwable) {}

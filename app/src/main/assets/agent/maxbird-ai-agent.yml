@@ -1,0 +1,61 @@
+name: MaxBird 24/7 Autonomous AI Agent Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Task ID to execute (or 'ALL_PENDING' for queue & schedules)"
+        required: false
+        default: "ALL_PENDING"
+        type: string
+      task_payload_b64:
+        description: "Base64-encoded JSON task & runtime config from MaxBird App"
+        required: false
+        default: ""
+        type: string
+  schedule:
+    # Runs automatically every hour 24/7 to execute scheduled routines & resume queued uploads
+    - cron: "0 * * * *"
+
+concurrency:
+  group: maxbird-ai-agent-worker-${{ github.event.inputs.task_id || 'scheduled' }}
+  cancel-in-progress: false
+
+jobs:
+  autonomous-agent:
+    name: MaxBird AI Cloud Agent (Telegram + Course Sync)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    permissions:
+      contents: write
+      actions: write
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
+      TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      TELEGRAM_SESSION_STRING: ${{ secrets.TELEGRAM_SESSION_STRING }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      SHIKHO_ACCESS_TOKEN: ${{ secrets.SHIKHO_ACCESS_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
+      INPUT_TASK_ID: ${{ github.event.inputs.task_id }}
+      INPUT_TASK_PAYLOAD_B64: ${{ github.event.inputs.task_payload_b64 }}
+      TRIGGER_EVENT: ${{ github.event_name }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11 & FFmpeg
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg aria2
+          python3 -m pip install --upgrade pip
+          pip3 install telethon cryptg yt-dlp requests aiohttp
+
+      - name: Execute Autonomous AI Agent Worker
+        run: |
+          python3 scripts/maxbird_ai_agent_worker.py

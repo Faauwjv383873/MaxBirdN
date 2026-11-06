@@ -61,6 +61,8 @@ import com.example.saved.SavedViewModelFactory
 import com.example.security.DeviceActivationRepository
 import com.example.smartnotes.SmartNotesViewModel
 import com.example.smartnotes.SmartNotesViewModelFactory
+import com.example.agent.AiAgentViewModel
+import com.example.agent.AiAgentViewModelFactory
 import com.example.syllabus.ChangeSyllabusViewModel
 import com.example.syllabus.ChangeSyllabusViewModelFactory
 import com.example.ui.screens.*
@@ -162,6 +164,7 @@ object Routes {
     const val PRACTICE_QUIZ_FEEDBACK = "practice_quiz_feedback/{sessionId}"
     const val NOTIFICATION_SETTINGS = "notification_settings"
     const val HEADER_WALLPAPER_SETTINGS = "header_wallpaper_settings"
+    const val AI_AGENT = "ai_agent"
     const val ANIMATED_LESSON_CHAPTERS = "animated_lesson_chapters/{subjectId}?title={title}&color={color}&programId={programId}&phaseId={phaseId}"
     const val ANIMATED_LESSON_LIST = "animated_lesson_list/{chapterId}?chapterName={chapterName}&subjectColor={subjectColor}&fromChapterPage={fromChapterPage}"
     const val ANIMATED_LESSON_PLAYER = "animated_lesson_player?url={url}&title={title}&subject={subject}&chapter={chapter}"
@@ -405,6 +408,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                             "downloads" -> {
                                 navController.navigate(Routes.downloadsRoute()) { launchSingleTop = true }
                             }
+                            "ai-agent", "ai_agent" -> {
+                                if (DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+                                    navController.navigate(Routes.AI_AGENT) { launchSingleTop = true }
+                                }
+                            }
                             else -> {
                                 android.util.Log.w("AppNavigation", "Ignored unknown shikho:// deep link host: ${uri.host}")
                             }
@@ -417,6 +425,11 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                                 navController.navigate(Routes.downloadsRoute()) { launchSingleTop = true }
                             "report", "report_card" ->
                                 navController.navigate(Routes.REPORT_CARD) { launchSingleTop = true }
+                            "ai_agent", "ai-agent" -> {
+                                if (DeviceActivationRepository.isProfileViewPermissionCached(context)) {
+                                    navController.navigate(Routes.AI_AGENT) { launchSingleTop = true }
+                                }
+                            }
                             else ->
                                 android.util.Log.w("AppNavigation", "Ignored unwhitelisted deep link route: $cleanLink")
                         }
@@ -725,6 +738,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 },
                 onNavigateToHeaderWallpaper = {
                     navController.navigate(Routes.HEADER_WALLPAPER_SETTINGS)
+                },
+                onNavigateToAiAgent = {
+                    navController.navigate(Routes.AI_AGENT)
                 },
                 onLogout = {
                     homeViewModel.clearForLogout()
@@ -1517,6 +1533,9 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 onNavigateToDownloads = {
                     navController.navigate(Routes.downloadsRoute(false))
                 },
+                onNavigateToAiAgent = {
+                    navController.navigate(Routes.AI_AGENT)
+                },
                 onLogout = {
                     homeViewModel.clearForLogout()
                     courseViewModel.clearForLogout()
@@ -1524,6 +1543,18 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        animatedComposable(Routes.AI_AGENT, anim = NavAnim.forward) {
+            val aiAgentViewModel: AiAgentViewModel = viewModel(
+                factory = AiAgentViewModelFactory(context, apiService, sessionManager)
+            )
+            AiAgentScreen(
+                viewModel = aiAgentViewModel,
+                onBack = {
+                    navController.safePopBackStack()
                 }
             )
         }

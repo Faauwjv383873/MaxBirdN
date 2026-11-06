@@ -54,21 +54,21 @@ if (!uploadKsFile.exists() || uploadKsFile.length() == 0L) {
 val googleServicesFile = file("google-services.json")
 if (!googleServicesFile.exists() || googleServicesFile.length() == 0L) {
   try {
-    val shikhoFbKey = String(
-      Base64.getDecoder().decode("QUl6YVN5QVZqbVBBWUtWdE9henBhcC1Ycnk4M1BGYzhxNUoxczhN")
+    val aiLogicFbKey = String(
+      Base64.getDecoder().decode("QUl6YVN5RFIzV1ctRUR5VFFhUXVXanJaVVFwUTNXX3p1TlB6SjhV")
     ).trim()
     googleServicesFile.writeText(
       """
       {
         "project_info": {
-          "project_number": "173696198638",
-          "project_id": "shikho-tech",
-          "storage_bucket": "shikho-tech.appspot.com"
+          "project_number": "753281319756",
+          "project_id": "gen-lang-client-0668406394",
+          "storage_bucket": "gen-lang-client-0668406394.firebasestorage.app"
         },
         "client": [
           {
             "client_info": {
-              "mobilesdk_app_id": "1:173696198638:android:a7dd172fc44d09216c50ff",
+              "mobilesdk_app_id": "1:753281319756:android:7a7bf774bf5e07a21e85e9",
               "android_client_info": {
                 "package_name": "com.maxbird.ff.app"
               }
@@ -76,7 +76,7 @@ if (!googleServicesFile.exists() || googleServicesFile.length() == 0L) {
             "oauth_client": [],
             "api_key": [
               {
-                "current_key": "$shikhoFbKey"
+                "current_key": "$aiLogicFbKey"
               }
             ],
             "services": {
@@ -272,7 +272,7 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.coil.svg)
   implementation(libs.converter.moshi)
-  // implementation(libs.firebase.ai)
+  implementation(libs.firebase.ai)
   implementation(libs.firebase.messaging)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
@@ -283,8 +283,8 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  // implementation(libs.firebase.appcheck.recaptcha)
-  // implementation(libs.firebase.appcheck.debug)
+  implementation(libs.firebase.appcheck.recaptcha)
+  implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.logging.interceptor)

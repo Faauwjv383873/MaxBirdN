@@ -62,6 +62,7 @@ fun SettingsScreen(
     onNavigateToReportCard: () -> Unit = {},
     onNavigateToNotification: () -> Unit = {},
     onNavigateToHeaderWallpaper: () -> Unit = {},
+    onNavigateToAiAgent: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -77,6 +78,10 @@ fun SettingsScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
     var isLoggingOut by remember { mutableStateOf(false) }
+
+    var canViewProfile by remember {
+        mutableStateOf(com.example.security.DeviceActivationRepository.isProfileViewPermissionCached(context))
+    }
 
     var cacheBreakdown by remember {
         mutableStateOf(
@@ -96,10 +101,14 @@ fun SettingsScreen(
     var showUpToDateDialog by remember { mutableStateOf(false) }
     var verifiedDatabaseVersionText by remember { mutableStateOf<String?>(null) }
 
-    // Refresh cache breakdown on entry
+    // Refresh cache breakdown & profile view permission on entry
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             cacheBreakdown = AppCacheManager.getCacheBreakdown(context)
+            canViewProfile = com.example.security.DeviceActivationRepository.checkProfileViewPermission(
+                context = context,
+                forceRefresh = false
+            )
         }
     }
 
@@ -392,6 +401,26 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // 1.5 Profile View Permission Gated: 24/7 Autonomous AI Agent Section
+            if (canViewProfile) {
+                SettingsSectionGroup(
+                    title = "AI অটোনোমাস এজেন্ট ও ক্লাউড অটোমেশন",
+                    icon = Icons.Default.AutoAwesome,
+                    isDark = isDark
+                ) {
+                    SettingsActionRow(
+                        icon = Icons.Default.AutoAwesome,
+                        iconTint = Color(0xFF00BCD4),
+                        title = "MaxBird 24/7 AI অটোনোমাস এজেন্ট",
+                        subtitle = "GitHub Actions ও Telegram চ্যানেলে স্বয়ংক্রিয় কোর্স ভিডিও ও স্লাইড আপলোড এবং ২৪/৭ রুটিন কন্ট্রোল",
+                        badgeText = "24/7 AI",
+                        isDark = isDark,
+                        onClick = onNavigateToAiAgent,
+                        testTag = "settings_row_ai_agent"
+                    )
                 }
             }
 

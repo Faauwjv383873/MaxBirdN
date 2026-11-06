@@ -61,6 +61,7 @@ fun MainContainerScreen(
     onNavigateToNotificationHistory: () -> Unit = {},
     onNavigateToNotification: () -> Unit = {},
     onNavigateToHeaderWallpaper: () -> Unit = {},
+    onNavigateToAiAgent: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -215,6 +216,7 @@ fun MainContainerScreen(
                         onNavigateToReportCard = { onNavigateToReportCard(null, null, null) },
                         onNavigateToNotification = onNavigateToNotification,
                         onNavigateToHeaderWallpaper = onNavigateToHeaderWallpaper,
+                        onNavigateToAiAgent = onNavigateToAiAgent,
                         onLogout = onLogout
                     )
                 }

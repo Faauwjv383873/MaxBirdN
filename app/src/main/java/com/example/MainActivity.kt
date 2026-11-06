@@ -65,6 +65,9 @@ class MainActivity : ComponentActivity() {
 
         super.onCreate(savedInstanceState)
 
+        // STEP 1: Configure App Check with launch intent before any UI or Firebase operations
+        configureAppCheck(this, intent)
+
         // 0.1 Perform initial Anti-Capture (Reqable/HttpCanary/Proxy) & Anti-Tamper inspection
         AntiTamperSecurity.exitIfTampered(this)
         activeSecurityViolationState.value = AntiTamperSecurity.inspectSecurityViolation(this)
@@ -252,7 +255,8 @@ class MainActivity : ComponentActivity() {
                 return
             }
 
-            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            val shikhoFcm = com.example.notification.ShikhoNotificationManager.getShikhoFirebaseMessaging(this)
+            shikhoFcm?.token?.addOnCompleteListener { task ->
                 if (task.isSuccessful && !task.result.isNullOrBlank()) {
                     val token = task.result
                     android.util.Log.d("MainActivity", "Fetched FCM Token: $token")
@@ -294,6 +298,14 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // 1.1 Handle AI Agent notification tap
+        if (intent.getStringExtra("OPEN_SCREEN") == "AI_AGENT" ||
+            intent.getStringExtra(ShikhoFirebaseMessagingService.EXTRA_NOTIFICATION_TYPE)?.contains("AI_AGENT", ignoreCase = true) == true
+        ) {
+            NotificationDeepLinkDispatcher.setPendingDeepLink("ai_agent")
+            return
+        }
+
         // 2. Handle class alarm notification tap
         val lessonId = intent.getStringExtra("lesson_id")
         if (!lessonId.isNullOrBlank()) {
@@ -324,7 +336,7 @@ class MainActivity : ComponentActivity() {
             } else if (
                 url.startsWith("shikho://", ignoreCase = true) ||
                 url.startsWith("lesson_player", ignoreCase = true) ||
-                url.lowercase() in setOf("downloads", "routine", "full-routine", "routine_full", "report", "report_card")
+                url.lowercase() in setOf("downloads", "routine", "full-routine", "routine_full", "report", "report_card", "ai_agent")
             ) {
                 NotificationDeepLinkDispatcher.setPendingDeepLink(url)
             }

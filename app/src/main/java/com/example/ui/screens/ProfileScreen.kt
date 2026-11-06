@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,7 @@ fun ProfileScreen(
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
+    onNavigateToAiAgent: () -> Unit = {},
     sessionManager: com.example.auth.SessionManager? = null,
     onBack: (() -> Unit)? = null,
     onLogout: () -> Unit
@@ -160,7 +162,8 @@ fun ProfileScreen(
                         canViewProfile = canViewProfile,
                         onNavigateToSavedItems = onNavigateToSavedItems,
                         onNavigateToDownloads = onNavigateToDownloads,
-                        onOpenSessionShare = { if (canViewProfile) showSessionShareDialog = true }
+                        onOpenSessionShare = { if (canViewProfile) showSessionShareDialog = true },
+                        onNavigateToAiAgent = { if (canViewProfile) onNavigateToAiAgent() }
                     )
                 }
                 else -> {
@@ -180,7 +183,8 @@ fun ProfileScreen(
                         canViewProfile = canViewProfile,
                         onNavigateToSavedItems = onNavigateToSavedItems,
                         onNavigateToDownloads = onNavigateToDownloads,
-                        onOpenSessionShare = { if (canViewProfile) showSessionShareDialog = true }
+                        onOpenSessionShare = { if (canViewProfile) showSessionShareDialog = true },
+                        onNavigateToAiAgent = { if (canViewProfile) onNavigateToAiAgent() }
                     )
                 }
             }
@@ -202,7 +206,8 @@ fun ProfileContent(
     canViewProfile: Boolean = false,
     onNavigateToSavedItems: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
-    onOpenSessionShare: () -> Unit = {}
+    onOpenSessionShare: () -> Unit = {},
+    onNavigateToAiAgent: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val stats = rememberGamificationStats(context)
@@ -478,6 +483,91 @@ fun ProfileContent(
         }
 
         if (canViewProfile) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 24/7 Autonomous AI Agent Card (Strictly visible ONLY when Profile View Permission is ON)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onNavigateToAiAgent)
+                    .testTag("profile_ai_agent_card"),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                border = BorderStroke(1.2.dp, Color(0xFF00E5FF).copy(alpha = 0.55f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFF0284C7).copy(alpha = 0.14f),
+                                    Color(0xFF6366F1).copy(alpha = 0.08f)
+                                )
+                            )
+                        )
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF0284C7).copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI Agent",
+                            tint = Color(0xFF0284C7),
+                            modifier = Modifier.size(23.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "MaxBird AI অটোনোমাস এজেন্ট",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.16f)
+                            ) {
+                                Text(
+                                    text = "24/7 Cloud",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF10B981),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "GitHub Actions ও Telegram অটো-চ্যানেল ভিডিও ও স্লাইড আপলোডার",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color(0xFF0284C7)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // Session Share & QR Card (Only visible when Profile View Permission is ON)
