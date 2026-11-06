@@ -1484,6 +1484,9 @@ private fun AiAgentExtensionsTab(
 
         // 2. Telegram Personal Account Full Access + Auto STRING_SESSION Generator Card
         var showAdvancedTg by remember { mutableStateOf(false) }
+        var showReconnectTgForm by remember(uiState.telegramConfig.isConnected) {
+            mutableStateOf(!uiState.telegramConfig.isConnected)
+        }
 
         Card(
             shape = RoundedCornerShape(20.dp),
@@ -1522,124 +1525,165 @@ private fun AiAgentExtensionsTab(
                     }
                 }
 
-                // Clean 2-Step Automatic Telegram Login Box
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isDark) Color(0xFF172036) else Color(0xFFF0F9FF),
-                    border = BorderStroke(1.dp, Color(0xFF229ED9).copy(alpha = 0.45f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                if (uiState.telegramConfig.isConnected && !showReconnectTgForm) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF10B981).copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedTextField(
-                            value = tgPhone,
-                            onValueChange = { tgPhone = it },
-                            label = { Text("টেলিগ্রাম ফোন নাম্বার (যেমন: +88017XXXXXXXX)") },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("telegram_phone_input")
-                        )
-
-                        Button(
-                            onClick = { onRequestTelegramOtp(tgApiId, tgApiHash, tgPhone, tgTwoFaPassword) },
-                            enabled = !uiState.isProcessingTelegramAuth,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("request_telegram_otp_button")
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (uiState.isProcessingTelegramAuth &&
-                                uiState.telegramConfig.authState == "SENDING_CODE"
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                            Text("📲 ধাপ ১: টেলিগ্রামে OTP কোড পাঠান", fontWeight = FontWeight.Bold)
-                        }
-
-                        // Show live status message from GitHub/Supabase worker
-                        if (uiState.telegramConfig.authMessage.isNotBlank()) {
-                            Surface(
+                            Text(
+                                text = "🎉 আপনার টেলিগ্রাম একাউন্ট (${uiState.telegramConfig.accountDisplayName.ifBlank { uiState.telegramConfig.phone }}) সফলভাবে যুক্ত আছে!",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10B981)
+                            )
+                            Text(
+                                text = "এখন আর কোনো OTP বা কোড দিতে হবে না। সরাসরি '💬 AI চ্যাট' ট্যাবে গিয়ে এজেন্টকে যেকোনো কোর্সের ভিডিও ও স্লাইড আপলোড করতে বলুন!",
+                                fontSize = 12.sp,
+                                color = primaryText,
+                                lineHeight = 18.sp
+                            )
+                            OutlinedButton(
+                                onClick = { showReconnectTgForm = true },
                                 shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF0F172A).copy(alpha = 0.65f),
-                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
-                                modifier = Modifier.fillMaxWidth()
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Text(
+                                    text = "🔄 অন্য টেলিগ্রাম একাউন্ট কানেক্ট করুন",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Clean 2-Step Automatic Telegram Login Box (shown when not connected or when reconnecting)
+                AnimatedVisibility(visible = showReconnectTgForm) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isDark) Color(0xFF172036) else Color(0xFFF0F9FF),
+                        border = BorderStroke(1.dp, Color(0xFF229ED9).copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = tgPhone,
+                                onValueChange = { tgPhone = it },
+                                label = { Text("টেলিগ্রাম ফোন নাম্বার (যেমন: +88017XXXXXXXX)") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("telegram_phone_input")
+                            )
+
+                            Button(
+                                onClick = { onRequestTelegramOtp(tgApiId, tgApiHash, tgPhone, tgTwoFaPassword) },
+                                enabled = !uiState.isProcessingTelegramAuth,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("request_telegram_otp_button")
+                            ) {
+                                if (uiState.isProcessingTelegramAuth &&
+                                    uiState.telegramConfig.authState == "SENDING_CODE"
                                 ) {
-                                    if (uiState.isProcessingTelegramAuth) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp,
-                                            color = Color(0xFF38BDF8)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                    }
-                                    Text(
-                                        text = uiState.telegramConfig.authMessage,
-                                        fontSize = 12.sp,
-                                        color = Color(0xFFE2E8F0)
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text("📲 ধাপ ১: টেলিগ্রামে OTP কোড পাঠান", fontWeight = FontWeight.Bold)
+                            }
+
+                            // Show live status message from GitHub/Supabase worker
+                            if (uiState.telegramConfig.authMessage.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF0F172A).copy(alpha = 0.65f),
+                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (uiState.isProcessingTelegramAuth) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color(0xFF38BDF8)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                        }
+                                        Text(
+                                            text = uiState.telegramConfig.authMessage,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFE2E8F0)
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = tgOtpCode,
-                                onValueChange = { tgOtpCode = it },
-                                label = { Text("টেলিগ্রাম OTP কোড") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("telegram_otp_input")
-                            )
-                            OutlinedTextField(
-                                value = tgTwoFaPassword,
-                                onValueChange = { tgTwoFaPassword = it },
-                                label = { Text("2FA পাসওয়ার্ড (থাকলে)") },
-                                visualTransformation = PasswordVisualTransformation(),
-                                singleLine = true,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("telegram_2fa_input")
-                            )
-                        }
-
-                        Button(
-                            onClick = { onVerifyTelegramOtp(tgOtpCode, tgTwoFaPassword) },
-                            enabled = !uiState.isProcessingTelegramAuth &&
-                                (tgOtpCode.isNotBlank() || tgTwoFaPassword.isNotBlank()),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("verify_telegram_otp_button")
-                        ) {
-                            if (uiState.isProcessingTelegramAuth &&
-                                uiState.telegramConfig.authState == "VERIFYING_OTP"
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = tgOtpCode,
+                                    onValueChange = { tgOtpCode = it },
+                                    label = { Text("টেলিগ্রাম OTP কোড") },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("telegram_otp_input")
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                OutlinedTextField(
+                                    value = tgTwoFaPassword,
+                                    onValueChange = { tgTwoFaPassword = it },
+                                    label = { Text("2FA পাসওয়ার্ড (থাকলে)") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("telegram_2fa_input")
+                                )
                             }
-                            Text(
-                                text = "✅ ধাপ ২: ওটিপি ভেরিফাই ও কানেক্ট করুন",
-                                fontWeight = FontWeight.Bold
-                            )
+
+                            Button(
+                                onClick = { onVerifyTelegramOtp(tgOtpCode, tgTwoFaPassword) },
+                                enabled = !uiState.isProcessingTelegramAuth &&
+                                    (tgOtpCode.isNotBlank() || tgTwoFaPassword.isNotBlank()),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("verify_telegram_otp_button")
+                            ) {
+                                if (uiState.isProcessingTelegramAuth &&
+                                    uiState.telegramConfig.authState == "VERIFYING_OTP"
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = "✅ ধাপ ২: ওটিপি ভেরিফাই ও কানেক্ট করুন",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }

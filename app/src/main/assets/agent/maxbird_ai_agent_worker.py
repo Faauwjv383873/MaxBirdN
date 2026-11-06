@@ -467,65 +467,97 @@ class ShikhoClient:
         self, program_id: str, phase_id: str = "", subject_code: str = "", chapter_id: str = ""
     ) -> List[Dict[str, Any]]:
         query = """
-        query GetProgramLessons($program_id: ID!, $phase_id: String) {
-          getAcademicProgramLessonList(academic_program_id: $program_id, phase_id: $phase_id) {
-            id
-            title
-            type
-            subject_code
-            subject_name
-            chapter_id
-            chapter_name
-            serial
-            content_id
-            video_url
-            slide_url
-            teacher {
-              name
-            }
-            live_class {
+        query($programId: ID!, $limit: Int, $page: Int) {
+          studentSpecificLessons(program_id: $programId, limit: $limit, page: $page) {
+            data {
               id
               title
-              recording_url
-              hls_url
-              slide_url
-            }
-            attachments {
-              id
-              title
-              url
+              content_id
+              content_type
+              access_level
+              start_time
+              end_time
+              subject_id
+              subject_name
+              chapter_id
+              chapter_name
+              batch_id
+              program_id
+              color_code
+              icon
+              user_activity_state
+              live_class {
+                id
+                playback_url
+              }
+              model_test {
+                id
+              }
             }
           }
         }
         """
-        variables: Dict[str, Any] = {"program_id": program_id}
-        if phase_id:
-            variables["phase_id"] = phase_id
-        try:
-            data = self.graphql("GetProgramLessons", query, variables)
-            lessons = (data.get("data") or {}).get("getAcademicProgramLessonList") or []
-            if not isinstance(lessons, list):
-                lessons = []
-        except Exception as exc:
-            log(f"GraphQL GetProgramLessons fallback check: {exc}")
-            lessons = []
+        all_items: List[Dict[str, Any]] = []
+        seen_ids = set()
+        limit = 100
+        for page in range(1, 16):
+            try:
+                payload = {
+                    "query": query,
+                    "variables": {"programId": program_id, "limit": limit, "page": page},
+                }
+                r = self.session.post(SHIKHO_GRAPHQL_URL, json=payload, timeout=30)
+                if not r.ok:
+                    break
+                data = r.json()
+                page_items = (
+                    ((data.get("data") or {}).get("studentSpecificLessons") or {}).get("data")
+                    or []
+                )
+                if not isinstance(page_items, list) or len(page_items) == 0:
+                    break
+                new_added = 0
+                for item in page_items:
+                    if not isinstance(item, dict):
+                        continue
+                    item_id = str(item.get("id") or "")
+                    if item_id and item_id not in seen_ids:
+                        seen_ids.add(item_id)
+                        all_items.append(item)
+                        new_added += 1
+                if new_added == 0 or len(page_items) < limit:
+                    break
+            except Exception as exc:
+                log(f"GraphQL studentSpecificLessons page {page} note: {exc}")
+                break
 
-        # Filter by subject_code and chapter_id if specified
-        filtered = []
-        for item in lessons:
-            if not isinstance(item, dict):
+        # Filter out exams and match subject_code / chapter_id if specified
+        filtered: List[Dict[str, Any]] = []
+        subj_q = subject_code.strip().lower()
+        chap_q = chapter_id.strip().lower()
+        for item in all_items:
+            ctype = str(item.get("content_type") or "").lower()
+            if "exam" in ctype or "modeltest" in ctype or "quiz" in ctype or item.get("model_test"):
                 continue
-            if subject_code and item.get("subject_code") and item.get("subject_code") != subject_code:
-                continue
-            if chapter_id and item.get("chapter_id") and item.get("chapter_id") != chapter_id:
-                continue
+            if subj_q:
+                s_code = str(item.get("subject_code") or "").lower()
+                s_id = str(item.get("subject_id") or "").lower()
+                s_name = str(item.get("subject_name") or "").lower()
+                if subj_q not in (s_code, s_id) and subj_q not in s_name:
+                    continue
+            if chap_q:
+                c_id = str(item.get("chapter_id") or "").lower()
+                c_name = str(item.get("chapter_name") or "").lower()
+                if chap_q != c_id and chap_q not in c_name:
+                    continue
             filtered.append(item)
         return filtered
 
-    def resolve_stream_and_slide(self, lesson: Dict[str, Any]) -> Tuple[str, List[Dict[str, str]]]:
+    def resolve_stream_and_slide(self, lesson: Dict[str, Any]) -> Tuple[str, List[Dict[str, str]], str]:
         live_obj = lesson.get("live_class") or {}
         video_url = (
             lesson.get("video_url")
+            or live_obj.get("playback_url")
             or live_obj.get("hls_url")
             or live_obj.get("recording_url")
             or lesson.get("stream_url")
@@ -544,56 +576,79 @@ class ShikhoClient:
 
         for att in lesson.get("attachments") or []:
             if isinstance(att, dict):
-                u = (att.get("url") or att.get("download_url") or "").strip()
+                u = (att.get("url") or att.get("file_url") or att.get("download_url") or "").strip()
                 if u and all(s["url"] != u for s in slides):
-                    slides.append({"title": att.get("title") or "লেকচার নোট", "url": u})
+                    slides.append({"title": att.get("title") or att.get("name") or "লেকচার নোট", "url": u})
 
-        # If video_url is not embedded in list item, try single lesson detail query
-        lesson_id = (lesson.get("id") or "").strip()
-        if not video_url and lesson_id:
+        teacher_name = str(lesson.get("teacher_name") or "").strip()
+
+        # Fetch full live class details (playback_url, study_materials, class_notes, faculty) from Shikho GraphQL
+        live_class_id = (
+            str(live_obj.get("id") or "").strip()
+            or str(lesson.get("content_id") or "").strip()
+            or str(lesson.get("id") or "").strip()
+        )
+        if live_class_id and (not video_url or len(slides) == 0 or not teacher_name):
             detail_query = """
-            query GetLessonDetail($id: ID!) {
-              getLessonById(id: $id) {
+            query($id: ID!) {
+              academicProgramLiveClass(id: $id) {
                 id
                 title
-                video_url
-                slide_url
-                live_class {
-                  hls_url
-                  recording_url
-                  slide_url
-                }
-                attachments {
+                description
+                playback_url
+                start_time
+                end_time
+                status
+                class_notes {
                   id
-                  title
-                  url
+                  name
+                  file_url
+                }
+                study_materials {
+                  id
+                  name
+                  file_url
+                }
+                faculty {
+                  id
+                  name
+                  designation
                 }
               }
             }
             """
             try:
-                res = self.graphql("GetLessonDetail", detail_query, {"id": lesson_id})
-                detail = (res.get("data") or {}).get("getLessonById") or {}
-                if isinstance(detail, dict):
-                    dl_live = detail.get("live_class") or {}
-                    video_url = (
-                        detail.get("video_url")
-                        or dl_live.get("hls_url")
-                        or dl_live.get("recording_url")
-                        or ""
-                    ).strip()
-                    dl_slide = (detail.get("slide_url") or dl_live.get("slide_url") or "").strip()
-                    if dl_slide and all(s["url"] != dl_slide for s in slides):
-                        slides.append({"title": f"{lesson.get('title', 'লেকচার')} - স্লাইড", "url": dl_slide})
-                    for att in detail.get("attachments") or []:
-                        if isinstance(att, dict):
-                            u = (att.get("url") or "").strip()
-                            if u and all(s["url"] != u for s in slides):
-                                slides.append({"title": att.get("title") or "লেকচার শিট", "url": u})
+                payload = {"query": detail_query, "variables": {"id": live_class_id}}
+                r = self.session.post(SHIKHO_GRAPHQL_URL, json=payload, timeout=30)
+                if r.ok:
+                    res = r.json()
+                    detail = (res.get("data") or {}).get("academicProgramLiveClass") or {}
+                    if isinstance(detail, dict):
+                        if not video_url:
+                            video_url = str(detail.get("playback_url") or "").strip()
+                        faculty = detail.get("faculty") or {}
+                        if isinstance(faculty, dict) and faculty.get("name") and not teacher_name:
+                            teacher_name = str(faculty.get("name") or "").strip()
+                        for mat in detail.get("study_materials") or []:
+                            if isinstance(mat, dict):
+                                u = str(mat.get("file_url") or mat.get("url") or "").strip()
+                                if u and all(s["url"] != u for s in slides):
+                                    slides.append({
+                                        "title": str(mat.get("name") or f"{lesson.get('title', 'লেকচার')} - স্লাইড"),
+                                        "url": u,
+                                    })
+                        for note in detail.get("class_notes") or []:
+                            if isinstance(note, dict):
+                                u = str(note.get("file_url") or note.get("url") or "").strip()
+                                if u and all(s["url"] != u for s in slides):
+                                    slides.append({
+                                        "title": str(note.get("name") or f"{lesson.get('title', 'লেকচার')} - নোট"),
+                                        "url": u,
+                                    })
             except Exception as exc:
-                log(f"Detail query info for {lesson_id}: {exc}")
+                log(f"academicProgramLiveClass query note for {live_class_id}: {exc}")
 
-        return video_url, slides
+        return video_url, slides, (teacher_name or "শিক্ষক")
 
 
 def sanitize_filename(name: str) -> str:
@@ -1082,6 +1137,7 @@ async def execute_task_async(
     task: Dict[str, Any],
     agent_cfg: Dict[str, Any],
     supabase: SupabaseBridge,
+    gh_bridge: GitHubAuthBridge,
     payload_b64: str,
 ) -> None:
     task_id = str(task.get("id") or "manual_task")
@@ -1094,43 +1150,64 @@ async def execute_task_async(
     include_videos = bool(task.get("include_videos", True))
     include_slides = bool(task.get("include_slides", True))
 
+    def sync_task_progress(patch: Dict[str, Any]) -> None:
+        supabase.update_task(task_id, patch)
+        active_task = {
+            "id": task_id,
+            "status": patch.get("status") or task.get("status") or "RUNNING",
+            "completed_items": patch.get("completed_items", task.get("completed_items", 0)),
+            "total_items": patch.get("total_items", task.get("total_items", 0)),
+            "current_item_title": patch.get("current_item_title") or task.get("current_item_title") or "",
+            "status_message": patch.get("status_message") or task.get("status_message") or "",
+            "target_chat_id": patch.get("target_chat_id") or task.get("target_chat_id") or "",
+            "telegram_invite_link": patch.get("telegram_invite_link") or task.get("telegram_invite_link") or "",
+            "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        }
+        task.update(active_task)
+        gh_bridge.write_state({"active_task": active_task})
+
     api_id_raw = (
         str(task.get("telegram_api_id") or "")
         or str(agent_cfg.get("telegram_api_id") or "")
         or os.environ.get("TELEGRAM_API_ID", "")
         or DEFAULT_TELEGRAM_API_ID
     ).strip()
-    api_hash = (
-        str(task.get("telegram_api_hash") or "")
-        or str(agent_cfg.get("telegram_api_hash") or "")
-        or os.environ.get("TELEGRAM_API_HASH", "")
-        or DEFAULT_TELEGRAM_API_HASH
-    ).strip()
-    session_str = (
-        str(task.get("telegram_session_string") or "")
-        or str(agent_cfg.get("telegram_session_string") or "")
-        or os.environ.get("TELEGRAM_SESSION_STRING", "")
-    ).strip()
-    shikho_token = (
-        str(task.get("shikho_access_token") or "")
-        or str(agent_cfg.get("shikho_access_token") or "")
-        or os.environ.get("SHIKHO_ACCESS_TOKEN", "")
-    ).strip()
+    api_hash = unseal_secret(
+        (
+            str(task.get("telegram_api_hash") or "")
+            or str(agent_cfg.get("telegram_api_hash") or "")
+            or os.environ.get("TELEGRAM_API_HASH", "")
+            or DEFAULT_TELEGRAM_API_HASH
+        ).strip()
+    )
+    session_str = unseal_secret(
+        (
+            str(task.get("telegram_session_string") or "")
+            or str(agent_cfg.get("telegram_session_string") or "")
+            or os.environ.get("TELEGRAM_SESSION_STRING", "")
+        ).strip()
+    )
+    shikho_token = unseal_secret(
+        (
+            str(task.get("shikho_access_token") or "")
+            or str(agent_cfg.get("shikho_access_token") or "")
+            or os.environ.get("SHIKHO_ACCESS_TOKEN", "")
+        ).strip()
+    )
 
     if not api_id_raw.isdigit() or not api_hash or not session_str:
         err = "টেলিগ্রাম SESSION_STRING এখনো তৈরি করা হয়নি। অনুগ্রহ করে অ্যাপের '🔌 একাউন্টস' ট্যাব থেকে আপনার ফোন নাম্বার ও ওটিপি দিয়ে অটোমেটিক STRING_SESSION তৈরি করে নিন।"
         log(f"❌ {err}")
-        supabase.update_task(task_id, {"status": "FAILED", "status_message": err})
+        sync_task_progress({"status": "FAILED", "status_message": err})
         return
 
     api_id = int(api_id_raw)
-    supabase.update_task(
-        task_id,
+    sync_task_progress(
         {
             "status": "RUNNING",
             "github_run_id": os.environ.get("GITHUB_RUN_ID", ""),
             "status_message": "টেলিগ্রাম অ্যাকাউন্ট ও কোর্সের সার্ভারের সাথে সংযোগ স্থাপন করা হচ্ছে...",
-        },
+        }
     )
 
     async with TelegramClient(StringSession(session_str), api_id, api_hash) as tg_client:
@@ -1139,17 +1216,24 @@ async def execute_task_async(
 
         target_entity, invite_link = await ensure_telegram_destination(tg_client, task, supabase)
         chat_id_str = str(task.get("target_chat_id") or "")
+        sync_task_progress(
+            {
+                "status": "RUNNING",
+                "target_chat_id": chat_id_str,
+                "telegram_invite_link": invite_link,
+                "status_message": f"টেলিগ্রাম চ্যানেল প্রস্তুত ({invite_link or chat_id_str})। লেকচার তালিকা লোড হচ্ছে...",
+            }
+        )
 
         if task_type == "CREATE_CHANNEL_ONLY":
             done_msg = f"টেলিগ্রাম চ্যানেল সফলভাবে তৈরি হয়েছে! লিংক: {invite_link or 'প্রাইভেট চ্যানেল'}"
-            supabase.update_task(
-                task_id,
+            sync_task_progress(
                 {
                     "status": "COMPLETED",
                     "completed_items": 1,
                     "total_items": 1,
                     "status_message": done_msg,
-                },
+                }
             )
             supabase.notify_task_completion("✅ টেলিগ্রাম চ্যানেল প্রস্তুত!", done_msg, invite_link)
             return
@@ -1178,12 +1262,11 @@ async def execute_task_async(
             log(f"📚 Fetched {len(lessons)} lessons from Shikho GraphQL API for program {program_id}.")
 
         total_lessons = len(lessons)
-        supabase.update_task(
-            task_id,
+        sync_task_progress(
             {
                 "total_items": total_lessons,
                 "status_message": f"মোট {total_lessons}টি লেকচার পাওয়া গেছে। ক্রমানুসারে ডাউনলোড ও আপলোড শুরু হচ্ছে...",
-            },
+            }
         )
 
         completed_count = int(task.get("completed_items") or 0)
@@ -1192,13 +1275,12 @@ async def execute_task_async(
             # Check runtime budget for 24/7 self-chaining
             if time.time() - START_TIME >= MAX_RUNTIME_SECONDS:
                 log("⏱️ Approaching GitHub Actions 6-hour limit. Saving state and triggering continuation run...")
-                supabase.update_task(
-                    task_id,
+                sync_task_progress(
                     {
                         "status": "RESUMING",
                         "completed_items": completed_count,
                         "status_message": f"৬ ঘণ্টার সেশন রিস্টার্ট হচ্ছে ({completed_count}/{total_lessons} সম্পন্ন)...",
-                    },
+                    }
                 )
                 trigger_self_continuation(task_id, payload_b64, agent_cfg)
                 return
@@ -1207,12 +1289,8 @@ async def execute_task_async(
             lesson_title = str(lesson.get("title") or f"লেকচার {idx}").strip()
             subj_name = str(lesson.get("subject_name") or task.get("subject_title") or "বিষয়").strip()
             chap_name = str(lesson.get("chapter_name") or task.get("chapter_title") or "অধ্যায়").strip()
-            teacher_obj = lesson.get("teacher") or {}
-            teacher_name = (
-                teacher_obj.get("name") if isinstance(teacher_obj, dict) else str(lesson.get("teacher_name") or "")
-            ) or "শিক্ষক"
 
-            video_url, slides = shikho_client.resolve_stream_and_slide(lesson)
+            video_url, slides, teacher_name = shikho_client.resolve_stream_and_slide(lesson)
 
             caption_base = (
                 f"🎬 **লেকচার #{idx}: {lesson_title}**\n"
@@ -1255,7 +1333,7 @@ async def execute_task_async(
                                 message_id=getattr(sent_vid, "id", 0),
                             )
                             log(f"✅ Uploaded video [{idx}/{total_lessons}]: {lesson_title}")
-                            await asyncio.sleep(12)
+                            await asyncio.sleep(10)
                     except Exception as exc:
                         log(f"⚠️ Video upload warning for {lesson_title}: {exc}")
                     finally:
@@ -1300,7 +1378,7 @@ async def execute_task_async(
                                 message_id=getattr(sent_doc, "id", 0),
                             )
                             log(f"📄 Uploaded slide [{idx}/{total_lessons}]: {slide_title}")
-                            await asyncio.sleep(6)
+                            await asyncio.sleep(5)
                     except Exception as exc:
                         log(f"⚠️ Slide upload warning for {slide_title}: {exc}")
                     finally:
@@ -1308,28 +1386,37 @@ async def execute_task_async(
                             pdf_file.unlink()
 
             completed_count = idx
-            supabase.update_task(
-                task_id,
-                {
-                    "completed_items": completed_count,
-                    "total_items": total_lessons,
-                    "status_message": f"{completed_count}/{total_lessons} টি লেকচার প্রসেস সম্পন্ন হয়েছে।",
-                },
-            )
+            if idx == 1 or idx % 3 == 0 or idx == total_lessons:
+                sync_task_progress(
+                    {
+                        "completed_items": completed_count,
+                        "total_items": total_lessons,
+                        "current_item_title": f"[{completed_count}/{total_lessons}] {lesson_title}",
+                        "status_message": f"{completed_count}/{total_lessons} টি লেকচার প্রসেস সম্পন্ন হয়েছে।",
+                    }
+                )
+            else:
+                supabase.update_task(
+                    task_id,
+                    {
+                        "completed_items": completed_count,
+                        "total_items": total_lessons,
+                        "status_message": f"{completed_count}/{total_lessons} টি লেকচার প্রসেস সম্পন্ন হয়েছে।",
+                    },
+                )
 
         final_msg = (
             f"✅ টাস্ক সম্পন্ন! মোট {total_lessons}টি লেকচার ও স্লাইড টেলিগ্রামে আপলোড করা হয়েছে।"
             + (f" চ্যানেল লিংক: {invite_link}" if invite_link else "")
         )
-        supabase.update_task(
-            task_id,
+        sync_task_progress(
             {
                 "status": "COMPLETED",
                 "completed_items": total_lessons,
                 "total_items": total_lessons,
                 "current_item_title": "সম্পন্ন ✅",
                 "status_message": final_msg,
-            },
+            }
         )
         supabase.notify_task_completion(
             title=f"✅ AI এজেন্ট টাস্ক সম্পন্ন: {task.get('title') or 'কোর্স আপলোড'}",
@@ -1374,14 +1461,14 @@ async def main_async() -> None:
     if gh_state:
         for k, v in gh_state.items():
             if v and not agent_cfg.get(k):
-                agent_cfg[k] = v
+                agent_cfg[k] = unseal_secret(str(v)) if isinstance(v, str) else v
 
     # Merge any direct credentials from payload
     if payload.get("agent_config") and isinstance(payload["agent_config"], dict):
         merged = dict(agent_cfg)
         for k, v in payload["agent_config"].items():
             if v:
-                merged[k] = v
+                merged[k] = unseal_secret(str(v)) if isinstance(v, str) else v
         agent_cfg = merged
 
     # 0. Check if this run is an interactive in-app Telegram OTP / StringSession generator request
@@ -1405,6 +1492,7 @@ async def main_async() -> None:
             task=payload["task"],
             agent_cfg=agent_cfg,
             supabase=supabase,
+            gh_bridge=gh_bridge,
             payload_b64=os.environ.get("INPUT_TASK_PAYLOAD_B64", ""),
         )
         return
@@ -1418,6 +1506,7 @@ async def main_async() -> None:
             task=task,
             agent_cfg=task_cfg or agent_cfg,
             supabase=supabase,
+            gh_bridge=gh_bridge,
             payload_b64="",
         )
 
@@ -1446,6 +1535,7 @@ async def main_async() -> None:
                     task=synthetic_task,
                     agent_cfg=sched_cfg or agent_cfg,
                     supabase=supabase,
+                    gh_bridge=gh_bridge,
                     payload_b64="",
                 )
                 supabase.update_schedule(

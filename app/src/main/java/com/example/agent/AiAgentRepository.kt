@@ -1062,14 +1062,16 @@ class AiAgentRepository(
         }
 
         try {
-            if (!gh.isWorkflowDeployed) {
-                deployAgentWorkflowToGitHub(gh)
-            }
+            // Always ensure the latest worker script & workflow are pushed before dispatching
+            runCatching { deployAgentWorkflowToGitHub(gh) }
 
             val payloadJson = JSONObject().apply {
                 put("supabase_url", supabaseUrl)
                 put("supabase_anon_key", supabaseKey)
                 put("device_hash", deviceHash)
+                put("github_pat", gh.personalAccessToken)
+                put("github_repository", "${gh.owner}/${gh.repo}")
+                put("github_branch", gh.branch.ifBlank { "main" })
                 put(
                     "agent_config",
                     JSONObject().apply {
@@ -1116,7 +1118,7 @@ class AiAgentRepository(
                 Base64.NO_WRAP
             )
 
-            val safePayloadB64 = if (payloadB64.length < 60000) {
+            val safePayloadB64 = if (payloadB64.length < 58000) {
                 payloadB64
             } else {
                 payloadJson.getJSONObject("task").remove("extra_payload_json")
@@ -1257,22 +1259,34 @@ class AiAgentRepository(
         }
 
         val bySubject = lessons.groupBy {
-            (it.subject_code ?: "GEN") to (it.subject_name ?: "সাধারণ বিষয়")
+            val codeKey = it.subject_code?.takeIf { c -> c.isNotBlank() }
+                ?: it.subject_id?.takeIf { c -> c.isNotBlank() }
+                ?: it.subject_name?.takeIf { c -> c.isNotBlank() }
+                ?: "GEN"
+            val nameKey = it.subject_name?.takeIf { n -> n.isNotBlank() } ?: "সাধারণ বিষয়"
+            codeKey to nameKey
         }
 
         var totalVideos = 0
         var totalSlides = 0
         val breakdown = bySubject.map { (subjPair, subjLessons) ->
-            val vCount = subjLessons.count {
-                it.type.equals("RECORDED", ignoreCase = true) ||
-                    it.type.equals("LIVE", ignoreCase = true) ||
-                    it.candidateStreamUrls.isNotEmpty()
-            }
-            val sCount = subjLessons.sumOf { lesson ->
+            // In Shikho's studentSpecificLessons, content_type is "LiveClass" or "RecordedClass" (non-exam)
+            val classLessons = subjLessons.filter { !it.isExam && !it.isModelTest && !it.isLiveExam }
+            val vCount = classLessons.size.coerceAtLeast(
+                subjLessons.count {
+                    it.isLiveClass ||
+                        it.content_type?.contains("Class", ignoreCase = true) == true ||
+                        it.content_type?.contains("Video", ignoreCase = true) == true ||
+                        it.candidateStreamUrls.isNotEmpty()
+                }
+            )
+            // Study materials (PDF slides & class notes) are attached per class in academicProgramLiveClass(id)
+            val directSlides = subjLessons.sumOf { lesson ->
                 val hasPrimary = if (!lesson.resolvedSlideUrl.isNullOrBlank()) 1 else 0
                 val extra = lesson.allAttachments.count { !it.downloadUrl.isNullOrBlank() }
                 maxOf(hasPrimary, extra)
             }
+            val sCount = maxOf(directSlides, vCount)
             totalVideos += vCount
             totalSlides += sCount
             SubjectInspectionItem(
@@ -1297,8 +1311,8 @@ class AiAgentRepository(
     }
 
     /**
-     * Builds a serialized JSONArray of lessons (with resolved video stream URLs and slide PDF URLs)
-     * so the GitHub Actions worker can immediately download & upload without extra round-trips.
+     * Builds a serialized JSONArray of lessons (with live_class/content_id and direct playback URLs)
+     * so the GitHub Actions worker can download & upload every video and slide accurately.
      */
     suspend fun buildBundledLessonsJson(
         programId: String,
@@ -1314,44 +1328,37 @@ class AiAgentRepository(
         }
 
         val filtered = allLessons.filter { lesson ->
+            val isClassLesson = !lesson.isExam && !lesson.isModelTest && !lesson.isLiveExam
             val matchesSubject = subjectCode.isBlank() ||
                 lesson.subject_code.equals(subjectCode, ignoreCase = true) ||
+                lesson.subject_id.equals(subjectCode, ignoreCase = true) ||
                 (lesson.subject_name?.contains(subjectCode, ignoreCase = true) == true)
             val matchesChapter = chapterId.isBlank() ||
                 lesson.chapter_id.equals(chapterId, ignoreCase = true) ||
                 (lesson.chapter_name?.contains(chapterId, ignoreCase = true) == true)
-            matchesSubject && matchesChapter
+            isClassLesson && matchesSubject && matchesChapter
         }
 
         for (lesson in filtered) {
             val streamUrl = lesson.candidateStreamUrls.firstOrNull().orEmpty()
             val slideUrl = lesson.resolvedSlideUrl.orEmpty()
-            val attachmentsArr = JSONArray()
-            lesson.allAttachments.forEach { att ->
-                val dl = att.downloadUrl
-                if (!dl.isNullOrBlank()) {
-                    attachmentsArr.put(
-                        JSONObject().apply {
-                            put("id", att.id ?: "")
-                            put("title", att.displayTitle)
-                            put("url", dl)
-                        }
-                    )
-                }
-            }
+            val liveClassId = lesson.live_class?.id?.takeIf { it.isNotBlank() }
+                ?: lesson.content_id?.takeIf { it.isNotBlank() }
+                ?: lesson.id
+
             arr.put(
                 JSONObject().apply {
                     put("id", lesson.id)
+                    put("content_id", liveClassId)
                     put("title", lesson.title ?: "লেকচার")
-                    put("type", lesson.type ?: "RECORDED")
-                    put("subject_code", lesson.subject_code ?: "")
+                    put("content_type", lesson.content_type ?: "LiveClass")
+                    put("subject_code", lesson.subject_code ?: lesson.subject_id ?: "")
                     put("subject_name", lesson.subject_name ?: "")
                     put("chapter_id", lesson.chapter_id ?: "")
                     put("chapter_name", lesson.chapter_name ?: "")
                     put("teacher_name", lesson.live_class?.teacher?.name ?: "")
-                    put("video_url", streamUrl)
-                    put("slide_url", slideUrl)
-                    put("attachments", attachmentsArr)
+                    if (streamUrl.isNotBlank()) put("video_url", streamUrl)
+                    if (slideUrl.isNotBlank()) put("slide_url", slideUrl)
                 }
             )
         }
@@ -1359,10 +1366,40 @@ class AiAgentRepository(
     }
 
     // =========================================================================
-    // 4. TASKS & 24/7 SCHEDULES STORAGE (SUPABASE + LOCAL FALLBACK)
+    // 4. TASKS & 24/7 SCHEDULES STORAGE (SUPABASE + GITHUB BRIDGE + LOCAL)
     // =========================================================================
 
     suspend fun fetchTasks(): List<AiAgentTask> = withContext(Dispatchers.IO) {
+        val localTasks = getLocalTasks().toMutableList()
+
+        // 1. Check GitHub Auth/Task State Bridge (scripts/agent_auth_state.json) for real-time task progress
+        try {
+            val ghState = readGitHubAuthState(getGitHubConfig())
+            val activeTaskObj = ghState?.optJSONObject("active_task")
+            if (activeTaskObj != null) {
+                val tId = activeTaskObj.optString("id", "")
+                if (tId.isNotBlank()) {
+                    val idx = localTasks.indexOfFirst { it.id == tId }
+                    if (idx >= 0) {
+                        val old = localTasks[idx]
+                        localTasks[idx] = old.copy(
+                            status = activeTaskObj.optString("status", old.status),
+                            completedItems = activeTaskObj.optInt("completed_items", old.completedItems),
+                            totalItems = activeTaskObj.optInt("total_items", old.totalItems),
+                            currentItemTitle = activeTaskObj.optString("current_item_title", old.currentItemTitle),
+                            statusMessage = activeTaskObj.optString("status_message", old.statusMessage),
+                            targetChatId = activeTaskObj.optString("target_chat_id", old.targetChatId),
+                            telegramInviteLink = activeTaskObj.optString("telegram_invite_link", old.telegramInviteLink),
+                            githubRunId = activeTaskObj.optString("github_run_id", old.githubRunId)
+                        )
+                        saveTasksListLocally(localTasks)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 2. Check Supabase ai_agent_tasks table if available
         val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
         if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
             try {
@@ -1388,7 +1425,7 @@ class AiAgentRepository(
                 Log.w(TAG, "fetchTasks Supabase fallback: ${e.message}")
             }
         }
-        getLocalTasks()
+        localTasks
     }
 
     suspend fun saveTaskLocallyAndSupabase(

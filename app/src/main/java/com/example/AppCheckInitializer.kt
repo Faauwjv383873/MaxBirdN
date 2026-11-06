@@ -23,31 +23,27 @@ fun configureAppCheck(context: Context, intent: Intent?) {
             FirebaseApp.initializeApp(context)
         }
 
-        if (BuildConfig.DEBUG) {
-            // 2. Debug: Read debug token from Intent extra
-            val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
+        val persistenceKey = FirebaseApp.getInstance().persistenceKey
+        val prefs = context.getSharedPreferences(
+            "$DEBUG_STORE_PREFIX$persistenceKey",
+            Context.MODE_PRIVATE
+        )
+        val intentDebugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
+        if (!intentDebugToken.isNullOrEmpty()) {
+            prefs.edit()
+                .putString(DEBUG_SECRET_KEY, intentDebugToken)
+                .commit()
+            Log.d(TAG, "App Check debug secret configured from Intent.")
+        }
+        val activeDebugToken = prefs.getString(DEBUG_SECRET_KEY, null)
 
-            if (!debugToken.isNullOrEmpty()) {
-                val persistenceKey = FirebaseApp.getInstance().persistenceKey
-                val prefs = context.getSharedPreferences(
-                    "$DEBUG_STORE_PREFIX$persistenceKey",
-                    Context.MODE_PRIVATE
-                )
-                // CRITICAL: Use synchronous commit() so the secret is written before DebugAppCheckProviderFactory reads it
-                prefs.edit()
-                    .putString(DEBUG_SECRET_KEY, debugToken)
-                    .commit()
-                Log.d(TAG, "App Check debug secret configured successfully.")
-            } else {
-                Log.w(TAG, "No debug token found in Intent extra.")
-            }
-
+        if (BuildConfig.DEBUG && !activeDebugToken.isNullOrEmpty()) {
             FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
                 DebugAppCheckProviderFactory.getInstance()
             )
             Log.d(TAG, "DebugAppCheckProviderFactory installed.")
         } else {
-            // 3. Release: Look up recaptcha_site_key safely without throwing Resources.NotFoundException
+            // Release or physical device without emulator debug token: use RecaptchaAppCheckProviderFactory
             val resId = context.resources.getIdentifier(RECAPTCHA_SITE_KEY_RES, "string", context.packageName)
             if (resId != 0) {
                 val siteKey = context.getString(resId)
