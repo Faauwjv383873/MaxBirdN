@@ -48,15 +48,18 @@ class CourseRepository(
             "None"
         } else {
             when (group?.lowercase()) {
-                "humanities", "arts", "hum" -> "Humanities"
-                "science", "sci" -> "Science"
-                "business_studies", "businessstudies", "business", "commerce", "bus" -> "BusinessStudies"
+                "humanities", "arts", "hum", "মানবিক" -> "Humanities"
+                "science", "sci", "বিজ্ঞান" -> "Science"
+                "business_studies", "businessstudies", "business", "commerce", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "BusinessStudies"
                 else -> "None"
             }
         }
 
-        val cacheKey = "$batchId-$className-$formattedGroup-$vendor"
+        val cacheKey = "${batchId.orEmpty()}-$className-$formattedGroup-$vendor"
         programCache[cacheKey]?.let { return it }
+
+        // Only send batch_id to GraphQL if it is a valid 24-hex MongoDB ObjectId (not a display label like "HSC 2028")
+        val apiBatchId = batchId?.trim()?.takeIf { it.matches(Regex("^[0-9a-fA-F]{24}$")) }
 
         val query = GraphQlQuery(
             operationName = "GetAcademicProgram",
@@ -120,14 +123,16 @@ class CourseRepository(
                 }
             """.trimIndent(),
             variables = mapOf(
-                "batch_id" to batchId,
+                "batch_id" to apiBatchId,
                 "className" to className,
                 "group" to formattedGroup,
                 "vendor" to vendor
             )
         )
         val response = apiService.getAcademicProgram(query)
-        if (response.data?.listAcademicProgramByEnrollment?.enrolled_programs?.isNotEmpty() == true) {
+        val hasPrograms = !response.data?.listAcademicProgramByEnrollment?.enrolled_programs.isNullOrEmpty() ||
+                !response.data?.listAcademicProgramByEnrollment?.other_programs.isNullOrEmpty()
+        if (hasPrograms) {
             programCache[cacheKey] = response
         }
         return response

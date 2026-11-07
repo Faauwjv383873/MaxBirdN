@@ -80,3 +80,97 @@ fun pickDefaultBatch(
 
     return options.firstOrNull()
 }
+
+/**
+ * বাংলা ডিজিট (০-৯) -> ইংরেজি ডিজিট (0-9) এবং বিভিন্ন apostrophe ক্যারেক্টারকে সাধারণ `'` তে রূপান্তর করে।
+ */
+fun normalizeDigitsAndQuotes(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    val sb = StringBuilder(raw.length)
+    for (ch in raw) {
+        when (ch) {
+            in '০'..'৯' -> sb.append(('0'.code + (ch.code - '০'.code)).toChar())
+            '’', '‘', '`', '´', '′', 'ʼ' -> sb.append('\'')
+            else -> sb.append(ch)
+        }
+    }
+    return sb.toString()
+}
+
+/**
+ * কোর্সের টাইটেল থেকে পরীক্ষার সাল (যেমন: "2028", "2027", "2026", "2025") বের করে।
+ * যেমন:
+ *  - "HSC '28 মানবিক" -> "2028"
+ *  - "লক্ষ্য জিপিএ-৫ HSC ’26 মানবিক - রিভিশন + মডেল টেস্ট" -> "2026"
+ *  - "HSC '27 মানবিক - ২য় বর্ষ প্রস্তুতি" -> "2027"
+ *  - "এইচএসসি ২৮" / "SSC '27" -> "2028" / "2027"
+ *  - "Think AI" (সাল নেই) -> null
+ */
+fun extractCourseExamYear(titleBn: String?): String? {
+    if (titleBn.isNullOrBlank()) return null
+    val normalized = normalizeDigitsAndQuotes(titleBn)
+
+    // 1. Explicit 4-digit year (e.g., 2025, 2026, 2027, 2028, 2029, 2030)
+    val fourDigitMatch = Regex("(?<!\\d)(202[4-9]|203[0-2])(?!\\d)").find(normalized)
+    if (fourDigitMatch != null) {
+        return fourDigitMatch.groupValues[1]
+    }
+
+    // 2. Exam prefix + 2-digit year (e.g., HSC '28, HSC 28, এইচএসসি ২৮, SSC '27, ব্যাচ ২৮)
+    val examPrefixMatch = Regex(
+        "(?i)(?:HSC|SSC|এইচএসসি|এসএসসি|ব্যাচ|Batch)[\\s\\-:']*?(2[4-9]|3[0-2])(?!\\d)"
+    ).find(normalized)
+    if (examPrefixMatch != null) {
+        return "20${examPrefixMatch.groupValues[1]}"
+    }
+
+    // 3. Apostrophe + 2-digit year anywhere in title (e.g., '26, '27, '28)
+    val shortQuoteMatch = Regex("'(2[4-9]|3[0-2])(?!\\d)").find(normalized)
+    if (shortQuoteMatch != null) {
+        return "20${shortQuoteMatch.groupValues[1]}"
+    }
+
+    return null
+}
+
+/**
+ * ইউজারের সেভ করা passingYear বা batchId থেকে ৪ সংখ্যার পরীক্ষার সাল (যেমন "2028") বের করে।
+ */
+fun resolveSelectedExamYear(passingYear: String?, batchId: String?): String? {
+    val normPassing = normalizeDigitsAndQuotes(passingYear).trim()
+    if (normPassing.matches(Regex("20[23]\\d"))) {
+        return normPassing
+    }
+    if (normPassing.matches(Regex("[23]\\d"))) {
+        return "20$normPassing"
+    }
+    return extractCourseExamYear(batchId)
+}
+
+/**
+ * ইউজারের নির্বাচিত পরীক্ষার সাল (যেমন "2028") অনুযায়ী কোর্স ফিল্টার ও সাজিয়ে দেয়:
+ *  - যেসব কোর্সে অন্য কোনো সাল (যেমন '26 বা '27) স্পষ্টভাবে লেখা আছে সেগুলো বাদ দেয়।
+ *  - নির্বাচিত সালের ('28 / 2028) কোর্সগুলো সবার উপরে রাখে এবং সালবিহীন সাধারণ কোর্স (যেমন Think AI) পরে রাখে।
+ */
+fun <T> filterProgramsByExamYear(
+    programs: List<T>,
+    selectedYear: String?,
+    titleSelector: (T) -> String?
+): List<T> {
+    val cleanYear = resolveSelectedExamYear(selectedYear, null)
+    if (cleanYear.isNullOrBlank() || programs.isEmpty()) return programs
+
+    val exactMatches = mutableListOf<T>()
+    val yearNeutral = mutableListOf<T>()
+
+    for (prog in programs) {
+        val courseYear = extractCourseExamYear(titleSelector(prog))
+        when {
+            courseYear == cleanYear -> exactMatches.add(prog)
+            courseYear == null -> yearNeutral.add(prog)
+            // courseYear != cleanYear (e.g. '26 or '27 when user selected 2028) -> excluded!
+        }
+    }
+
+    return exactMatches + yearNeutral
+}

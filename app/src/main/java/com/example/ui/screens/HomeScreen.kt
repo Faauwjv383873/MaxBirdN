@@ -194,7 +194,7 @@ fun HomeScreen(
     }
 
     // ===== LOGIC: Subtitle formatting (unchanged) =====
-    val subtitle = remember(uiState.userClass, uiState.userGroup, uiState.userSchool) {
+    val subtitle = remember(uiState.userClass, uiState.userGroup, uiState.userPassingYear, uiState.userSchool) {
         val classDisplay = when (uiState.userClass) {
             "C11", "Class 11" -> "একাদশ শ্রেণি"
             "C12", "Class 12" -> "দ্বাদশ শ্রেণি"
@@ -203,12 +203,16 @@ fun HomeScreen(
             else -> uiState.userClass.ifBlank { "একাদশ শ্রেণি" }
         }
         val groupDisplay = when (uiState.userGroup.lowercase()) {
-            "humanities", "humanities_group" -> "মানবিক"
-            "science", "science_group" -> "বিজ্ঞান"
-            "business", "business_studies", "commerce" -> "ব্যবসায় শিক্ষা"
+            "humanities", "humanities_group", "hum" -> "মানবিক"
+            "science", "science_group", "sci" -> "বিজ্ঞান"
+            "business", "business_studies", "businessstudies", "commerce", "bus" -> "ব্যবসায় শিক্ষা"
+            "none" -> ""
             else -> uiState.userGroup.ifBlank { "" }
         }
-        listOf(classDisplay, groupDisplay, uiState.userSchool)
+        val yearDisplay = uiState.userPassingYear.trim().takeIf { it.isNotBlank() }?.let {
+            "${toBengaliDigits(it)} ব্যাচ"
+        } ?: ""
+        listOf(classDisplay, groupDisplay, yearDisplay, uiState.userSchool)
             .filter { it.isNotBlank() }
             .joinToString(" • ")
             .ifBlank { "এইচএসসি শিক্ষার্থী" }

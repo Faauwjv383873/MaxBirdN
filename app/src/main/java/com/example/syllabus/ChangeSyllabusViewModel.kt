@@ -272,12 +272,6 @@ class ChangeSyllabusViewModel(
             _uiState.value = state.copy(errorMessage = "অনুগ্রহ করে সকল তথ্য সঠিকভাবে নির্বাচন করো")
             return
         }
-        if (state.isSameAsCurrent) {
-            _uiState.value = state.copy(
-                errorMessage = "তুমি ইতিমধ্যে এই সিলেবাসেই আছো। ভিন্ন কিছু নির্বাচন করো।"
-            )
-            return
-        }
         _uiState.value = state.copy(showConfirmBottomSheet = true, errorMessage = null)
     }
 
@@ -286,14 +280,15 @@ class ChangeSyllabusViewModel(
     }
 
     /**
-     * Steps 3 & 4: ChangeSyllabus mutation + token update + UpdateExamYear +
-     * save academic info + restart
+     * Steps 3 & 4: UpdateExamYear + ChangeSyllabus mutation + token refresh +
+     * clear caches + save academic info + restart
      */
     fun applySyllabusChange(context: Context) {
         val state = _uiState.value
         val selectedClass = state.selectedClass ?: return
         val selectedGroup = state.selectedGroup
         val selectedBatch = state.selectedBatch
+        val passingYear = normalizeDigitsAndQuotes(selectedBatch?.yearString).trim()
 
         viewModelScope.launch {
             _uiState.value = state.copy(
@@ -303,7 +298,30 @@ class ChangeSyllabusViewModel(
             )
 
             try {
-                // ===== Study group enum resolution =====
+                // ===== 1) Pre-update passing_year before ChangeSyllabus so new token gets the right year =====
+                if (passingYear.isNotBlank()) {
+                    try {
+                        val preUpdateExamQuery = GraphQlQuery(
+                            operationName = "UpdateExamYear",
+                            query = """
+                                mutation UpdateExamYear(${'$'}passing_year: String, ${'$'}type: PrimaryUserTypeEnum!) {
+                                  updateProfile(passing_year: ${'$'}passing_year, type: ${'$'}type) {
+                                    passing_year
+                                  }
+                                }
+                            """.trimIndent(),
+                            variables = mapOf(
+                                "passing_year" to passingYear,
+                                "type" to "student"
+                            )
+                        )
+                        apiService.updateExamYear(preUpdateExamQuery)
+                    } catch (_: Exception) {
+                        // Proceed to ChangeSyllabus; we will also update after ChangeSyllabus
+                    }
+                }
+
+                // ===== 2) Study group enum resolution & ChangeSyllabus mutation =====
                 val candidates: List<String?> =
                     if (selectedClass.isGroupRequired && selectedGroup != null) {
                         val normalized = normalizeStudyGroup(selectedGroup.code)
@@ -334,24 +352,27 @@ class ChangeSyllabusViewModel(
                         )
 
                         val changeResponse = apiService.changeSyllabus(changeSyllabusQuery)
-                        tokenPayload = changeResponse.data?.changeSyllabus
-                        successfulEnumVal = candidate
-                        lastException = null
-                        break
+                        val payload = changeResponse.data?.changeSyllabus
+                        if (!payload?.access_token.isNullOrBlank()) {
+                            tokenPayload = payload
+                            successfulEnumVal = candidate
+                            lastException = null
+                            break
+                        } else if (!changeResponse.errors.isNullOrEmpty()) {
+                            val errMsg = changeResponse.errors.mapNotNull { it.message }.joinToString(", ")
+                            lastException = Exception(errMsg.ifBlank { "ChangeSyllabus returned error" })
+                        }
                     } catch (e: retrofit2.HttpException) {
                         lastException = e
-                        // FIX #5: শুধু 400 (bad enum) হলে next candidate try করব,
-                        // অন্য HTTP error (401/500/etc) হলে সাথে সাথে fail
                         if (e.code() != 400) throw e
                     }
-                    // Network exception / timeout → propagate (mask করা হবে না)
                 }
 
                 if (tokenPayload == null && lastException != null) {
                     throw lastException!!
                 }
 
-                // ===== 2) Token update =====
+                // ===== 3) Save new tokens from ChangeSyllabus =====
                 tokenPayload?.let { payload ->
                     if (!payload.access_token.isNullOrBlank()) {
                         sessionManager.updateAuthTokens(
@@ -362,8 +383,7 @@ class ChangeSyllabusViewModel(
                     }
                 }
 
-                // ===== 3) UpdateExamYear mutation =====
-                val passingYear = selectedBatch?.yearString.orEmpty()
+                // ===== 4) Re-apply UpdateExamYear (in case ChangeSyllabus reset passing_year) & Refresh JWT =====
                 if (passingYear.isNotBlank()) {
                     try {
                         val updateExamQuery = GraphQlQuery(
@@ -381,12 +401,26 @@ class ChangeSyllabusViewModel(
                             )
                         )
                         apiService.updateExamYear(updateExamQuery)
+
+                        // Refresh JWT so access_token's embedded meta.passing_year is updated to the new year (e.g. "2028")
+                        val currentRefreshToken = sessionManager.getRefreshToken()
+                        if (!currentRefreshToken.isNullOrBlank()) {
+                            val refreshed = apiService.refreshToken(RefreshTokenRequest(token = currentRefreshToken))
+                            val newAccess = refreshed.tokens?.access_token
+                            if (!newAccess.isNullOrBlank()) {
+                                sessionManager.updateAuthTokens(
+                                    accessToken = newAccess,
+                                    refreshToken = refreshed.tokens.refresh_token ?: currentRefreshToken,
+                                    idToken = tokenPayload?.id_token
+                                )
+                            }
+                        }
                     } catch (_: Exception) {
-                        // non-fatal — token already updated, exam year failed চুপচাপ ignore
+                        // non-fatal — token already updated
                     }
                 }
 
-                // ===== 4) Local persistence =====
+                // ===== 5) Local persistence & Cache invalidation =====
                 val effectiveBatchId = when {
                     selectedClass.code.equals("C11", true) && passingYear.isNotBlank() -> "HSC $passingYear"
                     selectedClass.code.equals("C12", true) && passingYear.isNotBlank() -> "HSC $passingYear"
@@ -408,7 +442,6 @@ class ChangeSyllabusViewModel(
                     lastName = "",
                     avatar = sessionManager.getUserAvatar(),
                     schoolName = sessionManager.getUserSchoolName(),
-                    // FIX #4: Settings-এর সাথে consistent বাংলা ordinal নাম
                     classDisplay = selectedClass.bengaliClassName(),
                     phone = sessionManager.getUserPhone()
                 )
@@ -416,13 +449,15 @@ class ChangeSyllabusViewModel(
                 com.example.notification.ClassAlarmScheduler.cancelAllAlarms(context)
                 com.example.notification.ShikhoNotificationManager.unsubscribeActiveCourseTopics(context)
                 sessionManager.clearActiveProgram()
+                com.example.course.CourseRepository.clearCache()
+                com.example.course.LessonCacheManager.clear()
 
                 _uiState.value = _uiState.value.copy(
                     isSubmitting = false,
                     isSuccess = true
                 )
 
-                // ===== 5) Proper restart =====
+                // ===== 6) Proper restart =====
                 restartApp(context)
 
             } catch (e: Exception) {

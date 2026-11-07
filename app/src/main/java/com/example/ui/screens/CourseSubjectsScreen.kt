@@ -389,8 +389,41 @@ private fun MyCoursesListView(
                         }
                     }
                     Spacer(modifier = Modifier.height(2.dp))
+                    val contextForSyllabus = LocalContext.current
+                    val syllabusTag = remember(enrolled.size, other.size) {
+                        val sm = SessionManager(contextForSyllabus)
+                        val cls = sm.getUserClassDisplay() ?: when (sm.getUserClassName()?.uppercase()) {
+                            "C11" -> "একাদশ শ্রেণি"
+                            "C12" -> "দ্বাদশ শ্রেণি"
+                            "C10" -> "দশম শ্রেণি"
+                            "C9", "C09" -> "নবম শ্রেণি"
+                            "C8", "C08" -> "অষ্টম শ্রেণি"
+                            "C7", "C07" -> "সপ্তম শ্রেণি"
+                            "C6", "C06" -> "ষষ্ঠ শ্রেণি"
+                            "C5", "C05" -> "পঞ্চম শ্রেণি"
+                            else -> sm.getUserClassName().orEmpty()
+                        }
+                        val grp = when (sm.getUserGroup()?.lowercase()) {
+                            "humanities", "hum", "মানবিক" -> "মানবিক"
+                            "science", "sci", "বিজ্ঞান" -> "বিজ্ঞান"
+                            "businessstudies", "business_studies", "business", "commerce", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "ব্যবসায় শিক্ষা"
+                            "none", "" -> ""
+                            else -> sm.getUserGroup().orEmpty()
+                        }
+                        val yr = com.example.syllabus.resolveSelectedExamYear(
+                            passingYear = sm.getAcademicPassingYear(),
+                            batchId = sm.getUserBatchId()
+                        )?.let { "${toBengaliDigits(it)} ব্যাচ" }.orEmpty()
+                        listOf(cls, grp, yr).filter { it.isNotBlank() }.joinToString(" • ")
+                    }
                     Text(
-                        text = if (enrolled.isEmpty()) "নিচের কোর্সগুলো থেকে এক্সেস নিয়ে ক্লাস শুরু করো" else "চলমান শিক্ষাবর্ষ ও ভর্তি হওয়া কোর্সসমূহ",
+                        text = if (syllabusTag.isNotBlank()) {
+                            "$syllabusTag • চলমান শিক্ষাবর্ষের কোর্সসমূহ"
+                        } else if (enrolled.isEmpty()) {
+                            "নিচের কোর্সগুলো থেকে এক্সেস নিয়ে ক্লাস শুরু করো"
+                        } else {
+                            "চলমান শিক্ষাবর্ষ ও ভর্তি হওয়া কোর্সসমূহ"
+                        },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

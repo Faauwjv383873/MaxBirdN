@@ -610,7 +610,7 @@ class CourseViewModel(
                         if (uid.isNotBlank()) {
                             val profileQuery = GraphQlQuery(
                                 operationName = "GetProfile",
-                                query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar study_group class { code display } school { id name } user { phone email } } }",
+                                query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar study_group passing_year class { code display } school { id name } user { phone email } } }",
                                 variables = mapOf("user_id" to uid, "type" to "student")
                             )
                             val profResp = apiService.getProfile(profileQuery)
@@ -624,13 +624,17 @@ class CourseViewModel(
 
                 val commerceSnapshot = CourseCommerceRepository.fetchCourseCommerceStatus(sessionManager.appContext)
 
-                val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
+                val selectedExamYear = com.example.syllabus.resolveSelectedExamYear(
+                    passingYear = sessionManager.getAcademicPassingYear(),
+                    batchId = sessionManager.getUserBatchId()
+                )
+                val batchCacheKey = selectedExamYear ?: sessionManager.getUserBatchId()
                 val userClassName = sessionManager.getUserClassName() ?: "C11"
                 val group = sessionManager.getUserGroup() ?: "Humanities"
                 val vendor = sessionManager.getUserVendor() ?: "BD"
 
                 val response = repository.getAcademicProgramByEnrollment(
-                    batchId = batchId,
+                    batchId = batchCacheKey,
                     className = userClassName,
                     group = group,
                     vendor = vendor
@@ -638,8 +642,8 @@ class CourseViewModel(
                 val rawEnrolled = response.data?.listAcademicProgramByEnrollment?.enrolled_programs ?: emptyList()
                 val rawOtherAll = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
 
-                val allCombinedEnrolled = (rawEnrolled + rawOtherAll.map { it.toEnrolledProgram() }).distinctBy { it.id }
-                val allCombinedOther = (rawOtherAll + rawEnrolled.map {
+                val unfilteredCombinedEnrolled = (rawEnrolled + rawOtherAll.map { it.toEnrolledProgram() }).distinctBy { it.id }
+                val unfilteredCombinedOther = (rawOtherAll + rawEnrolled.map {
                     OtherProgram(
                         id = it.id,
                         classes = it.classes,
@@ -650,6 +654,18 @@ class CourseViewModel(
                         trial_enabled = it.trial_enabled
                     )
                 }).distinctBy { it.id }
+
+                // ইউজারের নির্বাচিত পরীক্ষার সাল (যেমন HSC 2028) অনুযায়ী কোর্স ফিল্টার করা — যাতে পুরনো 26 বা 27 ব্যাচের কোর্স না দেখায়
+                val allCombinedEnrolled = com.example.syllabus.filterProgramsByExamYear(
+                    programs = unfilteredCombinedEnrolled,
+                    selectedYear = selectedExamYear,
+                    titleSelector = { it.title_bn }
+                )
+                val allCombinedOther = com.example.syllabus.filterProgramsByExamYear(
+                    programs = unfilteredCombinedOther,
+                    selectedYear = selectedExamYear,
+                    titleSelector = { it.title_bn }
+                )
 
                 // মূল Shikho সার্ভারের ডাটাবেজে যেসব কোর্সে এই নাম্বারটি ইতিমধ্যে যুক্ত আছে (enrolled_programs)
                 val rawEnrolledIds = rawEnrolled.map { it.id }.toSet()
@@ -708,9 +724,13 @@ class CourseViewModel(
                 _uiState.update { current ->
                     val userClassName = sessionManager.getUserClassName() ?: "C11"
                     val group = sessionManager.getUserGroup() ?: "Humanities"
+                    val selectedExamYear = com.example.syllabus.resolveSelectedExamYear(
+                        passingYear = sessionManager.getAcademicPassingYear(),
+                        batchId = sessionManager.getUserBatchId()
+                    )
 
                     if (current.enrolledPrograms.isEmpty() && current.otherPrograms.isEmpty()) {
-                        val fbEnrolled = CourseFallbackDataProvider.getFallbackEnrolledPrograms(userClassName, group)
+                        val fbEnrolled = CourseFallbackDataProvider.getFallbackEnrolledPrograms(userClassName, group, selectedExamYear)
                         val fbFree = CourseFallbackDataProvider.getFallbackFreePrograms(userClassName, group)
                         val fbOther = CourseFallbackDataProvider.getFallbackOtherPrograms(userClassName, group)
                         val allFbEnrolled = (fbEnrolled + fbFree.map { it.toEnrolledProgram() } + fbOther.map { it.toEnrolledProgram() }).distinctBy { it.id }

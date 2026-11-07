@@ -9,7 +9,11 @@ import com.example.api.OtherProgram
  */
 object CourseFallbackDataProvider {
 
-    fun getFallbackEnrolledPrograms(className: String, group: String): List<EnrolledProgram> {
+    fun getFallbackEnrolledPrograms(
+        className: String,
+        group: String,
+        passingYear: String? = null
+    ): List<EnrolledProgram> {
         val displayClass = when (className.uppercase()) {
             "C9", "CLASS 9", "C09" -> "নবম শ্রেণি"
             "C10", "CLASS 10" -> "দশম শ্রেণি"
@@ -18,24 +22,25 @@ object CourseFallbackDataProvider {
             else -> "এইচএসসি"
         }
 
+        val shortYear = passingYear?.trim()?.takeLast(2)?.takeIf { it.matches(Regex("\\d{2}")) }
         val examYear = when (className.uppercase()) {
-            "C9", "C09" -> "SSC '28"
-            "C10" -> "SSC '27"
-            "C11" -> "HSC '27"
-            "C12" -> "HSC '26"
-            else -> "HSC"
+            "C9", "C09" -> "SSC '${shortYear ?: "28"}"
+            "C10" -> "SSC '${shortYear ?: "27"}"
+            "C11" -> "HSC '${shortYear ?: "27"}"
+            "C12" -> "HSC '${shortYear ?: "26"}"
+            else -> if (shortYear != null) "HSC '$shortYear" else "HSC"
         }
 
         val displayGroup = when (group.lowercase()) {
-            "humanities", "humanities_group" -> "মানবিক"
-            "science", "science_group" -> "বিজ্ঞান"
-            "business", "business_studies", "commerce", "businessstudies" -> "ব্যবসায় শিক্ষা"
+            "humanities", "humanities_group", "hum", "মানবিক" -> "মানবিক"
+            "science", "science_group", "sci", "বিজ্ঞান" -> "বিজ্ঞান"
+            "business", "business_studies", "commerce", "businessstudies", "bus", "ব্যবসায় শিক্ষা", "ব্যবসায় শিক্ষা" -> "ব্যবসায় শিক্ষা"
             else -> "মানবিক"
         }
 
         return listOf(
             EnrolledProgram(
-                id = "fallback-ep-1-${className}-${group}",
+                id = "fallback-ep-1-${className}-${group}-${shortYear ?: "default"}",
                 classes = listOf(className),
                 title_bn = "$displayClass - $examYear ($displayGroup) বার্ষিক পরীক্ষা প্রস্তুতি",
                 banner_url = "https://res.cloudinary.com/cross-border-education-technologies-pte-ltd/image/upload/v1751437593/hftof9ha6mequpiqpkbh.jpg",

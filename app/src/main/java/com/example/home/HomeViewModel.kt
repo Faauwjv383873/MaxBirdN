@@ -31,6 +31,7 @@ data class HomeUiState(
     val userAvatar: String? = null,
     val userClass: String = "",
     val userGroup: String = "",
+    val userPassingYear: String = "",
     val userSchool: String = "",
     val isPremium: Boolean = false,
     val errorMessage: String? = null,
@@ -91,6 +92,10 @@ class HomeViewModel(
             userAvatar = sessionManager.getUserAvatar(),
             userClass = sessionManager.getUserClassDisplay() ?: sessionManager.getUserClassName() ?: "একাদশ শ্রেণি",
             userGroup = sessionManager.getUserGroup() ?: "মানবিক",
+            userPassingYear = com.example.syllabus.resolveSelectedExamYear(
+                passingYear = sessionManager.getAcademicPassingYear(),
+                batchId = sessionManager.getUserBatchId()
+            ) ?: "",
             userSchool = sessionManager.getUserSchoolName() ?: ""
         )
     )
@@ -462,7 +467,7 @@ class HomeViewModel(
             val userId = sessionManager.getUserId() ?: ""
             val profileQuery = GraphQlQuery(
                 operationName = "GetProfile",
-                query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar gender dob study_group class { code display } school { id name } user { phone email } } }",
+                query = "query GetProfile(\$user_id: String, \$type: String!) { profile(user_id: \$user_id, type: \$type) { id first_name last_name avatar gender dob study_group passing_year class { code display } school { id name } user { phone email } } }",
                 variables = mapOf(
                     "user_id" to userId,
                     "type" to "student"
@@ -485,10 +490,27 @@ class HomeViewModel(
                     else -> "শিক্ষার্থী"
                 }
 
-                val currentBatchId = sessionManager.getUserBatchId() ?: "HSC 2027"
-                val effectiveClass = profile.`class`?.code ?: sessionManager.getUserClassName() ?: "C11"
-                val effectiveGroup = profile.study_group ?: sessionManager.getUserGroup() ?: "Humanities"
-                val effectiveClassDisplay = profile.`class`?.display ?: classCodeToBengaliName(effectiveClass)
+                // Prefer locally chosen class/group/passingYear if already set by ChangeSyllabus, fallback to server profile
+                val storedClass = sessionManager.getUserClassName()?.takeIf { it.isNotBlank() }
+                val storedGroup = sessionManager.getUserGroup()?.takeIf { it.isNotBlank() }
+                val storedPassingYear = com.example.syllabus.resolveSelectedExamYear(
+                    passingYear = sessionManager.getAcademicPassingYear(),
+                    batchId = sessionManager.getUserBatchId()
+                )
+
+                val effectiveClass = storedClass ?: profile.`class`?.code ?: "C11"
+                val effectiveGroup = storedGroup ?: profile.study_group ?: "Humanities"
+                val effectivePassingYear = storedPassingYear
+                    ?: com.example.syllabus.resolveSelectedExamYear(profile.passing_year, null)
+                val effectiveClassDisplay = classCodeToBengaliName(effectiveClass)
+
+                val currentBatchId = when {
+                    effectiveClass.equals("C11", true) && !effectivePassingYear.isNullOrBlank() -> "HSC $effectivePassingYear"
+                    effectiveClass.equals("C12", true) && !effectivePassingYear.isNullOrBlank() -> "HSC $effectivePassingYear"
+                    effectiveClass.equals("C10", true) && !effectivePassingYear.isNullOrBlank() -> "SSC $effectivePassingYear"
+                    effectiveClass.equals("C9", true) && !effectivePassingYear.isNullOrBlank() -> "SSC $effectivePassingYear"
+                    else -> sessionManager.getUserBatchId() ?: effectivePassingYear ?: "HSC 2027"
+                }
 
                 sessionManager.saveUserProfile(
                     firstName = firstName.ifBlank { first },
@@ -503,7 +525,7 @@ class HomeViewModel(
                     className = effectiveClass,
                     group = effectiveGroup,
                     vendor = "BD",
-                    passingYear = sessionManager.getAcademicPassingYear()
+                    passingYear = effectivePassingYear
                 )
 
                 _uiState.value = _uiState.value.copy(
@@ -513,6 +535,7 @@ class HomeViewModel(
                     userAvatar = profile.avatar,
                     userClass = effectiveClassDisplay,
                     userGroup = effectiveGroup,
+                    userPassingYear = effectivePassingYear.orEmpty(),
                     userSchool = profile.school?.name ?: ""
                 )
             }
@@ -524,8 +547,11 @@ class HomeViewModel(
     private suspend fun fetchAcademicPrograms() {
         val className = sessionManager.getUserClassName() ?: "C11"
         val group = sessionManager.getUserGroup() ?: "Humanities"
-        val batchId = sessionManager.getActiveProgramBatchId() ?: sessionManager.getUserBatchId()
         val vendor = sessionManager.getUserVendor() ?: "BD"
+        val selectedExamYear = com.example.syllabus.resolveSelectedExamYear(
+            passingYear = sessionManager.getAcademicPassingYear(),
+            batchId = sessionManager.getUserBatchId()
+        )
 
         try {
             val response = apiService.getAcademicProgram(
@@ -546,7 +572,7 @@ class HomeViewModel(
                         }
                     """.trimIndent(),
                     variables = mapOf(
-                        "batch_id" to batchId,
+                        "batch_id" to null,
                         "className" to className,
                         "group" to (if (className.uppercase() in listOf("C5", "C6", "C7", "C8", "C05", "C06", "C07", "C08")) "None" else when(group.lowercase()) {
                             "humanities", "arts", "hum", "মানবিক" -> "Humanities"
@@ -563,7 +589,14 @@ class HomeViewModel(
             val others = response.data?.listAcademicProgramByEnrollment?.other_programs ?: emptyList()
 
             val promotedOthers = others.map { it.toEnrolledProgram() }
-            val unfilteredAllPrograms = (enrolled + promotedOthers).distinctBy { it.id }
+            val rawCombinedPrograms = (enrolled + promotedOthers).distinctBy { it.id }
+
+            // ইউজারের নির্বাচিত পরীক্ষার সাল (যেমন HSC 2028) অনুযায়ী কোর্স ফিল্টার করা — যাতে পুরনো 26 বা 27 ব্যাচের কোর্স হোমে সিলেক্ট না হয়
+            val unfilteredAllPrograms = com.example.syllabus.filterProgramsByExamYear(
+                programs = rawCombinedPrograms,
+                selectedYear = selectedExamYear,
+                titleSelector = { it.title_bn }
+            )
 
             // Fetch student's real-time course purchase & installment status from Supabase
             val commerceSnapshot = com.example.course.CourseCommerceRepository.fetchCourseCommerceStatus(getApplication())
