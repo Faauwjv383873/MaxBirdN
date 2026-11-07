@@ -17,8 +17,10 @@ on:
     # Runs automatically every hour 24/7 to execute scheduled routines & resume queued uploads
     - cron: "0 * * * *"
 
+# CRITICAL: Single repository-wide concurrency lock so two GitHub Actions VMs
+# NEVER use the same Telegram StringSession under two different IP addresses simultaneously!
 concurrency:
-  group: maxbird-ai-agent-worker-${{ github.event.inputs.task_id || 'scheduled' }}
+  group: maxbird-single-telegram-session-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -49,16 +51,22 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python & Dependencies
+      - name: Cache Python Packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-maxbird-agent-v3
+
+      - name: Set up Python & Dependencies (Ultra-Fast)
         run: |
           if [[ "${INPUT_TASK_ID}" == tg_* ]]; then
-            echo "⚡ Fast Telegram OTP Auth Mode (3s startup)..."
-            pip3 install --quiet telethon requests
+            echo "⚡ Fast Telegram OTP Auth Mode..."
+            pip3 install --quiet telethon cryptg requests
           else
-            sudo apt-get update -y
-            sudo apt-get install -y ffmpeg aria2
-            python3 -m pip install --upgrade pip
-            pip3 install telethon cryptg yt-dlp requests aiohttp
+            if ! command -v ffmpeg &> /dev/null; then
+              sudo apt-get update -y && sudo apt-get install -y ffmpeg
+            fi
+            pip3 install --quiet telethon cryptg yt-dlp requests aiohttp
           fi
 
       - name: Execute Autonomous AI Agent Worker

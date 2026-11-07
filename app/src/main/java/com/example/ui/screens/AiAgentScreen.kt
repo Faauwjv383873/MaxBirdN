@@ -1,14 +1,39 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,10 +44,67 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircleFilled
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,339 +112,500 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.agent.*
-import com.example.security.DeviceActivationRepository
-import com.example.ui.theme.isAppInDarkTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.agent.AgentBrainState
+import com.example.agent.AgentPlayableLesson
+import com.example.agent.AiAgentChatMessage
+import com.example.agent.AiAgentSchedule
+import com.example.agent.AiAgentTask
+import com.example.agent.AiAgentUiState
+import com.example.agent.AiAgentViewModel
+import com.example.agent.AiChatSession
+import com.example.agent.DEFAULT_TELEGRAM_API_HASH
+import com.example.agent.DEFAULT_TELEGRAM_API_ID
+import com.example.agent.GitHubRepoSummary
+import com.example.agent.ProposedAgentPlan
+import com.example.agent.TelegramDialogDestination
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiAgentScreen(
     viewModel: AiAgentViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onPlayVideo: (url: String, title: String, subject: String) -> Unit = { _, _, _ -> },
+    onOpenPdf: (url: String, title: String, subject: String) -> Unit = { _, _, _ -> }
 ) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val isDark = isAppInDarkTheme()
-    val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    var canViewProfile by remember {
-        mutableStateOf(DeviceActivationRepository.isProfileViewPermissionCached(context))
-    }
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    var promptInput by rememberSaveable { mutableStateOf("") }
-    var showCoursePickerSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
+    var settingsInitialSection by rememberSaveable { mutableIntStateOf(0) } // 0 = Accounts, 1 = Tasks & 24/7 Routines
+    var lessonForTelegramSheet by remember { mutableStateOf<AgentPlayableLesson?>(null) }
 
-    LaunchedEffect(Unit) {
-        val verified = DeviceActivationRepository.checkProfileViewPermission(context, forceRefresh = true)
-        canViewProfile = verified
-    }
-
-    val pageBg = if (isDark) Color(0xFF060B16) else Color(0xFFF8FAFC)
-    val cardBg = if (isDark) Color(0xFF111A2E) else Color.White
-    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-
-    // Strict Permission Gate: Only users with Profile View Permission can view or use the AI Agent
-    if (!canViewProfile) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("অ্যাক্সেস সংরক্ষিত", fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "ফিরে যান")
-                        }
-                    }
-                )
-            },
-            containerColor = pageBg
-        ) { pad ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(pad)
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Card(
-                    shape = RoundedCornerShape(22.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "শুধুমাত্র অনুমোদিত প্রোফাইল ভিউ পারমিশন ব্যবহারকারীদের জন্য",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = primaryText
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "এই AI Autonomous Agent অপশনটি শুধুমাত্র যাদের প্রোফাইল ভিউ পারমিশন (can_view_profiles) চালু আছে তাদের জন্য সংরক্ষিত।",
-                            fontSize = 13.sp,
-                            color = secondaryText
-                        )
-                    }
-                }
-            }
+    // Auto-launch video player if the user asked the AI Agent to play a video right now
+    LaunchedEffect(state.pendingAutoPlayLesson) {
+        val pending = state.pendingAutoPlayLesson
+        if (pending != null && pending.videoUrl.isNotBlank()) {
+            viewModel.clearPendingAutoPlayLesson()
+            onPlayVideo(pending.videoUrl, pending.title, pending.subjectTitle)
         }
-        return
     }
 
-    Scaffold(
-        topBar = {
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            GeminiSessionDrawerContent(
+                state = state,
+                onNewChat = {
+                    viewModel.startNewChatSession()
+                    scope.launch { drawerState.close() }
+                },
+                onSelectSession = { sessionId ->
+                    viewModel.selectChatSession(sessionId)
+                    scope.launch { drawerState.close() }
+                },
+                onDeleteSession = { sessionId ->
+                    viewModel.deleteChatSession(sessionId)
+                },
+                onOpenAccountsSheet = {
+                    settingsInitialSection = 0
+                    showSettingsSheet = true
+                    scope.launch { drawerState.close() }
+                },
+                onOpenTasksSheet = {
+                    settingsInitialSection = 1
+                    showSettingsSheet = true
+                    scope.launch { drawerState.close() }
+                }
+            )
+        }
+    ) {
+        Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            topBar = {
+                GeminiUnifiedTopBar(
+                    state = state,
+                    onBack = onBack,
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onNewChat = { viewModel.startNewChatSession() },
+                    onOpenAccounts = {
+                        settingsInitialSection = 0
+                        showSettingsSheet = true
+                    },
+                    onOpenTasks = {
+                        settingsInitialSection = 1
+                        showSettingsSheet = true
+                    },
+                    onSelectProgram = { id, title -> viewModel.selectProgramForAgent(id, title) },
+                    onSelectQuarter = { phaseId, phaseTitle -> viewModel.selectQuarterFilter(phaseId, phaseTitle) },
+                    onSelectSubject = { code, title -> viewModel.selectSubjectFilter(code, title) }
+                )
+            }
+        ) { innerPadding ->
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF0F172A))
-                        )
-                    )
-                    .statusBarsPadding()
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(MaterialTheme.colorScheme.background)
             ) {
-                // Header Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("ai_agent_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "ফিরে যান",
-                            tint = Color.White
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF8B5CF6), Color(0xFF06B6D4))
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "MaxBird AI Agent",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = Color(0xFF10B981).copy(alpha = 0.22f),
-                                border = BorderStroke(1.dp, Color(0xFF34D399).copy(alpha = 0.6f))
-                            ) {
-                                Text(
-                                    text = "24/7 Cloud",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF6EE7B7),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            text = "GitHub Actions • Telegram Userbot • Gemini 3.8",
-                            fontSize = 11.sp,
-                            color = Color(0xFFCBD5E1),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { viewModel.refreshTasksAndSchedules() },
-                        modifier = Modifier.testTag("ai_agent_refresh_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "রিফ্রেশ",
-                            tint = Color(0xFF38BDF8)
-                        )
-                    }
-                }
-
-                // Connected Extensions Status Strip & Active Course Selector
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Active Course Chip
+                // Alert banner if Telegram session was revoked/expired
+                if (state.telegramConfig.authState == "SESSION_EXPIRED") {
                     Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color(0xFF38BDF8).copy(alpha = 0.16f),
-                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { showCoursePickerSheet = true }
-                            .testTag("ai_agent_course_selector_chip")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.School,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = uiState.selectedProgramTitle.ifBlank { "কোর্স সিলেক্ট করুন" },
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    }
-
-                    // GitHub Status Chip
-                    ExtensionStatusPill(
-                        label = if (uiState.githubConfig.isVerified) {
-                            "GitHub: ${uiState.githubConfig.repo.ifBlank { uiState.githubConfig.connectedUsername }}"
-                        } else {
-                            "GitHub কানেক্ট করুন"
-                        },
-                        isConnected = uiState.githubConfig.isVerified,
-                        onClick = { selectedTab = 3 }
-                    )
-
-                    // Telegram Status Chip
-                    ExtensionStatusPill(
-                        label = if (uiState.telegramConfig.isConnected) {
-                            "Telegram: কানেক্টেড"
-                        } else {
-                            "Telegram কানেক্ট করুন"
-                        },
-                        isConnected = uiState.telegramConfig.isConnected,
-                        onClick = { selectedTab = 3 }
-                    )
-                }
-
-                // 4 Navigation Tabs
-                val tabs = listOf(
-                    "💬 AI চ্যাট" to Icons.Default.Chat,
-                    "⚡ টাস্ক (${uiState.tasks.size})" to Icons.Default.Bolt,
-                    "⏰ ২৪/৭ রুটিন (${uiState.schedules.count { it.isEnabled }})" to Icons.Default.Schedule,
-                    "🔌 একাউন্টস" to Icons.Default.Extension
-                )
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    edgePadding = 12.dp,
-                    divider = {}
-                ) {
-                    tabs.forEachIndexed { index, (title, icon) ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            modifier = Modifier.testTag("ai_agent_tab_$index"),
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Text(
-                                        text = title,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = if (selectedTab == index) FontWeight.ExtraBold else FontWeight.Medium
-                                    )
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        },
-        containerColor = pageBg
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            // Optional status banner
-            AnimatedVisibility(visible = !uiState.statusBannerMessage.isNullOrBlank()) {
-                uiState.statusBannerMessage?.let { msg ->
-                    Surface(
-                        color = Color(0xFF1E293B),
-                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                        color = Color(0xFF7F1D1D),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(12.dp)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .clickable {
+                                settingsInitialSection = 0
+                                showSettingsSheet = true
+                            }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WarningAmber,
+                                contentDescription = "Session Expired",
+                                tint = Color(0xFFFCA5A5),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "টেলিগ্রাম সেশনটি পুনরায় কানেক্ট করুন",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "একাধিক রানের কারণে আগের সেশনটি বাতিল হয়েছিল। এখন সিঙ্গেল-আইপি লক যুক্ত করা হয়েছে—১ বার ওটিপি দিলেই আর কখনো নষ্ট হবে না।",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFFECACA)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = Color(0xFFEF4444),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "কানেক্ট",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Status Banner if present
+                AnimatedVisibility(
+                    visible = !state.statusBannerMessage.isNullOrBlank(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Surface(
+                        color = Color(0xFF1E293B),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = msg,
-                                fontSize = 12.sp,
+                                text = state.statusBannerMessage.orEmpty(),
                                 color = Color.White,
+                                fontSize = 12.sp,
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(
                                 onClick = { viewModel.clearBannerMessage() },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.Close,
+                                    imageVector = Icons.Default.Close,
                                     contentDescription = "বন্ধ করুন",
-                                    tint = Color.White,
+                                    tint = Color.White.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Live Collapsible Active Task Status Bar inside the unified chat view
+                val activeOrLatestTask = state.tasks.firstOrNull {
+                    it.status.uppercase() in setOf("RUNNING", "QUEUED", "RESUMING")
+                } ?: state.tasks.firstOrNull()
+
+                if (activeOrLatestTask != null) {
+                    LiveTaskCompactBanner(
+                        task = activeOrLatestTask,
+                        activeRunsCount = state.workflowRuns.count { it.status == "in_progress" || it.status == "queued" },
+                        onOpenTelegramLink = { link ->
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                            } catch (_: Exception) {
+                            }
+                        },
+                        onRetryTask = { viewModel.retryOrResumeTask(activeOrLatestTask) },
+                        onOpenAllTasks = {
+                            settingsInitialSection = 1
+                            showSettingsSheet = true
+                        }
+                    )
+                }
+
+                // Loading indicator when resolving video/slide URLs
+                if (state.isResolvingLessonMedia) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color(0xFF38BDF8)
+                    )
+                }
+
+                // Main Unified Gemini Chat Workspace
+                GeminiChatWorkspace(
+                    state = state,
+                    onSendPrompt = { viewModel.sendPromptToAgent(it) },
+                    onExecutePlan = { plan -> viewModel.executeProposedPlan(plan) },
+                    onPlayLessonVideo = { lesson ->
+                        viewModel.resolveAndPlayLesson(lesson) { resolved ->
+                            if (resolved.videoUrl.isNotBlank()) {
+                                onPlayVideo(resolved.videoUrl, resolved.title, resolved.subjectTitle)
+                            } else if (resolved.slideUrl.isNotBlank()) {
+                                onOpenPdf(resolved.slideUrl, resolved.title, resolved.subjectTitle)
+                            }
+                        }
+                    },
+                    onOpenLessonSlide = { lesson ->
+                        viewModel.resolveAndPlayLesson(lesson) { resolved ->
+                            if (resolved.slideUrl.isNotBlank()) {
+                                onOpenPdf(resolved.slideUrl, resolved.title, resolved.subjectTitle)
+                            } else if (resolved.videoUrl.isNotBlank()) {
+                                onPlayVideo(resolved.videoUrl, resolved.title, resolved.subjectTitle)
+                            }
+                        }
+                    },
+                    onSendLessonToTelegram = { lesson ->
+                        lessonForTelegramSheet = lesson
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+
+    // Bottom sheet for sending a specific lesson from chat to any Telegram Channel/Group/Topic
+    if (lessonForTelegramSheet != null) {
+        val targetLesson = lessonForTelegramSheet!!
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { lessonForTelegramSheet = null },
+            sheetState = sheetState,
+            containerColor = Color(0xFF0F172A)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                InteractiveConfirmationPlanCard(
+                    plan = ProposedAgentPlan(
+                        actionType = "START_UPLOAD_TASK",
+                        taskTitle = "${targetLesson.subjectTitle} • ${targetLesson.title}",
+                        programId = state.selectedProgramId,
+                        programTitle = state.selectedProgramTitle,
+                        phaseId = targetLesson.phaseId,
+                        phaseTitle = targetLesson.phaseTitle,
+                        subjectCode = targetLesson.subjectCode,
+                        subjectTitle = targetLesson.subjectTitle,
+                        chapterId = targetLesson.chapterId,
+                        chapterTitle = targetLesson.chapterTitle,
+                        specificLessonIds = listOf(targetLesson.id),
+                        targetChannelTitle = "${state.selectedProgramTitle} — ${targetLesson.subjectTitle}",
+                        estimatedVideos = 1,
+                        estimatedSlides = 1
+                    ),
+                    dialogs = state.telegramConfig.dialogs,
+                    isDispatching = state.isDispatchingTask,
+                    onConfirmPlan = { confirmedPlan ->
+                        viewModel.executeProposedPlan(confirmedPlan)
+                        lessonForTelegramSheet = null
+                    }
+                )
+            }
+        }
+    }
+
+    // Unified Settings & Tasks Bottom Sheet (Accounts + Tasks + 24/7 Schedules)
+    if (showSettingsSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showSettingsSheet = false },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            AgentSettingsAndTasksSheetContent(
+                state = state,
+                initialSection = settingsInitialSection,
+                onConnectGitHub = { token, owner, repo, branch ->
+                    viewModel.connectAndVerifyGitHub(token, owner, repo, branch)
+                },
+                onSelectRepo = { repo -> viewModel.selectGitHubRepository(repo) },
+                onDeployWorkflow = { viewModel.deployWorkflowToGitHubRepo() },
+                onRequestTelegramOtp = { apiId, apiHash, phone, twoFa ->
+                    viewModel.requestTelegramOtpCode(apiId, apiHash, phone, twoFa)
+                },
+                onVerifyTelegramOtp = { otp, twoFa ->
+                    viewModel.verifyTelegramOtpAndCreateSession(otp, twoFa)
+                },
+                onSaveTelegram = { apiId, apiHash, phone, sessionStr, botTok, chatId, displayName ->
+                    viewModel.saveTelegramAccountConfig(apiId, apiHash, phone, sessionStr, botTok, chatId, displayName)
+                },
+                onRetryTask = { viewModel.retryOrResumeTask(it) },
+                onCancelRun = { viewModel.cancelRunningWorkflow(it) },
+                onToggleSchedule = { sched, enabled -> viewModel.toggleSchedule(sched, enabled) },
+                onDeleteSchedule = { viewModel.deleteSchedule(it) },
+                onClose = { showSettingsSheet = false }
+            )
+        }
+    }
+}
+
+// =============================================================================
+// GEMINI-STYLE MULTI-SESSION NAVIGATION DRAWER
+// =============================================================================
+
+@Composable
+private fun GeminiSessionDrawerContent(
+    state: AiAgentUiState,
+    onNewChat: () -> Unit,
+    onSelectSession: (String) -> Unit,
+    onDeleteSession: (String) -> Unit,
+    onOpenAccountsSheet: () -> Unit,
+    onOpenTasksSheet: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
+
+    ModalDrawerSheet(
+        modifier = Modifier.width(310.dp),
+        drawerContainerColor = Color(0xFF0F172A),
+        drawerContentColor = Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(16.dp)
+        ) {
+            // Brand Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF6366F1), Color(0xFFEC4899), Color(0xFF06B6D4))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "MaxBird Gemini",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 17.sp,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Gemini 3.8 Flash • চ্যাট হিস্ট্রি",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // New Chat Button (Gemini Style)
+            Button(
+                onClick = onNewChat,
+                shape = RoundedCornerShape(24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("drawer_new_chat_button")
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "নতুন চ্যাট শুরু করুন",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "সাম্প্রতিক সেশনসমূহ (${state.chatSessions.size})",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = Color(0xFF94A3B8)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Session List
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(state.chatSessions, key = { it.id }) { session: AiChatSession ->
+                    val isSelected = session.id == state.activeSessionId
+                    Surface(
+                        color = if (isSelected) Color(0xFF1E293B) else Color.Transparent,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.06f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { onSelectSession(session.id) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = if (isSelected) Color(0xFF818CF8) else Color(0xFF64748B),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = session.title.ifBlank { "নতুন চ্যাট" },
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${session.messages.size} মেসেজ • ${dateFormat.format(Date(session.updatedAt))}",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF94A3B8),
+                                    maxLines = 1
+                                )
+                            }
+                            IconButton(
+                                onClick = { onDeleteSession(session.id) },
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .testTag("delete_session_${session.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "সেশন ডিলিট করুন",
+                                    tint = Color(0xFFF87171),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -371,572 +614,652 @@ fun AiAgentScreen(
                 }
             }
 
-            when (selectedTab) {
-                0 -> AiAgentChatTab(
-                    uiState = uiState,
-                    promptInput = promptInput,
-                    onPromptChange = { promptInput = it },
-                    onSendPrompt = {
-                        val toSend = promptInput
-                        promptInput = ""
-                        viewModel.sendPromptToAgent(toSend)
-                    },
-                    onQuickPrompt = { quick ->
-                        viewModel.sendPromptToAgent(quick)
-                    },
-                    onSubjectSelect = { code, title ->
-                        viewModel.selectSubjectFilter(code, title)
-                    },
-                    onExecutePlan = { plan ->
-                        viewModel.executeProposedPlan(plan)
-                        selectedTab = 1
-                    },
-                    isDark = isDark
-                )
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 10.dp))
 
-                1 -> AiAgentTasksTab(
-                    uiState = uiState,
-                    onRetryOrResume = { viewModel.retryOrResumeTask(it) },
-                    onCancelRun = { viewModel.cancelRunningWorkflow(it) },
-                    onOpenUrl = { url ->
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        }
-                    },
-                    isDark = isDark
-                )
+            // Quick Bottom Actions in Drawer
+            Surface(
+                color = Color(0xFF1E293B),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenTasksSheet() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "চলমান টাস্ক (${state.tasks.size}) ও ২৪/৭ রুটিন (${state.schedules.size})",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
 
-                2 -> AiAgentSchedulesTab(
-                    uiState = uiState,
-                    onToggleSchedule = { sched, enabled -> viewModel.toggleSchedule(sched, enabled) },
-                    onDeleteSchedule = { id -> viewModel.deleteSchedule(id) },
-                    onCreateQuickDailySchedule = {
-                        val plan = ProposedAgentPlan(
-                            actionType = "CREATE_SCHEDULE",
-                            taskTitle = "${uiState.selectedProgramTitle} — দৈনিক অটো আপলোড",
-                            programId = uiState.selectedProgramId,
-                            programTitle = uiState.selectedProgramTitle,
-                            subjectCode = uiState.selectedSubjectCode,
-                            subjectTitle = uiState.selectedSubjectTitle,
-                            targetChannelTitle = uiState.selectedProgramTitle,
-                            targetChatId = uiState.telegramConfig.defaultChatId,
-                            scheduleTimeBn = "প্রতিদিন সকাল ০৮:০০",
-                            cronExpression = "0 2 * * *"
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Surface(
+                color = Color(0xFF1E293B),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenAccountsSheet() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "GitHub ও Telegram একাউন্ট সেটিংস",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = Color.White
                         )
-                        viewModel.executeProposedPlan(plan)
-                    },
-                    isDark = isDark
-                )
-
-                3 -> AiAgentExtensionsTab(
-                    uiState = uiState,
-                    onSaveGitHub = { token, owner, repo, branch ->
-                        viewModel.connectAndVerifyGitHub(token, owner, repo, branch)
-                    },
-                    onSelectRepo = { repo ->
-                        viewModel.selectGitHubRepository(repo)
-                    },
-                    onDeployGitHubWorkflow = {
-                        viewModel.deployWorkflowToGitHubRepo()
-                    },
-                    onRequestTelegramOtp = { apiId, apiHash, phone, twoFaPassword ->
-                        viewModel.requestTelegramOtpCode(apiId, apiHash, phone, twoFaPassword)
-                    },
-                    onVerifyTelegramOtp = { otpCode, twoFaPassword ->
-                        viewModel.verifyTelegramOtpAndCreateSession(otpCode, twoFaPassword)
-                    },
-                    onSaveTelegram = { apiId, apiHash, phone, sessionStr, botToken, chatId, displayName ->
-                        viewModel.saveTelegramAccountConfig(
-                            apiId = apiId,
-                            apiHash = apiHash,
-                            phone = phone,
-                            sessionString = sessionStr,
-                            botToken = botToken,
-                            defaultChatId = chatId,
-                            accountDisplayName = displayName
+                        Text(
+                            text = "GitHub: ${if (state.githubConfig.isVerified) "যুক্ত ✅" else "বাকি"} • Telegram: ${if (state.telegramConfig.isConnected) "যুক্ত ✅" else "বাকি"}",
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8)
                         )
-                    },
-                    isDark = isDark
-                )
+                    }
+                }
             }
         }
     }
+}
 
-    // Course Selector Bottom Sheet
-    if (showCoursePickerSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showCoursePickerSheet = false },
-            containerColor = cardBg
+// =============================================================================
+// UNIFIED GEMINI TOP BAR WITH COURSE, 5+ QUARTERS & SUBJECT FILTERS
+// =============================================================================
+
+@Composable
+private fun GeminiUnifiedTopBar(
+    state: AiAgentUiState,
+    onBack: () -> Unit,
+    onOpenDrawer: () -> Unit,
+    onNewChat: () -> Unit,
+    onOpenAccounts: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onSelectProgram: (String, String) -> Unit,
+    onSelectQuarter: (String, String) -> Unit,
+    onSelectSubject: (String, String) -> Unit
+) {
+    var showCourseDropdown by remember { mutableStateOf(false) }
+    var showFiltersExpanded by rememberSaveable { mutableStateOf(true) }
+
+    Surface(
+        color = Color(0xFF0F172A),
+        shadowElevation = 6.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            // Top Row: Back + Drawer Menu + Title + Gemini 3.8 Flash Badge + New Chat + Settings
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "AI এজেন্টের জন্য কোর্স নির্বাচন করুন",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = primaryText
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                if (uiState.enrolledPrograms.isEmpty()) {
-                    Text(
-                        text = "বর্তমানে সক্রিয় কোর্স: ${uiState.selectedProgramTitle}",
-                        fontSize = 14.sp,
-                        color = secondaryText,
-                        modifier = Modifier.padding(vertical = 12.dp)
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("ai_agent_back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "ফিরে যান",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
-                } else {
-                    uiState.enrolledPrograms.forEach { prog ->
-                        val isSelected = prog.id == uiState.selectedProgramId
+                }
+
+                IconButton(
+                    onClick = onOpenDrawer,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("ai_agent_drawer_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "চ্যাট হিস্ট্রি মেনু",
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "MaxBird AI",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.15f) else Color.Transparent,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFF8B5CF6) else secondaryText.copy(alpha = 0.25f)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable {
-                                    viewModel.selectProgramForAgent(prog.id, prog.title_bn ?: "কোর্স")
-                                    showCoursePickerSheet = false
-                                }
+                            color = Color(0xFF312E81),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.border(1.dp, Color(0xFF818CF8), RoundedCornerShape(50))
                         ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Text(
+                                text = "Gemini 3.8 Flash",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC7D2FE),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    val inspect = state.activeInspection
+                    Text(
+                        text = if (state.isInspectingCourse) {
+                            "কোর্সের সকল কোয়ার্টার স্ক্যান হচ্ছে..."
+                        } else if (inspect != null) {
+                            "${inspect.quarters.size.coerceAtLeast(1)}টি কোয়ার্টার • ${inspect.videoLessonsCount} ভিডিও • ${inspect.slideAttachmentsCount} স্লাইড"
+                        } else {
+                            state.selectedProgramTitle
+                        },
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // New Chat Quick Button
+                IconButton(
+                    onClick = onNewChat,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("top_new_chat_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "নতুন চ্যাট",
+                        tint = Color.White
+                    )
+                }
+
+                // Tasks Badge Button
+                IconButton(
+                    onClick = onOpenTasks,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = "টাস্ক ও রুটিন",
+                            tint = Color(0xFF38BDF8)
+                        )
+                        if (state.tasks.isNotEmpty()) {
+                            Badge(
+                                containerColor = Color(0xFF10B981),
+                                modifier = Modifier.align(Alignment.TopEnd)
                             ) {
-                                Icon(
-                                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.School,
-                                    contentDescription = null,
-                                    tint = if (isSelected) Color(0xFF8B5CF6) else secondaryText
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = prog.title_bn ?: prog.id,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = primaryText
-                                )
+                                Text(text = "${state.tasks.size}", fontSize = 8.sp, color = Color.White)
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+
+                // Accounts & Setup Button
+                IconButton(
+                    onClick = onOpenAccounts,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("top_accounts_settings_button")
+                ) {
+                    val bothConnected = state.githubConfig.isVerified && state.telegramConfig.isConnected
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "একাউন্টস সেটিংস",
+                        tint = if (bothConnected) Color(0xFF34D399) else Color(0xFFFBBF24)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Second Row: Course Selector + Connection Status Pills + Expand/Collapse Filters
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box {
+                    Surface(
+                        color = Color(0xFF1E293B),
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.45f), RoundedCornerShape(50))
+                            .clickable { showCourseDropdown = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.School,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = state.selectedProgramTitle.ifBlank { "কোর্স নির্বাচন" },
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showCourseDropdown,
+                        onDismissRequest = { showCourseDropdown = false }
+                    ) {
+                        state.enrolledPrograms.forEach { prog ->
+                            val progTitle = prog.title_bn ?: prog.id
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = progTitle,
+                                        fontSize = 13.sp
+                                    )
+                                },
+                                onClick = {
+                                    showCourseDropdown = false
+                                    onSelectProgram(prog.id, progTitle)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                StatusPillChip(
+                    label = if (state.githubConfig.isVerified) "GitHub: ${state.githubConfig.repo.ifBlank { "যুক্ত" }}" else "GitHub কানেক্ট",
+                    isConnected = state.githubConfig.isVerified,
+                    onClick = onOpenAccounts
+                )
+
+                StatusPillChip(
+                    label = when {
+                        state.telegramConfig.authState == "SESSION_EXPIRED" -> "Telegram: পুনরায় কানেক্ট করুন"
+                        state.telegramConfig.isConnected -> "Telegram: যুক্ত (${state.telegramConfig.dialogs.size} চ্যানেল)"
+                        else -> "Telegram কানেক্ট"
+                    },
+                    isConnected = state.telegramConfig.isConnected,
+                    onClick = onOpenAccounts
+                )
+
+                Surface(
+                    color = Color(0xFF1E293B),
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.clickable { showFiltersExpanded = !showFiltersExpanded }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (showFiltersExpanded) "ফিল্টার লুকান" else "কোয়ার্টার ও বিষয়",
+                            fontSize = 10.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+                        Icon(
+                            imageVector = if (showFiltersExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = Color(0xFFCBD5E1),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
+            // Expandable Multi-Quarter (কোয়ার্টার ১, ২, ৩, ৪, ৫) & Subject Filter Rows
+            AnimatedVisibility(visible = showFiltersExpanded && state.activeInspection != null) {
+                val inspection = state.activeInspection
+                if (inspection != null) {
+                    Column(modifier = Modifier.padding(top = 6.dp)) {
+                        // Quarters Row (if course has multiple quarters/phases)
+                        if (inspection.quarters.size > 1) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                QuarterChip(
+                                    title = "সব কোয়ার্টার (${inspection.quarters.size})",
+                                    selected = state.selectedPhaseId.isBlank(),
+                                    onClick = { onSelectQuarter("", "সব কোয়ার্টার") }
+                                )
+                                inspection.quarters.forEach { q ->
+                                    QuarterChip(
+                                        title = "${q.phaseTitle} (${q.videosCount}V)",
+                                        selected = state.selectedPhaseId == q.phaseId,
+                                        onClick = { onSelectQuarter(q.phaseId, q.phaseTitle) }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        // Subjects Row
+                        if (inspection.subjectBreakdown.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                QuarterChip(
+                                    title = "সব বিষয় (${inspection.totalLessonsCount})",
+                                    selected = state.selectedSubjectCode.isBlank(),
+                                    onClick = { onSelectSubject("", "") }
+                                )
+                                inspection.subjectBreakdown.forEach { sub ->
+                                    QuarterChip(
+                                        title = "${sub.subjectTitle} (${sub.videosCount}V/${sub.slidesCount}S)",
+                                        selected = state.selectedSubjectCode == sub.subjectCode,
+                                        onClick = { onSelectSubject(sub.subjectCode, sub.subjectTitle) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ExtensionStatusPill(
+private fun QuarterChip(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (selected) Color(0xFF4F46E5) else Color(0xFF1E293B),
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .border(
+                1.dp,
+                if (selected) Color(0xFF818CF8) else Color.White.copy(alpha = 0.12f),
+                RoundedCornerShape(50)
+            )
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            text = title,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = Color.White,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun StatusPillChip(
     label: String,
     isConnected: Boolean,
     onClick: () -> Unit
 ) {
-    val color = if (isConnected) Color(0xFF10B981) else Color(0xFFF59E0B)
+    val bgColor = if (isConnected) Color(0xFF064E3B) else Color(0xFF3B2F1E)
+    val borderColor = if (isConnected) Color(0xFF10B981) else Color(0xFFF59E0B)
+    val dotColor = if (isConnected) Color(0xFF34D399) else Color(0xFFFBBF24)
+
     Surface(
+        color = bgColor.copy(alpha = 0.78f),
         shape = RoundedCornerShape(50),
-        color = color.copy(alpha = 0.16f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.55f)),
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .border(1.dp, borderColor.copy(alpha = 0.65f), RoundedCornerShape(50))
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
                     .size(7.dp)
                     .clip(CircleShape)
-                    .background(color)
+                    .background(dotColor)
             )
+            Spacer(modifier = Modifier.width(5.dp))
             Text(
                 text = label,
+                color = Color.White,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+                fontWeight = FontWeight.Medium
             )
         }
     }
 }
 
+// =============================================================================
+// LIVE COMPACT TASK BANNER IN UNIFIED CHAT VIEW
+// =============================================================================
+
 @Composable
-private fun AiAgentChatTab(
-    uiState: AiAgentUiState,
-    promptInput: String,
-    onPromptChange: (String) -> Unit,
-    onSendPrompt: () -> Unit,
-    onQuickPrompt: (String) -> Unit,
-    onSubjectSelect: (String, String) -> Unit,
-    onExecutePlan: (ProposedAgentPlan) -> Unit,
-    isDark: Boolean
+private fun LiveTaskCompactBanner(
+    task: AiAgentTask,
+    activeRunsCount: Int,
+    onOpenTelegramLink: (String) -> Unit,
+    onRetryTask: () -> Unit,
+    onOpenAllTasks: () -> Unit
 ) {
-    val listState = rememberLazyListState()
-    val cardBg = if (isDark) Color(0xFF111A2E) else Color.White
-    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val isRunning = task.status.uppercase() in setOf("RUNNING", "QUEUED", "RESUMING") || activeRunsCount > 0
+    val isCompleted = task.status.equals("COMPLETED", ignoreCase = true)
+    val progress = if (task.totalItems > 0) {
+        (task.completedItems.toFloat() / task.totalItems.toFloat()).coerceIn(0f, 1f)
+    } else 0f
 
-    LaunchedEffect(uiState.messages.size) {
-        if (uiState.messages.isNotEmpty()) {
-            listState.animateScrollToItem(uiState.messages.size - 1)
-        }
-    }
+    Surface(
+        color = if (isCompleted) Color(0xFF064E3B) else Color(0xFF1E1B4B),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .border(
+                1.dp,
+                if (isCompleted) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF6366F1).copy(alpha = 0.5f),
+                RoundedCornerShape(14.dp)
+            )
+            .clickable { expanded = !expanded }
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isRunning && !isCompleted) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Color(0xFF38BDF8)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF34D399),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${task.title} (${task.completedItems}/${task.totalItems})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = Color(0xFF38BDF8)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Course Inspection Summary Bar
-        uiState.activeInspection?.let { summary ->
-            Surface(
-                color = if (isDark) Color(0xFF0F172A) else Color(0xFFEFF6FF),
-                border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.3f)),
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Column(modifier = Modifier.padding(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(50)),
+                color = if (isCompleted) Color(0xFF10B981) else Color(0xFF38BDF8),
+                trackColor = Color.White.copy(alpha = 0.15f)
+            )
+
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    if (task.statusMessage.isNotBlank()) {
                         Text(
-                            text = "📚 ${summary.programTitle}",
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = primaryText,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "🎬 ${summary.videoLessonsCount} ভিডিও • 📄 ${summary.slideAttachmentsCount} স্লাইড",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF8B5CF6)
+                            text = task.statusMessage,
+                            fontSize = 11.sp,
+                            color = Color(0xFFE2E8F0)
                         )
                     }
-
-                    if (summary.subjectBreakdown.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            FilterChip(
-                                selected = uiState.selectedSubjectCode.isBlank(),
-                                onClick = { onSubjectSelect("", "") },
-                                label = { Text("সব বিষয় (${summary.totalLessonsCount})", fontSize = 11.sp) }
-                            )
-                            summary.subjectBreakdown.forEach { sub ->
-                                FilterChip(
-                                    selected = uiState.selectedSubjectCode == sub.subjectCode,
-                                    onClick = { onSubjectSelect(sub.subjectCode, sub.subjectTitle) },
-                                    label = {
-                                        Text(
-                                            "${sub.subjectTitle} (${sub.videosCount}V/${sub.slidesCount}S)",
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                )
+                    if (task.currentItemTitle.isNotBlank()) {
+                        Text(
+                            text = "চলমান: ${task.currentItemTitle}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF93C5FD)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (task.telegramInviteLink.isNotBlank()) {
+                            Button(
+                                onClick = { onOpenTelegramLink(task.telegramInviteLink) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("চ্যানেল ওপেন", fontSize = 11.sp)
                             }
+                        }
+                        OutlinedButton(
+                            onClick = onRetryTask,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("রিস্টার্ট", fontSize = 11.sp, color = Color.White)
+                        }
+                        OutlinedButton(
+                            onClick = onOpenAllTasks,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Text("সব লগ দেখুন", fontSize = 11.sp, color = Color.White)
                         }
                     }
                 }
             }
         }
+    }
+}
 
+// =============================================================================
+// GEMINI UNIFIED CHAT WORKSPACE (CODE BLOCKS + VIDEO CARDS + INTERACTIVE PLAN)
+// =============================================================================
+
+@Composable
+private fun GeminiChatWorkspace(
+    state: AiAgentUiState,
+    onSendPrompt: (String) -> Unit,
+    onExecutePlan: (ProposedAgentPlan) -> Unit,
+    onPlayLessonVideo: (AgentPlayableLesson) -> Unit,
+    onOpenLessonSlide: (AgentPlayableLesson) -> Unit,
+    onSendLessonToTelegram: (AgentPlayableLesson) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var inputText by rememberSaveable { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.isNotEmpty()) {
+            listState.animateScrollToItem(state.messages.size - 1)
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+            .navigationBarsPadding()
+    ) {
         // Chat Messages List
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 10.dp)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(uiState.messages, key = { it.id }) { msg ->
-                val isUser = msg.role == "user"
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(
-                            topStart = 18.dp,
-                            topEnd = 18.dp,
-                            bottomStart = if (isUser) 18.dp else 4.dp,
-                            bottomEnd = if (isUser) 4.dp else 18.dp
-                        ),
-                        color = when {
-                            isUser -> Color(0xFF4F46E5)
-                            msg.isError -> Color(0xFF7F1D1D)
-                            else -> cardBg
-                        },
-                        border = if (!isUser) {
-                            BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f))
-                        } else null,
-                        modifier = Modifier.widthIn(max = 340.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            if (msg.isStreaming) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color(0xFF38BDF8)
-                                    )
-                                    Text(
-                                        text = msg.text,
-                                        fontSize = 13.5.sp,
-                                        color = primaryText
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    text = msg.text,
-                                    fontSize = 13.8.sp,
-                                    color = if (isUser || msg.isError) Color.White else primaryText,
-                                    lineHeight = 20.sp
-                                )
-                            }
-
-                            // Interactive Plan Execution Card inside AI response
-                            msg.proposedPlan?.let { plan ->
-                                val dialogs = uiState.telegramConfig.dialogs
-                                var selectedDialog by remember(plan, dialogs) {
-                                    mutableStateOf(dialogs.firstOrNull { it.id == plan.targetChatId })
-                                }
-                                var selectedTopic by remember(selectedDialog) {
-                                    mutableStateOf<TelegramForumTopic?>(null)
-                                }
-                                var createNewMode by remember(plan) {
-                                    mutableStateOf(plan.targetChatId.isBlank() || plan.createNewChannel)
-                                }
-                                var showDialogSelector by remember { mutableStateOf(false) }
-
-                                val curDialog = selectedDialog
-                                val curTopic = selectedTopic
-
-                                val effectivePlan = remember(plan, curDialog, curTopic, createNewMode) {
-                                    if (!createNewMode && curDialog != null) {
-                                        plan.copy(
-                                            createNewChannel = false,
-                                            targetChatId = curDialog.id,
-                                            targetChannelTitle = curDialog.title,
-                                            targetTopicId = curTopic?.id ?: 0,
-                                            targetTopicTitle = curTopic?.title ?: ""
-                                        )
-                                    } else {
-                                        plan.copy(
-                                            createNewChannel = true,
-                                            targetTopicId = 0,
-                                            targetTopicTitle = ""
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isDark) Color(0xFF090F1E) else Color(0xFFF1F5F9),
-                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.AutoAwesomeMotion,
-                                                contentDescription = null,
-                                                tint = Color(0xFF10B981),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Text(
-                                                text = "প্রস্তুতকৃত অ্যাকশন প্ল্যান",
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = Color(0xFF10B981)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        val destDisplay = if (!createNewMode && curDialog != null) {
-                                            buildString {
-                                                append(curDialog.title)
-                                                if (curTopic != null) {
-                                                    append(" ➔ টপিক: ${curTopic.title}")
-                                                }
-                                            }
-                                        } else {
-                                            "${plan.targetChannelTitle} (নতুন চ্যানেল)"
-                                        }
-                                        Text(
-                                            text = "• টাস্ক: ${plan.taskTitle}\n" +
-                                                "• গন্তব্য চ্যানেল/গ্রুপ: $destDisplay\n" +
-                                                "• কন্টেন্ট: ${if (plan.includeVideos) "ভিডিও (${plan.videoQuality})" else ""} ${if (plan.includeSlides) "+ লেকচার স্লাইড (PDF)" else ""}\n" +
-                                                "• আনুমানিক আইটেম: ${plan.estimatedVideos}টি ভিডিও ও ${plan.estimatedSlides}টি স্লাইড",
-                                            fontSize = 12.sp,
-                                            color = secondaryText,
-                                            lineHeight = 18.sp
-                                        )
-
-                                        if (dialogs.isNotEmpty() && plan.actionType != "CREATE_TELEGRAM_CHANNEL") {
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            OutlinedButton(
-                                                onClick = { showDialogSelector = !showDialogSelector },
-                                                shape = RoundedCornerShape(10.dp),
-                                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Campaign,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFF38BDF8),
-                                                    modifier = Modifier.size(15.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = if (showDialogSelector) {
-                                                        "চ্যানেল / গ্রুপ তালিকা লুকান"
-                                                    } else {
-                                                        "চ্যানেল / গ্রুপ / টপিক পরিবর্তন করুন (${dialogs.size}টি)"
-                                                    },
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFF38BDF8)
-                                                )
-                                            }
-
-                                            AnimatedVisibility(visible = showDialogSelector) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(top = 8.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                        FilterChip(
-                                                            selected = !createNewMode,
-                                                            onClick = {
-                                                                createNewMode = false
-                                                                if (selectedDialog == null) {
-                                                                    selectedDialog = dialogs.firstOrNull()
-                                                                }
-                                                            },
-                                                            label = { Text("আমার চ্যানেল/গ্রুপ", fontSize = 11.sp) }
-                                                        )
-                                                        FilterChip(
-                                                            selected = createNewMode,
-                                                            onClick = { createNewMode = true },
-                                                            label = { Text("নতুন চ্যানেল খুলুন", fontSize = 11.sp) }
-                                                        )
-                                                    }
-
-                                                    if (!createNewMode) {
-                                                        dialogs.take(12).forEach { dlg ->
-                                                            val isSel = selectedDialog?.id == dlg.id
-                                                            Surface(
-                                                                shape = RoundedCornerShape(10.dp),
-                                                                color = if (isSel) Color(0xFF0EA5E9).copy(alpha = 0.18f) else Color.Transparent,
-                                                                border = BorderStroke(
-                                                                    1.dp,
-                                                                    if (isSel) Color(0xFF38BDF8) else secondaryText.copy(alpha = 0.25f)
-                                                                ),
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .clip(RoundedCornerShape(10.dp))
-                                                                    .clickable {
-                                                                        selectedDialog = dlg
-                                                                        selectedTopic = dlg.topics.firstOrNull()
-                                                                    }
-                                                            ) {
-                                                                Column(modifier = Modifier.padding(8.dp)) {
-                                                                    Text(
-                                                                        text = "${if (dlg.isChannel) "📢" else "👥"} ${dlg.title}",
-                                                                        fontSize = 12.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = primaryText
-                                                                    )
-                                                                    if (isSel && dlg.topics.isNotEmpty()) {
-                                                                        Spacer(modifier = Modifier.height(6.dp))
-                                                                        Row(
-                                                                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                                        ) {
-                                                                            FilterChip(
-                                                                                selected = selectedTopic == null,
-                                                                                onClick = { selectedTopic = null },
-                                                                                label = { Text("মূল গ্রুপ", fontSize = 10.5.sp) }
-                                                                            )
-                                                                            dlg.topics.forEach { top ->
-                                                                                FilterChip(
-                                                                                    selected = selectedTopic?.id == top.id,
-                                                                                    onClick = { selectedTopic = top },
-                                                                                    label = { Text("# ${top.title}", fontSize = 10.5.sp) }
-                                                                                )
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Button(
-                                            onClick = { onExecutePlan(effectivePlan) },
-                                            enabled = !uiState.isDispatchingTask,
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .testTag("execute_agent_plan_button")
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.RocketLaunch,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = if (plan.actionType == "CREATE_SCHEDULE") {
-                                                    "২৪/৭ রুটিন চালু করুন"
-                                                } else {
-                                                    "ব্যাকগ্রাউন্ডে আপলোড শুরু করুন"
-                                                },
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            items(state.messages, key = { it.id }) { msg ->
+                GeminiChatMessageBubble(
+                    message = msg,
+                    dialogs = state.telegramConfig.dialogs,
+                    isDispatching = state.isDispatchingTask,
+                    onExecutePlan = onExecutePlan,
+                    onPlayLessonVideo = onPlayLessonVideo,
+                    onOpenLessonSlide = onOpenLessonSlide,
+                    onSendLessonToTelegram = onSendLessonToTelegram
+                )
             }
         }
 
-        // Quick Action Prompt Suggestions
+        // Quick Action Suggestion Chips
+        val quickPrompts = listOf(
+            "🎬 ডেটাবেজ বা ১ম ক্লাসের ভিডিও প্লে করে দাও",
+            "📊 সব কোয়ার্টারের ভিডিও ও স্লাইড আপলোডের প্ল্যান দেখাও",
+            "📡 আমার টেলিগ্রাম চ্যানেল ও গ্রুপগুলোর তালিকা দেখাও",
+            "⏰ প্রতিদিন সকাল ৮টায় অটো-আপলোড রুটিন চালু করো"
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -944,27 +1267,33 @@ private fun AiAgentChatTab(
                 .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val suggestions = listOf(
-                "📊 এই কোর্সের সব ভিডিও ও স্লাইড আপলোডের প্ল্যান দেখাও",
-                "🚀 এই কোর্সের সব ভিডিও ও স্লাইড টেলিগ্রামে নতুন চ্যানেল খুলে আপলোড করো",
-                "⏰ প্রতিদিন সকাল ৮টায় নতুন ক্লাস ও স্লাইড টেলিগ্রামে আপলোড করার রুটিন চালু করো",
-                "✈️ এই কোর্সের নামে একটি নতুন টেলিগ্রাম চ্যানেল তৈরি করো"
-            )
-            suggestions.forEach { text ->
-                AssistChip(
-                    onClick = { onQuickPrompt(text) },
-                    label = { Text(text, fontSize = 11.5.sp) }
-                )
+            quickPrompts.forEach { prompt ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                            RoundedCornerShape(50)
+                        )
+                        .clickable { onSendPrompt(prompt) }
+                ) {
+                    Text(
+                        text = prompt,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
             }
         }
 
-        // Chat Input Bar
+        // Gemini Prompt Composer Bar
         Surface(
-            color = cardBg,
-            tonalElevation = 4.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
+            tonalElevation = 6.dp,
+            shadowElevation = 8.dp,
+            color = MaterialTheme.colorScheme.surface
         ) {
             Row(
                 modifier = Modifier
@@ -973,36 +1302,380 @@ private fun AiAgentChatTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = promptInput,
-                    onValueChange = onPromptChange,
+                    value = inputText,
+                    onValueChange = { inputText = it },
                     placeholder = {
                         Text(
-                            "এজেন্টকে যেকোনো নির্দেশ দিন বা আলোচনা করুন...",
+                            text = "Gemini 3.8 Flash-কে বলুন (যেমন: অমুক ভিডিও প্লে করো / অমুক গ্রুপে পাঠাও)...",
                             fontSize = 13.sp
                         )
                     },
-                    maxLines = 3,
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    maxLines = 4,
                     modifier = Modifier
                         .weight(1f)
                         .testTag("ai_agent_prompt_input")
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                FilledIconButton(
-                    onClick = onSendPrompt,
-                    enabled = promptInput.isNotBlank() && uiState.brainState !is AgentBrainState.Thinking,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color(0xFF8B5CF6)
-                    ),
+                val isBusy = state.brainState is AgentBrainState.Thinking
+                IconButton(
+                    onClick = {
+                        if (inputText.isNotBlank() && !isBusy) {
+                            val toSend = inputText
+                            inputText = ""
+                            onSendPrompt(toSend)
+                        }
+                    },
+                    enabled = inputText.isNotBlank() && !isBusy,
                     modifier = Modifier
                         .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (inputText.isNotBlank() && !isBusy) Color(0xFF4F46E5)
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
                         .testTag("ai_agent_send_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "পাঠান",
-                        tint = Color.White
+                    if (isBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "পাঠান",
+                            tint = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// RICH MESSAGE BUBBLE WITH CODE BLOCKS, PLAYABLE LESSONS & CONFIRMATION PICKER
+// =============================================================================
+
+private sealed interface FormattedSegment {
+    data class PlainText(val text: String) : FormattedSegment
+    data class CodeBlock(val language: String, val code: String) : FormattedSegment
+}
+
+private fun parseMessageSegments(rawText: String): List<FormattedSegment> {
+    val regex = Regex("```([a-zA-Z0-9_-]*)\\n?([\\s\\S]*?)```")
+    val segments = mutableListOf<FormattedSegment>()
+    var lastIndex = 0
+    for (match in regex.findAll(rawText)) {
+        if (match.range.first > lastIndex) {
+            val before = rawText.substring(lastIndex, match.range.first).trim()
+            if (before.isNotEmpty()) {
+                segments.add(FormattedSegment.PlainText(before))
+            }
+        }
+        val lang = match.groupValues[1].trim().ifBlank { "code" }
+        val codeContent = match.groupValues[2].trim()
+        if (codeContent.isNotEmpty()) {
+            segments.add(FormattedSegment.CodeBlock(lang, codeContent))
+        }
+        lastIndex = match.range.last + 1
+    }
+    if (lastIndex < rawText.length) {
+        val tail = rawText.substring(lastIndex).trim()
+        if (tail.isNotEmpty()) {
+            segments.add(FormattedSegment.PlainText(tail))
+        }
+    }
+    return segments.ifEmpty { listOf(FormattedSegment.PlainText(rawText)) }
+}
+
+@Composable
+private fun GeminiChatMessageBubble(
+    message: AiAgentChatMessage,
+    dialogs: List<TelegramDialogDestination>,
+    isDispatching: Boolean,
+    onExecutePlan: (ProposedAgentPlan) -> Unit,
+    onPlayLessonVideo: (AgentPlayableLesson) -> Unit,
+    onOpenLessonSlide: (AgentPlayableLesson) -> Unit,
+    onSendLessonToTelegram: (AgentPlayableLesson) -> Unit
+) {
+    val isUser = message.role == "user"
+    val context = LocalContext.current
+    val segments = remember(message.text) { parseMessageSegments(message.text) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+    ) {
+        Surface(
+            color = when {
+                isUser -> Color(0xFF4F46E5)
+                message.isError -> MaterialTheme.colorScheme.errorContainer
+                else -> MaterialTheme.colorScheme.surface
+            },
+            shape = RoundedCornerShape(
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (isUser) 18.dp else 4.dp,
+                bottomEnd = if (isUser) 4.dp else 18.dp
+            ),
+            tonalElevation = if (isUser) 0.dp else 3.dp,
+            shadowElevation = 2.dp,
+            modifier = Modifier.widthIn(max = 365.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                if (!isUser) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFF6366F1),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "MaxBird AI • Gemini 3.8 Flash",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = Color(0xFF6366F1)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                segments.forEach { seg ->
+                    when (seg) {
+                        is FormattedSegment.PlainText -> {
+                            Text(
+                                text = seg.text.replace("**", ""),
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                color = when {
+                                    isUser -> Color.White
+                                    message.isError -> MaterialTheme.colorScheme.onErrorContainer
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                        is FormattedSegment.CodeBlock -> {
+                            Surface(
+                                color = Color(0xFF0F172A),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFF1E293B))
+                                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Code,
+                                            contentDescription = null,
+                                            tint = Color(0xFF38BDF8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = seg.language.uppercase(),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF94A3B8),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.clickable {
+                                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                cm.setPrimaryClip(ClipData.newPlainText("AI Code", seg.code))
+                                                Toast.makeText(context, "কপি করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.ContentCopy,
+                                                contentDescription = "কপি",
+                                                tint = Color(0xFFCBD5E1),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "কপি",
+                                                fontSize = 10.sp,
+                                                color = Color(0xFFCBD5E1)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = seg.code,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        lineHeight = 18.sp,
+                                        color = Color(0xFFE2E8F0),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (message.isStreaming) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(50))
                     )
+                }
+            }
+        }
+
+        // Playable Video & Slide Cards inside Chat Message
+        if (message.playableLessons.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier.widthIn(max = 365.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                message.playableLessons.forEach { lesson ->
+                    PlayableLessonChatCard(
+                        lesson = lesson,
+                        onPlayVideo = { onPlayLessonVideo(lesson) },
+                        onOpenSlide = { onOpenLessonSlide(lesson) },
+                        onSendToTelegram = { onSendLessonToTelegram(lesson) }
+                    )
+                }
+            }
+        }
+
+        // Interactive Confirmation & Channel/Group/Topic Picker Card
+        if (message.proposedPlan != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            InteractiveConfirmationPlanCard(
+                plan = message.proposedPlan,
+                dialogs = dialogs,
+                isDispatching = isDispatching,
+                onConfirmPlan = onExecutePlan
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayableLessonChatCard(
+    lesson: AgentPlayableLesson,
+    onPlayVideo: () -> Unit,
+    onOpenSlide: () -> Unit,
+    onSendToTelegram: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.45f), RoundedCornerShape(16.dp))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0284C7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayCircleFilled,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (lesson.phaseTitle.isNotBlank()) "${lesson.phaseTitle} • ${lesson.subjectTitle}" else lesson.subjectTitle,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
+                    )
+                    Text(
+                        text = lesson.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (lesson.chapterTitle.isNotBlank()) {
+                        Text(
+                            text = "অধ্যায়: ${lesson.chapterTitle}",
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Button(
+                    onClick = onPlayVideo,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("ভিডিও প্লে", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onOpenSlide,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null, tint = Color(0xFF93C5FD), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("স্লাইড", fontSize = 11.sp, color = Color.White)
+                }
+
+                OutlinedButton(
+                    onClick = onSendToTelegram,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("টেলিগ্রাম", fontSize = 11.sp, color = Color.White)
                 }
             }
         }
@@ -1010,89 +1683,748 @@ private fun AiAgentChatTab(
 }
 
 @Composable
-private fun AiAgentTasksTab(
-    uiState: AiAgentUiState,
-    onRetryOrResume: (AiAgentTask) -> Unit,
-    onCancelRun: (Long) -> Unit,
-    onOpenUrl: (String) -> Unit,
-    isDark: Boolean
+private fun InteractiveConfirmationPlanCard(
+    plan: ProposedAgentPlan,
+    dialogs: List<TelegramDialogDestination>,
+    isDispatching: Boolean,
+    onConfirmPlan: (ProposedAgentPlan) -> Unit
 ) {
-    val cardBg = if (isDark) Color(0xFF111A2E) else Color.White
-    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    var createNewMode by remember(plan) {
+        mutableStateOf(plan.createNewChannel || dialogs.isEmpty())
+    }
+    var customChannelName by remember(plan) {
+        mutableStateOf(plan.targetChannelTitle)
+    }
+    var useForumTopics by remember(plan) {
+        mutableStateOf(plan.useForumTopics)
+    }
+    var selectedDialogId by remember(plan, dialogs) {
+        val matched = dialogs.firstOrNull { d -> d.id == plan.targetChatId }
+            ?: dialogs.firstOrNull()
+        mutableStateOf(matched?.id.orEmpty())
+    }
+    val selectedDialog: TelegramDialogDestination? = dialogs.firstOrNull { d -> d.id == selectedDialogId }
+    var selectedTopicId by remember(selectedDialogId) {
+        mutableIntStateOf(plan.targetTopicId)
+    }
+    var selectedQuality by remember(plan) {
+        mutableStateOf(plan.videoQuality.ifBlank { "720p" })
+    }
 
-    LazyColumn(
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
         modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 14.dp)
+            .widthIn(max = 365.dp)
+            .border(
+                width = 1.5.dp,
+                brush = Brush.horizontalGradient(listOf(Color(0xFF6366F1), Color(0xFF06B6D4))),
+                shape = RoundedCornerShape(18.dp)
+            )
     ) {
-        if (uiState.workflowRuns.isNotEmpty()) {
-            item {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = Color(0xFF38BDF8),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "🐙 GitHub Actions লাইভ ক্লাউড রান",
-                    fontSize = 15.sp,
+                    text = "টেলিগ্রাম গন্তব্য ও অনুমতি নিশ্চিতকরণ",
                     fontWeight = FontWeight.ExtraBold,
-                    color = primaryText
+                    fontSize = 13.sp,
+                    color = Color(0xFF38BDF8)
                 )
             }
-            items(uiState.workflowRuns, key = { it.id }) { run ->
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "${plan.taskTitle} • 🎬 ${plan.estimatedVideos} ভিডিও • 📄 ${plan.estimatedSlides} স্লাইড",
+                fontSize = 12.sp,
+                color = Color(0xFFE2E8F0)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Mode Toggle: Existing Channel/Group vs Create New Channel
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !createNewMode && dialogs.isNotEmpty(),
+                    onClick = { if (dialogs.isNotEmpty()) createNewMode = false },
+                    enabled = dialogs.isNotEmpty(),
+                    label = {
+                        Text(
+                            text = "আমার চ্যানেল/গ্রুপ (${dialogs.size})",
+                            fontSize = 11.sp
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF0284C7),
+                        selectedLabelColor = Color.White
+                    )
+                )
+                FilterChip(
+                    selected = createNewMode,
+                    onClick = { createNewMode = true },
+                    label = {
+                        Text(
+                            text = "➕ নতুন চ্যানেল খুলুন",
+                            fontSize = 11.sp
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF4F46E5),
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (!createNewMode && dialogs.isNotEmpty()) {
+                Text(
+                    text = "কোন গ্রুপ বা চ্যানেলে আপলোড করবেন সিলেক্ট করুন:",
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 150.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
+                    dialogs.forEach { dialog: TelegramDialogDestination ->
+                        val isChosen = dialog.id == selectedDialogId
+                        Surface(
+                            color = if (isChosen) Color(0xFF1E3A8A) else Color(0xFF1E293B),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    1.dp,
+                                    if (isChosen) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.08f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable {
+                                    selectedDialogId = dialog.id
+                                    selectedTopicId = 0
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (dialog.isForum) Icons.Default.Forum else Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = null,
+                                    tint = if (isChosen) Color(0xFF38BDF8) else Color(0xFF94A3B8),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = dialog.title,
+                                    fontWeight = if (isChosen) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 12.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (dialog.topics.isNotEmpty()) {
+                                    Text(
+                                        text = "${dialog.topics.size} টপিক",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF38BDF8)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Topic Selector if selected group has Forum Topics
+                if (selectedDialog != null && selectedDialog.topics.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "গ্রুপের টপিক (Topic) সিলেক্ট করুন:",
+                        fontSize = 11.sp,
+                        color = Color(0xFF38BDF8)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        QuarterChip(
+                            title = "General (মূল গ্রুপ)",
+                            selected = selectedTopicId == 0,
+                            onClick = { selectedTopicId = 0 }
+                        )
+                        selectedDialog.topics.forEach { topic ->
+                            QuarterChip(
+                                title = topic.title,
+                                selected = selectedTopicId == topic.id,
+                                onClick = { selectedTopicId = topic.id }
+                            )
+                        }
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = customChannelName,
+                    onValueChange = { customChannelName = it },
+                    label = {
+                        Text(
+                            "নতুন টেলিগ্রাম চ্যানেল বা গ্রুপের নাম দিন",
+                            fontSize = 11.sp
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuarterChip(
+                        title = "📢 ব্রডকাস্ট চ্যানেল",
+                        selected = !useForumTopics,
+                        onClick = { useForumTopics = false }
+                    )
+                    QuarterChip(
+                        title = "🗂️ টপিক সুপারগ্রুপ",
+                        selected = useForumTopics,
+                        onClick = { useForumTopics = true }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Video Resolution Selector
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "কোয়ালিটি:",
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                listOf("480p", "720p", "1080p").forEach { q ->
+                    QuarterChip(
+                        title = q,
+                        selected = selectedQuality == q,
+                        onClick = { selectedQuality = q }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val chosenTopicTitle = selectedDialog?.topics?.firstOrNull { t -> t.id == selectedTopicId }?.title.orEmpty()
+
+            Button(
+                onClick = {
+                    val updatedPlan = plan.copy(
+                        actionType = if (plan.actionType == "CREATE_SCHEDULE") "CREATE_SCHEDULE" else "START_UPLOAD_TASK",
+                        createNewChannel = createNewMode,
+                        useForumTopics = useForumTopics,
+                        targetChatId = if (createNewMode) "" else selectedDialog?.id.orEmpty(),
+                        targetChannelTitle = if (createNewMode) {
+                            customChannelName.trim().ifBlank { plan.programTitle }
+                        } else {
+                            selectedDialog?.title ?: plan.targetChannelTitle
+                        },
+                        targetTopicId = if (createNewMode) 0 else selectedTopicId,
+                        targetTopicTitle = if (createNewMode) "" else chosenTopicTitle,
+                        videoQuality = selectedQuality
+                    )
+                    onConfirmPlan(updatedPlan)
+                },
+                enabled = !isDispatching,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("execute_agent_plan_button")
+            ) {
+                if (isDispatching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = "✅ হ্যাঁ, অনুমতি দিলাম — আপলোড শুরু করুন",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+// =============================================================================
+// UNIFIED MODAL SHEET FOR ACCOUNTS (GITHUB + TELEGRAM) & TASKS / 24/7 ROUTINES
+// =============================================================================
+
+@Composable
+private fun AgentSettingsAndTasksSheetContent(
+    state: AiAgentUiState,
+    initialSection: Int,
+    onConnectGitHub: (String, String, String, String) -> Unit,
+    onSelectRepo: (GitHubRepoSummary) -> Unit,
+    onDeployWorkflow: () -> Unit,
+    onRequestTelegramOtp: (String, String, String, String) -> Unit,
+    onVerifyTelegramOtp: (String, String) -> Unit,
+    onSaveTelegram: (String, String, String, String, String, String, String) -> Unit,
+    onRetryTask: (AiAgentTask) -> Unit,
+    onCancelRun: (Long) -> Unit,
+    onToggleSchedule: (AiAgentSchedule, Boolean) -> Unit,
+    onDeleteSchedule: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    var selectedSection by rememberSaveable { mutableIntStateOf(initialSection) }
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.9f)
+            .padding(horizontal = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "⚙️ MaxBird কন্ট্রোল সেন্টার",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 17.sp,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "বন্ধ করুন")
+            }
+        }
+
+        // Section Switcher inside Sheet
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { selectedSection = 0 },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (selectedSection == 0) Color(0xFF4F46E5) else Color(0xFF1E293B)
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "🔌 GitHub ও Telegram",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color.White
+                )
+            }
+            Button(
+                onClick = { selectedSection = 1 },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (selectedSection == 1) Color(0xFF4F46E5) else Color(0xFF1E293B)
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "⚡ টাস্ক (${state.tasks.size}) ও রুটিন (${state.schedules.size})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color.White
+                )
+            }
+        }
+
+        if (selectedSection == 0) {
+            AccountsSetupSection(
+                state = state,
+                onConnectGitHub = onConnectGitHub,
+                onSelectRepo = onSelectRepo,
+                onDeployWorkflow = onDeployWorkflow,
+                onRequestTelegramOtp = onRequestTelegramOtp,
+                onVerifyTelegramOtp = onVerifyTelegramOtp,
+                onSaveTelegram = onSaveTelegram
+            )
+        } else {
+            TasksAndRoutinesSection(
+                state = state,
+                onRetryTask = onRetryTask,
+                onCancelRun = onCancelRun,
+                onToggleSchedule = onToggleSchedule,
+                onDeleteSchedule = onDeleteSchedule,
+                onOpenUrl = { url ->
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    } catch (_: Exception) {
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccountsSetupSection(
+    state: AiAgentUiState,
+    onConnectGitHub: (String, String, String, String) -> Unit,
+    onSelectRepo: (GitHubRepoSummary) -> Unit,
+    onDeployWorkflow: () -> Unit,
+    onRequestTelegramOtp: (String, String, String, String) -> Unit,
+    onVerifyTelegramOtp: (String, String) -> Unit,
+    onSaveTelegram: (String, String, String, String, String, String, String) -> Unit
+) {
+    var ghToken by remember(state.githubConfig.personalAccessToken) {
+        mutableStateOf(state.githubConfig.personalAccessToken)
+    }
+    var ghOwner by remember(state.githubConfig.owner) {
+        mutableStateOf(state.githubConfig.owner)
+    }
+    var ghRepo by remember(state.githubConfig.repo) {
+        mutableStateOf(state.githubConfig.repo)
+    }
+    var showGhToken by remember { mutableStateOf(false) }
+
+    val tgApiId = state.telegramConfig.apiId.ifBlank { DEFAULT_TELEGRAM_API_ID }
+    val tgApiHash = state.telegramConfig.apiHash.ifBlank { DEFAULT_TELEGRAM_API_HASH }
+    var tgPhone by remember(state.telegramConfig.phone) {
+        mutableStateOf(state.telegramConfig.phone.ifBlank { "+880" })
+    }
+    var tgOtpCode by remember { mutableStateOf("") }
+    var tgTwoFaPassword by remember { mutableStateOf("") }
+    var tgSessionString by remember(state.telegramConfig.sessionString) {
+        mutableStateOf(state.telegramConfig.sessionString)
+    }
+    var tgChatId by remember(state.telegramConfig.defaultChatId) {
+        mutableStateOf(state.telegramConfig.defaultChatId)
+    }
+    var showTgSecrets by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. Telegram Setup Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "১. Telegram Account কানেক্ট (সিঙ্গেল-আইপি লক সুরক্ষিত)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = when {
+                            state.telegramConfig.authState == "SESSION_EXPIRED" -> "⚠️ আগের সেশনটি বাতিল হয়েছে — নিচে শুধু ১ বার ওটিপি দিয়ে পুনরায় কানেক্ট করুন"
+                            state.telegramConfig.isConnected -> "✅ কানেক্টেড: ${state.telegramConfig.accountDisplayName} (${state.telegramConfig.dialogs.size}টি চ্যানেল/গ্রুপ সিঙ্কড)"
+                            else -> "আপনার ফোন নাম্বার দিয়ে ওটিপি পাঠান"
+                        },
+                        fontSize = 12.sp,
+                        color = if (state.telegramConfig.isConnected) Color(0xFF10B981) else Color(0xFFF59E0B)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = tgPhone,
+                        onValueChange = { tgPhone = it },
+                        label = { Text("টেলিগ্রাম ফোন নাম্বার (+8801XXXXXXXXX)", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { onRequestTelegramOtp(tgApiId, tgApiHash, tgPhone, tgTwoFaPassword) },
+                        enabled = !state.isProcessingTelegramAuth && tgPhone.length >= 8,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (state.isProcessingTelegramAuth && state.telegramConfig.authState == "SENDING_CODE") {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = "📲 ধাপ ১: টেলিগ্রামে OTP কোড পাঠান",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = tgOtpCode,
+                            onValueChange = { tgOtpCode = it },
+                            label = { Text("৫ সংখ্যার OTP কোড", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = tgTwoFaPassword,
+                            onValueChange = { tgTwoFaPassword = it },
+                            label = { Text("2FA পাসওয়ার্ড (থাকলে)", fontSize = 11.sp) },
+                            singleLine = true,
+                            visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { onVerifyTelegramOtp(tgOtpCode, tgTwoFaPassword) },
+                        enabled = !state.isProcessingTelegramAuth && tgOtpCode.trim().length >= 4,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "🔐 ধাপ ২: ওটিপি ভেরিফাই ও কানেক্ট করুন",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = tgSessionString,
+                        onValueChange = { tgSessionString = it },
+                        label = { Text("Telethon STRING_SESSION (অটো তৈরি হবে)", fontSize = 11.sp) },
+                        visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
+                                Icon(
+                                    imageVector = if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null
+                                )
+                            }
+                        },
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            onSaveTelegram(
+                                tgApiId,
+                                tgApiHash,
+                                tgPhone,
+                                tgSessionString,
+                                state.telegramConfig.botToken,
+                                tgChatId,
+                                state.telegramConfig.accountDisplayName
+                            )
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("টেলিগ্রাম কনফিগারেশন সেভ করুন", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // 2. GitHub Setup Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "২. GitHub Account ও ২৪/৭ ক্লাউড ওয়ার্কার",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = if (state.githubConfig.isVerified) {
+                            "✅ কানেক্টেড: @${state.githubConfig.connectedUsername} (${state.githubConfig.owner}/${state.githubConfig.repo})"
+                        } else {
+                            "GitHub Personal Access Token দিয়ে কানেক্ট করুন"
+                        },
+                        fontSize = 12.sp,
+                        color = if (state.githubConfig.isVerified) Color(0xFF10B981) else Color(0xFFF59E0B)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = ghToken,
+                        onValueChange = { ghToken = it },
+                        label = { Text("GitHub Token (ghp_...)", fontSize = 12.sp) },
+                        singleLine = true,
+                        visualTransformation = if (showGhToken) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showGhToken = !showGhToken }) {
+                                Icon(
+                                    imageVector = if (showGhToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = ghOwner,
+                            onValueChange = { ghOwner = it },
+                            label = { Text("Owner", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = ghRepo,
+                            onValueChange = { ghRepo = it },
+                            label = { Text("Repository", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    if (state.githubRepos.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            state.githubRepos.take(10).forEach { repo ->
+                                FilterChip(
+                                    selected = ghRepo.equals(repo.name, ignoreCase = true),
+                                    onClick = {
+                                        ghOwner = repo.owner
+                                        ghRepo = repo.name
+                                        onSelectRepo(repo)
+                                    },
+                                    label = { Text(repo.name, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { onConnectGitHub(ghToken, ghOwner, ghRepo, "main") },
+                            enabled = !state.isVerifyingGitHub,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("GitHub সেভ ও সেটআপ", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        if (state.githubConfig.isVerified) {
+                            OutlinedButton(
+                                onClick = onDeployWorkflow,
+                                enabled = !state.isDeployingWorkflow,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("স্ক্রিপ্ট আপডেট", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TasksAndRoutinesSection(
+    state: AiAgentUiState,
+    onRetryTask: (AiAgentTask) -> Unit,
+    onCancelRun: (Long) -> Unit,
+    onToggleSchedule: (AiAgentSchedule, Boolean) -> Unit,
+    onDeleteSchedule: (String) -> Unit,
+    onOpenUrl: (String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (state.workflowRuns.isNotEmpty()) {
+            item {
+                Text(
+                    text = "GitHub Actions Cloud Runs",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+            items(state.workflowRuns.take(5), key = { it.id }) { run ->
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val isRunning = run.status in listOf("in_progress", "queued")
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isRunning) Color(0xFF38BDF8).copy(alpha = 0.2f)
-                                    else Color(0xFF10B981).copy(alpha = 0.2f)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isRunning) Icons.Default.Sync else Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = if (isRunning) Color(0xFF38BDF8) else Color(0xFF10B981)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "${run.name} (#${run.id})", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             Text(
-                                text = "${run.name} (#${run.id})",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryText
-                            )
-                            Text(
-                                text = "স্ট্যাটাস: ${run.status.uppercase()} ${run.conclusion?.let { "• $it" } ?: ""}",
-                                fontSize = 11.5.sp,
-                                color = secondaryText
+                                text = "স্ট্যাটাস: ${run.status.uppercase()} • ${run.conclusion ?: "চলমান"}",
+                                fontSize = 11.sp
                             )
                         }
-                        if (isRunning) {
-                            TextButton(onClick = { onCancelRun(run.id) }) {
-                                Text("বাতিল", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                        if (run.status == "in_progress" || run.status == "queued") {
+                            IconButton(onClick = { onCancelRun(run.id) }) {
+                                Icon(Icons.Default.StopCircle, contentDescription = "Cancel", tint = Color(0xFFEF4444))
                             }
                         }
                         if (run.htmlUrl.isNotBlank()) {
                             IconButton(onClick = { onOpenUrl(run.htmlUrl) }) {
-                                Icon(
-                                    Icons.Default.OpenInNew,
-                                    contentDescription = "লগ দেখুন",
-                                    tint = Color(0xFF38BDF8)
-                                )
+                                Icon(Icons.Default.OpenInNew, contentDescription = "Open")
                             }
                         }
                     }
@@ -1102,857 +2434,63 @@ private fun AiAgentTasksTab(
 
         item {
             Text(
-                text = "⚡ এজেন্ট ব্যাকগ্রাউন্ড টাস্কসমূহ",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = primaryText
+                text = "ব্যাকগ্রাউন্ড টাস্কসমূহ (${state.tasks.size})",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
             )
         }
 
-        if (uiState.tasks.isEmpty()) {
+        items(state.tasks, key = { it.id }) { task ->
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(text = task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(text = task.statusMessage, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (task.telegramInviteLink.isNotBlank()) {
+                            Button(onClick = { onOpenUrl(task.telegramInviteLink) }, shape = RoundedCornerShape(8.dp)) {
+                                Text("টেলিগ্রাম চ্যানেল", fontSize = 11.sp)
+                            }
+                        }
+                        OutlinedButton(onClick = { onRetryTask(task) }, shape = RoundedCornerShape(8.dp)) {
+                            Text("রিস্টার্ট", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.schedules.isNotEmpty()) {
             item {
+                Text(
+                    text = "২৪/৭ অটো রুটিন (${state.schedules.size})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+            items(state.schedules, key = { it.id }) { sched ->
                 Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudQueue,
-                            contentDescription = null,
-                            tint = Color(0xFF8B5CF6),
-                            modifier = Modifier.size(44.dp)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "এখনো কোনো ব্যাকগ্রাউন্ড টাস্ক দেওয়া হয়নি",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryText
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "AI চ্যাট ট্যাবে গিয়ে এজেন্টকে যেকোনো কোর্সের ভিডিও ও স্লাইড টেলিগ্রামে আপলোড করতে বলুন।",
-                            fontSize = 12.5.sp,
-                            color = secondaryText
-                        )
-                    }
-                }
-            }
-        } else {
-            items(uiState.tasks, key = { it.id }) { task ->
-                val statusColor = when (task.status.uppercase()) {
-                    "COMPLETED" -> Color(0xFF10B981)
-                    "RUNNING", "RESUMING" -> Color(0xFF38BDF8)
-                    "FAILED" -> Color(0xFFEF4444)
-                    else -> Color(0xFFF59E0B)
-                }
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = cardBg),
-                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.45f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = task.title,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = primaryText,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = statusColor.copy(alpha = 0.16f)
-                            ) {
-                                Text(
-                                    text = task.status,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = statusColor,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = task.statusMessage,
-                            fontSize = 12.5.sp,
-                            color = secondaryText
-                        )
-
-                        if (task.currentItemTitle.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "চলমান: ${task.currentItemTitle}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF38BDF8)
-                            )
-                        }
-
-                        if (task.totalItems > 0) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            LinearProgressIndicator(
-                                progress = { task.progressFraction },
-                                color = statusColor,
-                                trackColor = statusColor.copy(alpha = 0.15f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(8.dp)
-                                    .clip(RoundedCornerShape(50))
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "${task.completedItems} / ${task.totalItems} লেকচার সম্পন্ন (${(task.progressFraction * 100).toInt()}%)",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryText
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (task.telegramInviteLink.isNotBlank()) {
-                                Button(
-                                    onClick = { onOpenUrl(task.telegramInviteLink) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("টেলিগ্রাম চ্যানেল ওপেন করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = { onRetryOrResume(task) },
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("রিস্টার্ট / রিজিউম", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AiAgentSchedulesTab(
-    uiState: AiAgentUiState,
-    onToggleSchedule: (AiAgentSchedule, Boolean) -> Unit,
-    onDeleteSchedule: (String) -> Unit,
-    onCreateQuickDailySchedule: () -> Unit,
-    isDark: Boolean
-) {
-    val cardBg = if (isDark) Color(0xFF111A2E) else Color.White
-    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 14.dp)
-    ) {
-        item {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isDark) Color(0xFF1E1B4B) else Color(0xFFEEF2FF)
-                ),
-                border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.AutoMode,
-                            contentDescription = null,
-                            tint = Color(0xFF8B5CF6),
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "২৪/৭ অটোমেটিক রুটিন ওয়াচার",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = primaryText
-                            )
-                            Text(
-                                text = "GitHub Actions প্রতি ঘণ্টায় চেক করবে এবং নির্ধারিত সময়ে নতুন ক্লাস ও স্লাইড টেলিগ্রামে আপলোড করবে।",
-                                fontSize = 12.sp,
-                                color = secondaryText
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = onCreateQuickDailySchedule,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("add_daily_schedule_button")
-                    ) {
-                        Icon(Icons.Default.AddAlarm, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${uiState.selectedProgramTitle} — প্রতিদিন সকাল ৮টায় অটো-সিঙ্ক চালু করুন",
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
-        items(uiState.schedules, key = { it.id }) { sched ->
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = cardBg),
-                border = BorderStroke(
-                    1.dp,
-                    if (sched.isEnabled) Color(0xFF10B981).copy(alpha = 0.45f)
-                    else secondaryText.copy(alpha = 0.25f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = sched.title,
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = primaryText
-                            )
-                            Text(
-                                text = "⏰ ${sched.timeDisplayBn} • চ্যানেল: ${sched.targetChannelTitle.ifBlank { "অটো চ্যানেল" }}",
-                                fontSize = 12.sp,
-                                color = Color(0xFF38BDF8)
-                            )
-                            Text(
-                                text = "স্ট্যাটাস: ${sched.lastRunStatus}",
-                                fontSize = 11.5.sp,
-                                color = secondaryText
-                            )
+                            Text(text = sched.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(text = sched.timeDisplayBn, fontSize = 11.sp)
                         }
-                        Switch(
-                            checked = sched.isEnabled,
-                            onCheckedChange = { onToggleSchedule(sched, it) }
-                        )
+                        Switch(checked = sched.isEnabled, onCheckedChange = { onToggleSchedule(sched, it) })
                         IconButton(onClick = { onDeleteSchedule(sched.id) }) {
-                            Icon(
-                                Icons.Default.DeleteOutline,
-                                contentDescription = "মুছে ফেলুন",
-                                tint = Color(0xFFEF4444)
-                            )
+                            Icon(Icons.Default.Delete, contentDescription = "ডিলিট")
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AiAgentExtensionsTab(
-    uiState: AiAgentUiState,
-    onSaveGitHub: (String, String, String, String) -> Unit,
-    onSelectRepo: (GitHubRepoSummary) -> Unit,
-    onDeployGitHubWorkflow: () -> Unit,
-    onRequestTelegramOtp: (String, String, String, String) -> Unit,
-    onVerifyTelegramOtp: (String, String) -> Unit,
-    onSaveTelegram: (String, String, String, String, String, String, String) -> Unit,
-    isDark: Boolean
-) {
-    val context = LocalContext.current
-    val cardBg = if (isDark) Color(0xFF111A2E) else Color.White
-    val primaryText = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
-    val secondaryText = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
-
-    var ghToken by remember(uiState.githubConfig.personalAccessToken) {
-        mutableStateOf(uiState.githubConfig.personalAccessToken)
-    }
-    var ghOwner by remember(uiState.githubConfig.owner) {
-        mutableStateOf(uiState.githubConfig.owner)
-    }
-    var ghRepo by remember(uiState.githubConfig.repo) {
-        mutableStateOf(uiState.githubConfig.repo)
-    }
-    var ghBranch by remember(uiState.githubConfig.branch) {
-        mutableStateOf(uiState.githubConfig.branch)
-    }
-    var showGhToken by remember { mutableStateOf(false) }
-
-    var tgApiId by remember(uiState.telegramConfig.apiId) {
-        mutableStateOf(uiState.telegramConfig.apiId.ifBlank { DEFAULT_TELEGRAM_API_ID })
-    }
-    var tgApiHash by remember(uiState.telegramConfig.apiHash) {
-        mutableStateOf(uiState.telegramConfig.apiHash.ifBlank { DEFAULT_TELEGRAM_API_HASH })
-    }
-    var tgPhone by remember(uiState.telegramConfig.phone) {
-        mutableStateOf(uiState.telegramConfig.phone)
-    }
-    var tgOtpCode by remember { mutableStateOf("") }
-    var tgTwoFaPassword by remember { mutableStateOf("") }
-    var tgSession by remember(uiState.telegramConfig.sessionString) {
-        mutableStateOf(uiState.telegramConfig.sessionString)
-    }
-    var tgBotToken by remember(uiState.telegramConfig.botToken) {
-        mutableStateOf(uiState.telegramConfig.botToken)
-    }
-    var tgDefaultChat by remember(uiState.telegramConfig.defaultChatId) {
-        mutableStateOf(uiState.telegramConfig.defaultChatId)
-    }
-    var tgDisplayName by remember(uiState.telegramConfig.accountDisplayName) {
-        mutableStateOf(uiState.telegramConfig.accountDisplayName)
-    }
-    var showTgSecrets by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Device Cloud Vault Banner
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isDark) Color(0xFF0F2942) else Color(0xFFE0F2FE)
-            ),
-            border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.55f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = Color(0xFF38BDF8),
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "ডিভাইস ক্লাউড ভল্ট সক্রিয় (অটো রিকভারি)",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = primaryText
-                    )
-                }
-                Text(
-                    text = "আপনার GitHub ও Telegram (API_ID, API_HASH, STRING_SESSION) এই ডিভাইসের আন্ডারে ক্লাউডে সেভ থাকে। অ্যাপ আনইনস্টল বা ডিলিট করে আবার ইনস্টল করলেও এই ডিভাইসে সব অটোমেটিক ফিরে আসবে এবং GitHub Actions-এ ম্যানুয়ালি কোনো Secret বা Script যোগ করতে হবে না।",
-                    fontSize = 12.sp,
-                    color = secondaryText,
-                    lineHeight = 17.sp
-                )
-            }
-        }
-
-        // 1. GitHub Full Access Extension Card
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(
-                1.dp,
-                if (uiState.githubConfig.isVerified) Color(0xFF10B981) else Color(0xFF38BDF8).copy(alpha = 0.4f)
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Code,
-                        contentDescription = null,
-                        tint = Color(0xFF38BDF8),
-                        modifier = Modifier.size(26.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "১. GitHub Account (24/7 অটো স্ক্রিপ্ট ও কন্ট্রোল)",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = primaryText
-                        )
-                        Text(
-                            text = if (uiState.githubConfig.isVerified) {
-                                "✅ কানেক্টেড: @${uiState.githubConfig.connectedUsername} (${uiState.githubConfig.owner}/${uiState.githubConfig.repo})"
-                            } else {
-                                "GitHub Personal Access Token (repo + workflow পারমিশনসহ) দিন — অ্যাপ নিজেই আপনার রিপোজিটরিতে স্ক্রিপ্ট বসিয়ে নেবে"
-                            },
-                            fontSize = 12.sp,
-                            color = if (uiState.githubConfig.isVerified) Color(0xFF10B981) else secondaryText
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = ghToken,
-                    onValueChange = { ghToken = it },
-                    label = { Text("GitHub Personal Access Token (ghp_...)") },
-                    visualTransformation = if (showGhToken) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { showGhToken = !showGhToken }) {
-                            Icon(
-                                if (showGhToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = null
-                            )
-                        }
-                    },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("github_token_input")
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = ghOwner,
-                        onValueChange = { ghOwner = it },
-                        label = { Text("GitHub Username/Owner") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = ghRepo,
-                        onValueChange = { ghRepo = it },
-                        label = { Text("Repository Name") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                if (uiState.githubRepos.isNotEmpty()) {
-                    Text(
-                        text = "আপনার রিপোজিটরি সিলেক্ট করুন (সিলেক্ট করলেই AI স্ক্রিপ্ট অটো-ইনস্টল হবে):",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = secondaryText
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        uiState.githubRepos.take(12).forEach { repoItem ->
-                            FilterChip(
-                                selected = ghRepo == repoItem.name && ghOwner == repoItem.owner,
-                                onClick = {
-                                    ghOwner = repoItem.owner
-                                    ghRepo = repoItem.name
-                                    ghBranch = repoItem.defaultBranch
-                                    onSelectRepo(repoItem)
-                                },
-                                label = { Text(repoItem.name, fontSize = 11.5.sp) }
-                            )
-                        }
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onSaveGitHub(ghToken, ghOwner, ghRepo, ghBranch) },
-                        enabled = !uiState.isVerifyingGitHub,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("save_github_config_button")
-                    ) {
-                        if (uiState.isVerifyingGitHub) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                        Text("GitHub সেভ ও অটো-সেটআপ", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
-                    }
-
-                    if (uiState.githubConfig.isVerified && uiState.githubConfig.repo.isNotBlank()) {
-                        OutlinedButton(
-                            onClick = onDeployGitHubWorkflow,
-                            enabled = !uiState.isDeployingWorkflow,
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFF38BDF8)),
-                            modifier = Modifier.testTag("deploy_github_workflow_button")
-                        ) {
-                            if (uiState.isDeployingWorkflow) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(15.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color(0xFF38BDF8)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                            }
-                            Text(
-                                text = if (uiState.githubConfig.isWorkflowDeployed) "স্ক্রিপ্ট আপডেট" else "স্ক্রিপ্ট ইনস্টল",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF38BDF8)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Telegram Personal Account Full Access + Auto STRING_SESSION Generator Card
-        var showAdvancedTg by remember { mutableStateOf(false) }
-        var showReconnectTgForm by remember(uiState.telegramConfig.isConnected) {
-            mutableStateOf(!uiState.telegramConfig.isConnected)
-        }
-
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(
-                1.dp,
-                if (uiState.telegramConfig.isConnected) Color(0xFF10B981) else Color(0xFF8B5CF6).copy(alpha = 0.5f)
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = null,
-                        tint = Color(0xFF229ED9),
-                        modifier = Modifier.size(26.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "২. Telegram Account কানেক্ট (ফুল অটোমেটিক)",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = primaryText
-                        )
-                        Text(
-                            text = if (uiState.telegramConfig.isConnected) {
-                                "✅ কানেক্টেড: ${uiState.telegramConfig.accountDisplayName.ifBlank { "Telegram ফুল এক্সেস সক্রিয়" }} (এই ডিভাইসে স্থায়ীভাবে সেভড)"
-                            } else {
-                                "শুধু ফোন নাম্বার ও OTP দিন — আলাদা করে STRING_SESSION বা অন্য কিছু দিতে হবে না!"
-                            },
-                            fontSize = 12.sp,
-                            color = if (uiState.telegramConfig.isConnected) Color(0xFF10B981) else secondaryText
-                        )
-                    }
-                }
-
-                if (uiState.telegramConfig.isConnected && !showReconnectTgForm) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color(0xFF10B981).copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "🎉 আপনার টেলিগ্রাম একাউন্ট (${uiState.telegramConfig.accountDisplayName.ifBlank { uiState.telegramConfig.phone }}) সফলভাবে যুক্ত আছে!",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF10B981)
-                            )
-                            Text(
-                                text = "এখন আর কোনো OTP বা কোড দিতে হবে না। সরাসরি '💬 AI চ্যাট' ট্যাবে গিয়ে এজেন্টকে যেকোনো কোর্সের ভিডিও ও স্লাইড আপলোড করতে বলুন!",
-                                fontSize = 12.sp,
-                                color = primaryText,
-                                lineHeight = 18.sp
-                            )
-                            OutlinedButton(
-                                onClick = { showReconnectTgForm = true },
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
-                            ) {
-                                Text(
-                                    text = "🔄 অন্য টেলিগ্রাম একাউন্ট কানেক্ট করুন",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF38BDF8),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Clean 2-Step Automatic Telegram Login Box (shown when not connected or when reconnecting)
-                AnimatedVisibility(visible = showReconnectTgForm) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isDark) Color(0xFF172036) else Color(0xFFF0F9FF),
-                        border = BorderStroke(1.dp, Color(0xFF229ED9).copy(alpha = 0.45f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = tgPhone,
-                                onValueChange = { tgPhone = it },
-                                label = { Text("টেলিগ্রাম ফোন নাম্বার (যেমন: +88017XXXXXXXX)") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("telegram_phone_input")
-                            )
-
-                            Button(
-                                onClick = { onRequestTelegramOtp(tgApiId, tgApiHash, tgPhone, tgTwoFaPassword) },
-                                enabled = !uiState.isProcessingTelegramAuth,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("request_telegram_otp_button")
-                            ) {
-                                if (uiState.isProcessingTelegramAuth &&
-                                    uiState.telegramConfig.authState == "SENDING_CODE"
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                Text("📲 ধাপ ১: টেলিগ্রামে OTP কোড পাঠান", fontWeight = FontWeight.Bold)
-                            }
-
-                            // Show live status message from GitHub/Supabase worker
-                            if (uiState.telegramConfig.authMessage.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFF0F172A).copy(alpha = 0.65f),
-                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (uiState.isProcessingTelegramAuth) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(16.dp),
-                                                strokeWidth = 2.dp,
-                                                color = Color(0xFF38BDF8)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                        }
-                                        Text(
-                                            text = uiState.telegramConfig.authMessage,
-                                            fontSize = 12.sp,
-                                            color = Color(0xFFE2E8F0)
-                                        )
-                                    }
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = tgOtpCode,
-                                    onValueChange = { tgOtpCode = it },
-                                    label = { Text("টেলিগ্রাম OTP কোড") },
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("telegram_otp_input")
-                                )
-                                OutlinedTextField(
-                                    value = tgTwoFaPassword,
-                                    onValueChange = { tgTwoFaPassword = it },
-                                    label = { Text("2FA পাসওয়ার্ড (থাকলে)") },
-                                    visualTransformation = PasswordVisualTransformation(),
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("telegram_2fa_input")
-                                )
-                            }
-
-                            Button(
-                                onClick = { onVerifyTelegramOtp(tgOtpCode, tgTwoFaPassword) },
-                                enabled = !uiState.isProcessingTelegramAuth &&
-                                    (tgOtpCode.isNotBlank() || tgTwoFaPassword.isNotBlank()),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("verify_telegram_otp_button")
-                            ) {
-                                if (uiState.isProcessingTelegramAuth &&
-                                    uiState.telegramConfig.authState == "VERIFYING_OTP"
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                Text(
-                                    text = "✅ ধাপ ২: ওটিপি ভেরিফাই ও কানেক্ট করুন",
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Collapsible Advanced Options (API_ID, API_HASH, Manual STRING_SESSION, Default Chat ID)
-                TextButton(
-                    onClick = { showAdvancedTg = !showAdvancedTg },
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text(
-                        text = if (showAdvancedTg) "🔼 অ্যাডভান্সড অপশন লুকান" else "⚙️ অ্যাডভান্সড অপশন (API_ID / STRING_SESSION)",
-                        fontSize = 12.sp,
-                        color = Color(0xFF38BDF8)
-                    )
-                }
-
-                AnimatedVisibility(visible = showAdvancedTg) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = tgApiId,
-                                onValueChange = { tgApiId = it },
-                                label = { Text("TELEGRAM_API_ID") },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("telegram_api_id_input")
-                            )
-                            OutlinedTextField(
-                                value = tgApiHash,
-                                onValueChange = { tgApiHash = it },
-                                label = { Text("TELEGRAM_API_HASH") },
-                                visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
-                                trailingIcon = {
-                                    IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
-                                        Icon(
-                                            if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                            contentDescription = null
-                                        )
-                                    }
-                                },
-                                singleLine = true,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("telegram_api_hash_input")
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = tgSession,
-                            onValueChange = { tgSession = it },
-                            label = { Text("Telethon STRING_SESSION (অটোমেটিক তৈরি হবে)") },
-                            visualTransformation = if (showTgSecrets) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { showTgSecrets = !showTgSecrets }) {
-                                    Icon(
-                                        if (showTgSecrets) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = null
-                                    )
-                                }
-                            },
-                            maxLines = 3,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("telegram_session_input")
-                        )
-
-                        OutlinedTextField(
-                            value = tgDefaultChat,
-                            onValueChange = { tgDefaultChat = it },
-                            label = { Text("ডিফল্ট চ্যানেল/গ্রুপ Chat ID (ঐচ্ছিক)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Button(
-                            onClick = {
-                                onSaveTelegram(tgApiId, tgApiHash, tgPhone, tgSession, tgBotToken, tgDefaultChat, tgDisplayName)
-                                Toast.makeText(context, "টেলিগ্রাম কনফিগারেশন ডিভাইসের আন্ডারে ক্লাউডে সেভ হয়েছে!", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF229ED9)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("save_telegram_config_button")
-                        ) {
-                            Text("ম্যানুয়াল কনফিগারেশন সেভ করুন", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Built-in Shikho & Cloud Vault Summary Card
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "৩. সংযুক্ত সিস্টেম ও ডিভাইস রিকভারি স্ট্যাটাস",
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = primaryText
-                )
-                Text(
-                    text = "✅ Telegram API_ID (38634154) ও API_HASH — প্রি-লোডেড ও ক্লাউড-সিঙ্কড\n" +
-                        "✅ অটোমেটিক STRING_SESSION জেনারেটর — সরাসরি অ্যাপ থেকে OTP ভেরিফিকেশন\n" +
-                        "✅ ডিভাইস-ভিত্তিক রিকভারি — অ্যাপ ডিলিট করে পুনরায় ইনস্টল করলেও সব ফিরে আসবে\n" +
-                        "✅ জিরো-সিক্রেট GitHub Actions — ম্যানুয়ালি কোনো GitHub Secret বা Script যোগ করতে হবে না",
-                    fontSize = 12.5.sp,
-                    color = secondaryText,
-                    lineHeight = 20.sp
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
     }
 }

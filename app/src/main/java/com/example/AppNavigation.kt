@@ -1555,6 +1555,22 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 viewModel = aiAgentViewModel,
                 onBack = {
                     navController.safePopBackStack()
+                },
+                onPlayVideo = { url, title, subject ->
+                    val encUrl = safeUrlEncode(url)
+                    val encTitle = safeUrlEncode(title)
+                    val encSub = safeUrlEncode(subject)
+                    navController.navigate("video_player?url=$encUrl&title=$encTitle&subject=$encSub&color=&isLive=false")
+                },
+                onOpenPdf = { url, title, subject ->
+                    navController.navigate(
+                        Routes.pdfViewerRoute(
+                            url = url,
+                            title = title,
+                            initialRemoteUrl = url,
+                            subject = subject
+                        )
+                    )
                 }
             )
         }

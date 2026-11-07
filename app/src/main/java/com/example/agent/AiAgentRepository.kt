@@ -62,6 +62,8 @@ class AiAgentRepository(
         private const val KEY_LOCAL_TASKS_JSON = "local_tasks_json"
         private const val KEY_LOCAL_SCHEDULES_JSON = "local_schedules_json"
         private const val KEY_NOTIFIED_COMPLETED_IDS = "notified_completed_task_ids"
+        private const val KEY_CHAT_SESSIONS_JSON = "ai_chat_sessions_v2_json"
+        private const val KEY_ACTIVE_CHAT_SESSION_ID = "ai_active_chat_session_id"
     }
 
     private val prefs: SharedPreferences by lazy {
@@ -463,7 +465,30 @@ class AiAgentRepository(
                 val remoteChat = remoteObj.optString("telegram_default_chat_id", "")
                     .ifBlank { remoteObj.optString("default_telegram_chat_id", "") }
 
-                if (remoteSession.isNotBlank() || remoteBot.isNotBlank() || tg.sessionString.isBlank()) {
+                val ghStateObj = readGitHubAuthState(getGitHubConfig())
+                val dialogsArr = ghStateObj?.optJSONArray("telegram_dialogs") ?: remoteObj.optJSONArray("telegram_dialogs")
+                val syncedDialogs = if (dialogsArr != null) parseDialogsArray(dialogsArr) else tg.dialogs
+
+                val effectiveRemoteState = ghStateObj?.optString("telegram_auth_state", "")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: remoteAuthState
+                val effectiveRemoteMsg = ghStateObj?.optString("telegram_auth_message", "")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: remoteAuthMsg
+
+                if (effectiveRemoteState == "SESSION_EXPIRED") {
+                    saveTelegramConfig(
+                        tg.copy(
+                            sessionString = "",
+                            authState = "SESSION_EXPIRED",
+                            authMessage = effectiveRemoteMsg.ifBlank {
+                                "⚠️ টেলিগ্রাম সেশন রিসেট প্রয়োজন। অনুগ্রহ করে ১ বার পুনরায় OTP দিয়ে কানেক্ট করুন।"
+                            },
+                            isConnected = false,
+                            dialogs = syncedDialogs
+                        )
+                    )
+                } else if (remoteSession.isNotBlank() || remoteBot.isNotBlank() || tg.sessionString.isBlank() || syncedDialogs.isNotEmpty()) {
                     val mergedSession = remoteSession.ifBlank { tg.sessionString }
                     saveTelegramConfig(
                         tg.copy(
@@ -474,9 +499,10 @@ class AiAgentRepository(
                             botToken = tg.botToken.ifBlank { remoteBot },
                             defaultChatId = tg.defaultChatId.ifBlank { remoteChat },
                             accountDisplayName = remoteAccountName.ifBlank { tg.accountDisplayName },
-                            authState = if (mergedSession.isNotBlank()) "CONNECTED" else remoteAuthState.ifBlank { tg.authState },
-                            authMessage = remoteAuthMsg.ifBlank { tg.authMessage },
-                            isConnected = mergedSession.isNotBlank() || tg.botToken.ifBlank { remoteBot }.isNotBlank()
+                            authState = if (mergedSession.isNotBlank()) "CONNECTED" else effectiveRemoteState.ifBlank { tg.authState },
+                            authMessage = effectiveRemoteMsg.ifBlank { tg.authMessage },
+                            isConnected = mergedSession.isNotBlank() || tg.botToken.ifBlank { remoteBot }.isNotBlank(),
+                            dialogs = syncedDialogs.ifEmpty { tg.dialogs }
                         )
                     )
                 }
@@ -1321,6 +1347,14 @@ class AiAgentRepository(
         }
 
         try {
+            // Cancel any stuck/queued background runs before dispatching a new task so two runs never collide
+            runCatching {
+                val activeRuns = fetchRecentGitHubWorkflowRuns()
+                activeRuns.filter { it.status in listOf("in_progress", "queued", "waiting") }.forEach { r ->
+                    cancelGitHubWorkflowRun(r.id)
+                }
+            }
+
             // Always ensure the latest worker script & workflow are pushed before dispatching
             runCatching { deployAgentWorkflowToGitHub(gh) }
 
@@ -1527,18 +1561,106 @@ class AiAgentRepository(
         }
     }
 
+    /**
+     * Fetches ALL lessons across ALL Quarters (`getProgramPhases`) of a course in parallel,
+     * tagging each lesson with its Quarter ID (`phase_id`) and Quarter Title (`phase_title`).
+     */
+    suspend fun fetchAllLessonsAcrossQuarters(
+        programId: String,
+        specificPhaseId: String? = null
+    ): Pair<List<QuarterInspectionItem>, List<StudentLessonItem>> = withContext(Dispatchers.IO) {
+        val cleanProgramId = programId.ifBlank { sessionManager.getActiveProgramId().orEmpty() }
+        if (cleanProgramId.isBlank()) return@withContext Pair(emptyList(), emptyList())
+
+        val phases = try {
+            courseRepository.getProgramPhases(cleanProgramId)
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        if (phases.isNotEmpty()) {
+            val phaseResults = coroutineScope {
+                phases.mapIndexed { index, phase ->
+                    async {
+                        val pId = phase.id
+                        val pTitle = phase.title?.takeIf { it.isNotBlank() } ?: "কোয়ার্টার ${index + 1}"
+                        val rawLessons = try {
+                            courseRepository.fetchAllLessonsForProgram(cleanProgramId, pId)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                        val tagged = rawLessons.map { l ->
+                            l.copy(
+                                phase_id = l.phase_id?.takeIf { it.isNotBlank() } ?: pId
+                            )
+                        }
+                        val classLessons = tagged.filter {
+                            !it.isExam && !it.isModelTest && !it.isLiveExam &&
+                                (!it.isUpcoming || it.candidateStreamUrls.isNotEmpty() || !it.resolvedSlideUrl.isNullOrBlank())
+                        }
+                        val vCount = classLessons.size
+                        val directSlides = classLessons.sumOf { lesson ->
+                            val hasPrimary = if (!lesson.resolvedSlideUrl.isNullOrBlank()) 1 else 0
+                            val extra = lesson.allAttachments.count { !it.downloadUrl.isNullOrBlank() }
+                            maxOf(hasPrimary, extra)
+                        }
+                        val qItem = QuarterInspectionItem(
+                            phaseId = pId,
+                            phaseTitle = pTitle,
+                            isCurrent = phase.is_current == true,
+                            lessonsCount = classLessons.size,
+                            videosCount = vCount,
+                            slidesCount = maxOf(directSlides, vCount)
+                        )
+                        qItem to tagged
+                    }
+                }.map { it.await() }
+            }
+
+            val quarterItems = phaseResults.map { it.first }
+            val phaseTitleMap = quarterItems.associate { it.phaseId to it.phaseTitle }
+            val combinedLessons = if (!specificPhaseId.isNullOrBlank()) {
+                phaseResults
+                    .filter { it.first.phaseId == specificPhaseId }
+                    .flatMap { it.second }
+                    .ifEmpty { phaseResults.flatMap { it.second } }
+            } else {
+                phaseResults.flatMap { it.second }
+            }.distinctBy { it.id.ifBlank { "${it.content_id}_${it.title}" } }
+                .map { l ->
+                    val pTitle = phaseTitleMap[l.phase_id] ?: ""
+                    if (pTitle.isNotBlank() && l.chapter_name.isNullOrBlank()) {
+                        l.copy(chapter_name = pTitle)
+                    } else l
+                }
+
+            if (combinedLessons.isNotEmpty()) {
+                return@withContext Pair(quarterItems, combinedLessons)
+            }
+        }
+
+        val fallbackPhase = specificPhaseId?.ifBlank { null }
+        val fallbackLessons = try {
+            courseRepository.fetchAllLessonsForProgram(cleanProgramId, fallbackPhase)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        Pair(emptyList(), fallbackLessons)
+    }
+
     suspend fun inspectProgramContent(
         programId: String,
         programTitle: String,
         phaseId: String? = null
     ): CourseInspectionSummary = withContext(Dispatchers.IO) {
         val cleanProgramId = programId.ifBlank { sessionManager.getActiveProgramId().orEmpty() }
-        val cleanPhaseId = phaseId ?: sessionManager.getActiveProgramPhaseId().orEmpty()
-        val lessons = try {
-            courseRepository.fetchAllLessonsForProgram(cleanProgramId, cleanPhaseId.ifBlank { null })
-        } catch (e: Exception) {
-            emptyList()
-        }
+        // Pass null by default so ALL 5+ Quarters are inspected together unless user filtered a specific quarter!
+        val cleanPhaseId = phaseId?.trim().orEmpty()
+        val (quarters, lessons) = fetchAllLessonsAcrossQuarters(
+            programId = cleanProgramId,
+            specificPhaseId = cleanPhaseId.ifBlank { null }
+        )
+        val phaseTitleMap = quarters.associate { it.phaseId to it.phaseTitle }
 
         val bySubject = lessons.groupBy {
             val codeKey = it.subject_code?.takeIf { c -> c.isNotBlank() }
@@ -1552,7 +1674,6 @@ class AiAgentRepository(
         var totalVideos = 0
         var totalSlides = 0
         val breakdown = bySubject.map { (subjPair, subjLessons) ->
-            // Exclude exams and strictly future upcoming classes that don't have recordings yet
             val classLessons = subjLessons.filter {
                 !it.isExam && !it.isModelTest && !it.isLiveExam &&
                     (!it.isUpcoming || it.candidateStreamUrls.isNotEmpty() || !it.resolvedSlideUrl.isNullOrBlank())
@@ -1575,6 +1696,30 @@ class AiAgentRepository(
             )
         }
 
+        val catalog = lessons
+            .filter { !it.isExam && !it.isModelTest && !it.isLiveExam }
+            .map { l ->
+                val pId = l.phase_id.orEmpty()
+                val pTitle = phaseTitleMap[pId] ?: ""
+                AgentPlayableLesson(
+                    id = l.id,
+                    contentId = l.content_id?.takeIf { it.isNotBlank() }
+                        ?: l.live_class?.id?.takeIf { it.isNotBlank() }
+                        ?: l.id,
+                    title = l.title ?: "লেকচার",
+                    subjectCode = l.subject_code ?: l.subject_id ?: "",
+                    subjectTitle = l.subject_name ?: "বিষয়",
+                    chapterId = l.chapter_id ?: "",
+                    chapterTitle = l.chapter_name ?: pTitle,
+                    phaseId = pId,
+                    phaseTitle = pTitle,
+                    teacherName = l.live_class?.teacher?.name ?: "",
+                    videoUrl = l.candidateStreamUrls.firstOrNull().orEmpty(),
+                    slideUrl = l.resolvedSlideUrl.orEmpty(),
+                    isAnimated = l.content_type.equals("AnimatedLesson", ignoreCase = true)
+                )
+            }
+
         CourseInspectionSummary(
             programId = cleanProgramId,
             programTitle = programTitle.ifBlank { sessionManager.getActiveProgramTitleBn() ?: "সক্রিয় কোর্স" },
@@ -1583,7 +1728,49 @@ class AiAgentRepository(
             totalLessonsCount = totalVideos,
             videoLessonsCount = totalVideos,
             slideAttachmentsCount = totalSlides,
-            subjectBreakdown = breakdown
+            subjectBreakdown = breakdown,
+            quarters = quarters,
+            allLessonsCatalog = catalog
+        )
+    }
+
+    /**
+     * Resolves the real HLS/MP4 playback URL and PDF slide URL for a single `AgentPlayableLesson`
+     * so the user can play it right from the AI Chat!
+     */
+    suspend fun resolvePlayableLessonUrls(item: AgentPlayableLesson): AgentPlayableLesson = withContext(Dispatchers.IO) {
+        if (item.videoUrl.isNotBlank() && item.slideUrl.isNotBlank()) return@withContext item
+        var vUrl = item.videoUrl
+        var sUrl = item.slideUrl
+        var tName = item.teacherName
+        var cTitle = item.chapterTitle
+        val candidates = listOf(item.contentId, item.id).filter { it.isNotBlank() }.distinct()
+        for (cid in candidates) {
+            try {
+                val detail = courseRepository.getLiveClassDetails(cid)
+                if (detail != null) {
+                    if (vUrl.isBlank() && !detail.playback_url.isNullOrBlank()) {
+                        vUrl = detail.playback_url
+                    }
+                    if (sUrl.isBlank()) {
+                        sUrl = detail.study_materials?.firstOrNull { !it.file_url.isNullOrBlank() }?.file_url.orEmpty()
+                    }
+                    if (tName.isBlank() && !detail.teacher?.name.isNullOrBlank()) {
+                        tName = detail.teacher?.name.orEmpty()
+                    }
+                    if (cTitle.isBlank() && !detail.chapter?.name.isNullOrBlank()) {
+                        cTitle = detail.chapter?.name.orEmpty()
+                    }
+                    if (vUrl.isNotBlank() || sUrl.isNotBlank()) break
+                }
+            } catch (_: Exception) {
+            }
+        }
+        item.copy(
+            videoUrl = vUrl,
+            slideUrl = sUrl,
+            teacherName = tName,
+            chapterTitle = cTitle
         )
     }
 
@@ -1729,22 +1916,29 @@ class AiAgentRepository(
 
     /**
      * Builds a serialized JSONArray of lessons (with live_class/content_id and direct playback URLs)
+     * across ALL Quarters (or a specific Quarter/Subject/Chapter/Lesson ID list)
      * so the GitHub Actions worker can download & upload every video and slide accurately.
      */
     suspend fun buildBundledLessonsJson(
         programId: String,
         phaseId: String?,
         subjectCode: String = "",
-        chapterId: String = ""
+        chapterId: String = "",
+        specificLessonIds: List<String> = emptyList()
     ): Pair<Int, JSONArray> = withContext(Dispatchers.IO) {
-        val allLessons: List<StudentLessonItem> = try {
-            courseRepository.fetchAllLessonsForProgram(programId, phaseId?.ifBlank { null })
-        } catch (_: Exception) {
-            emptyList()
-        }
+        val (_, allLessons) = fetchAllLessonsAcrossQuarters(
+            programId = programId,
+            specificPhaseId = phaseId?.ifBlank { null }
+        )
+
+        val specificSet = specificLessonIds.map { it.trim() }.filter { it.isNotBlank() }.toSet()
 
         val filtered = allLessons.filter { lesson ->
             val isClassLesson = !lesson.isExam && !lesson.isModelTest && !lesson.isLiveExam
+            if (!isClassLesson) return@filter false
+            if (specificSet.isNotEmpty()) {
+                return@filter lesson.id in specificSet || (lesson.content_id != null && lesson.content_id in specificSet)
+            }
             val matchesSubject = subjectCode.isBlank() ||
                 lesson.subject_code.equals(subjectCode, ignoreCase = true) ||
                 lesson.subject_id.equals(subjectCode, ignoreCase = true) ||
@@ -1752,7 +1946,7 @@ class AiAgentRepository(
             val matchesChapter = chapterId.isBlank() ||
                 lesson.chapter_id.equals(chapterId, ignoreCase = true) ||
                 (lesson.chapter_name?.contains(chapterId, ignoreCase = true) == true)
-            isClassLesson && matchesSubject && matchesChapter
+            matchesSubject && matchesChapter
         }
 
         val (count, bundledArr) = buildBundledLessonsFromItems(filtered)
@@ -2167,5 +2361,231 @@ class AiAgentRepository(
             )
         }
         return list
+    }
+
+    // =========================================================================
+    // 5. GEMINI-STYLE MULTI-SESSION CHAT HISTORY PERSISTENCE
+    // =========================================================================
+
+    fun getActiveChatSessionId(): String {
+        return prefs.getString(KEY_ACTIVE_CHAT_SESSION_ID, "")?.trim().orEmpty()
+    }
+
+    fun setActiveChatSessionId(sessionId: String) {
+        prefs.edit().putString(KEY_ACTIVE_CHAT_SESSION_ID, sessionId.trim()).apply()
+    }
+
+    fun getChatSessions(): List<AiChatSession> {
+        val raw = prefs.getString(KEY_CHAT_SESSIONS_JSON, "[]") ?: "[]"
+        return try {
+            val arr = JSONArray(raw)
+            val list = mutableListOf<AiChatSession>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val msgsArr = obj.optJSONArray("messages") ?: JSONArray()
+                val msgs = mutableListOf<AiAgentChatMessage>()
+                for (j in 0 until msgsArr.length()) {
+                    val mObj = msgsArr.optJSONObject(j) ?: continue
+                    val planObj = mObj.optJSONObject("proposed_plan")
+                    val plan = if (planObj != null) {
+                        val specIdsArr = planObj.optJSONArray("specific_lesson_ids")
+                        val specIds = mutableListOf<String>()
+                        if (specIdsArr != null) {
+                            for (k in 0 until specIdsArr.length()) {
+                                val sid = specIdsArr.optString(k, "")
+                                if (sid.isNotBlank()) specIds.add(sid)
+                            }
+                        }
+                        ProposedAgentPlan(
+                            actionType = planObj.optString("action_type", "PROPOSE_PLAN"),
+                            taskTitle = planObj.optString("task_title", ""),
+                            programId = planObj.optString("program_id", ""),
+                            programTitle = planObj.optString("program_title", ""),
+                            phaseId = planObj.optString("phase_id", ""),
+                            phaseTitle = planObj.optString("phase_title", ""),
+                            subjectCode = planObj.optString("subject_code", ""),
+                            subjectTitle = planObj.optString("subject_title", ""),
+                            chapterId = planObj.optString("chapter_id", ""),
+                            chapterTitle = planObj.optString("chapter_title", ""),
+                            targetChannelTitle = planObj.optString("target_channel_title", ""),
+                            targetChatId = planObj.optString("target_chat_id", ""),
+                            targetTopicId = planObj.optInt("target_topic_id", 0),
+                            targetTopicTitle = planObj.optString("target_topic_title", ""),
+                            videoQuality = planObj.optString("video_quality", "720p"),
+                            includeVideos = planObj.optBoolean("include_videos", true),
+                            includeSlides = planObj.optBoolean("include_slides", true),
+                            createNewChannel = planObj.optBoolean("create_new_channel", true),
+                            useForumTopics = planObj.optBoolean("use_forum_topics", false),
+                            scheduleTimeBn = planObj.optString("schedule_time_bn", "প্রতিদিন সকাল ০৮:০০"),
+                            cronExpression = planObj.optString("cron_expression", "0 2 * * *"),
+                            estimatedVideos = planObj.optInt("estimated_videos", 0),
+                            estimatedSlides = planObj.optInt("estimated_slides", 0),
+                            specificLessonIds = specIds
+                        )
+                    } else null
+
+                    val playArr = mObj.optJSONArray("playable_lessons")
+                    val playList = mutableListOf<AgentPlayableLesson>()
+                    if (playArr != null) {
+                        for (k in 0 until playArr.length()) {
+                            val pObj = playArr.optJSONObject(k) ?: continue
+                            playList.add(
+                                AgentPlayableLesson(
+                                    id = pObj.optString("id", ""),
+                                    contentId = pObj.optString("content_id", ""),
+                                    title = pObj.optString("title", "লেকচার"),
+                                    subjectCode = pObj.optString("subject_code", ""),
+                                    subjectTitle = pObj.optString("subject_title", ""),
+                                    chapterId = pObj.optString("chapter_id", ""),
+                                    chapterTitle = pObj.optString("chapter_name", ""),
+                                    phaseId = pObj.optString("phase_id", ""),
+                                    phaseTitle = pObj.optString("phase_title", ""),
+                                    teacherName = pObj.optString("teacher_name", ""),
+                                    videoUrl = pObj.optString("video_url", ""),
+                                    slideUrl = pObj.optString("slide_url", ""),
+                                    isAnimated = pObj.optBoolean("is_animated", false)
+                                )
+                            )
+                        }
+                    }
+
+                    msgs.add(
+                        AiAgentChatMessage(
+                            id = mObj.optString("id", UUID.randomUUID().toString()),
+                            role = mObj.optString("role", "model"),
+                            text = mObj.optString("text", ""),
+                            timestamp = mObj.optLong("timestamp", System.currentTimeMillis()),
+                            proposedPlan = plan,
+                            playableLessons = playList,
+                            autoPlayFirstLesson = false,
+                            showChannelCatalog = mObj.optBoolean("show_channel_catalog", false),
+                            isStreaming = false,
+                            isError = mObj.optBoolean("is_error", false)
+                        )
+                    )
+                }
+                list.add(
+                    AiChatSession(
+                        id = obj.optString("id", UUID.randomUUID().toString()),
+                        title = obj.optString("title", "নতুন চ্যাট"),
+                        createdAt = obj.optLong("created_at", System.currentTimeMillis()),
+                        updatedAt = obj.optLong("updated_at", System.currentTimeMillis()),
+                        programId = obj.optString("program_id", ""),
+                        programTitle = obj.optString("program_title", ""),
+                        messages = msgs
+                    )
+                )
+            }
+            list.sortedByDescending { it.updatedAt }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveChatSession(session: AiChatSession) {
+        val current = getChatSessions().toMutableList()
+        val idx = current.indexOfFirst { it.id == session.id }
+        if (idx >= 0) {
+            current[idx] = session
+        } else {
+            current.add(0, session)
+        }
+        saveAllChatSessions(current.sortedByDescending { it.updatedAt }.take(35))
+        setActiveChatSessionId(session.id)
+    }
+
+    fun deleteChatSession(sessionId: String): List<AiChatSession> {
+        val updated = getChatSessions().filterNot { it.id == sessionId }
+        saveAllChatSessions(updated)
+        if (getActiveChatSessionId() == sessionId) {
+            setActiveChatSessionId(updated.firstOrNull()?.id.orEmpty())
+        }
+        return updated
+    }
+
+    private fun saveAllChatSessions(sessions: List<AiChatSession>) {
+        val arr = JSONArray()
+        sessions.forEach { s ->
+            val msgsArr = JSONArray()
+            s.messages.filterNot { it.isStreaming }.takeLast(60).forEach { m ->
+                val mObj = JSONObject().apply {
+                    put("id", m.id)
+                    put("role", m.role)
+                    put("text", m.text)
+                    put("timestamp", m.timestamp)
+                    put("show_channel_catalog", m.showChannelCatalog)
+                    put("is_error", m.isError)
+                    m.proposedPlan?.let { p ->
+                        val specArr = JSONArray()
+                        p.specificLessonIds.forEach { specArr.put(it) }
+                        put(
+                            "proposed_plan",
+                            JSONObject().apply {
+                                put("action_type", p.actionType)
+                                put("task_title", p.taskTitle)
+                                put("program_id", p.programId)
+                                put("program_title", p.programTitle)
+                                put("phase_id", p.phaseId)
+                                put("phase_title", p.phaseTitle)
+                                put("subject_code", p.subjectCode)
+                                put("subject_title", p.subjectTitle)
+                                put("chapter_id", p.chapterId)
+                                put("chapter_title", p.chapterTitle)
+                                put("target_channel_title", p.targetChannelTitle)
+                                put("target_chat_id", p.targetChatId)
+                                put("target_topic_id", p.targetTopicId)
+                                put("target_topic_title", p.targetTopicTitle)
+                                put("video_quality", p.videoQuality)
+                                put("include_videos", p.includeVideos)
+                                put("include_slides", p.includeSlides)
+                                put("create_new_channel", p.createNewChannel)
+                                put("use_forum_topics", p.useForumTopics)
+                                put("schedule_time_bn", p.scheduleTimeBn)
+                                put("cron_expression", p.cronExpression)
+                                put("estimated_videos", p.estimatedVideos)
+                                put("estimated_slides", p.estimatedSlides)
+                                put("specific_lesson_ids", specArr)
+                            }
+                        )
+                    }
+                    if (m.playableLessons.isNotEmpty()) {
+                        val playArr = JSONArray()
+                        m.playableLessons.take(10).forEach { pl ->
+                            playArr.put(
+                                JSONObject().apply {
+                                    put("id", pl.id)
+                                    put("content_id", pl.contentId)
+                                    put("title", pl.title)
+                                    put("subject_code", pl.subjectCode)
+                                    put("subject_title", pl.subjectTitle)
+                                    put("chapter_id", pl.chapterId)
+                                    put("chapter_name", pl.chapterTitle)
+                                    put("phase_id", pl.phaseId)
+                                    put("phase_title", pl.phaseTitle)
+                                    put("teacher_name", pl.teacherName)
+                                    put("video_url", pl.videoUrl)
+                                    put("slide_url", pl.slideUrl)
+                                    put("is_animated", pl.isAnimated)
+                                }
+                            )
+                        }
+                        put("playable_lessons", playArr)
+                    }
+                }
+                msgsArr.put(mObj)
+            }
+            arr.put(
+                JSONObject().apply {
+                    put("id", s.id)
+                    put("title", s.title)
+                    put("created_at", s.createdAt)
+                    put("updated_at", s.updatedAt)
+                    put("program_id", s.programId)
+                    put("program_title", s.programTitle)
+                    put("messages", msgsArr)
+                }
+            )
+        }
+        prefs.edit().putString(KEY_CHAT_SESSIONS_JSON, arr.toString()).apply()
     }
 }

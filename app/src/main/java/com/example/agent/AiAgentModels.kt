@@ -38,7 +38,7 @@ data class TelegramExtensionConfig(
     val botToken: String = "",
     val defaultChatId: String = "",
     val accountDisplayName: String = "",
-    val authState: String = "IDLE", // IDLE, SENDING_CODE, WAITING_FOR_OTP, VERIFYING_OTP, NEED_2FA, CONNECTED, ERROR
+    val authState: String = "IDLE", // IDLE, SENDING_CODE, WAITING_FOR_OTP, VERIFYING_OTP, NEED_2FA, CONNECTED, SESSION_EXPIRED, ERROR
     val authMessage: String = "",
     val isConnected: Boolean = false,
     val dialogs: List<TelegramDialogDestination> = emptyList()
@@ -61,12 +61,29 @@ data class GitHubWorkflowRunInfo(
     val createdAt: String
 )
 
+data class AgentPlayableLesson(
+    val id: String,
+    val contentId: String = "",
+    val title: String,
+    val subjectCode: String = "",
+    val subjectTitle: String = "",
+    val chapterId: String = "",
+    val chapterTitle: String = "",
+    val phaseId: String = "",
+    val phaseTitle: String = "",
+    val teacherName: String = "",
+    val videoUrl: String = "",
+    val slideUrl: String = "",
+    val isAnimated: Boolean = false
+)
+
 data class ProposedAgentPlan(
-    val actionType: String, // START_UPLOAD_TASK, CREATE_SCHEDULE, CREATE_TELEGRAM_CHANNEL, NONE
+    val actionType: String, // PROPOSE_PLAN, START_UPLOAD_TASK, CREATE_SCHEDULE, CREATE_TELEGRAM_CHANNEL, PLAY_VIDEO, NONE
     val taskTitle: String = "",
     val programId: String = "",
     val programTitle: String = "",
     val phaseId: String = "",
+    val phaseTitle: String = "",
     val subjectCode: String = "",
     val subjectTitle: String = "",
     val chapterId: String = "",
@@ -83,7 +100,8 @@ data class ProposedAgentPlan(
     val scheduleTimeBn: String = "প্রতিদিন সকাল ০৮:০০",
     val cronExpression: String = "0 2 * * *",
     val estimatedVideos: Int = 0,
-    val estimatedSlides: Int = 0
+    val estimatedSlides: Int = 0,
+    val specificLessonIds: List<String> = emptyList()
 )
 
 data class AiAgentChatMessage(
@@ -92,8 +110,21 @@ data class AiAgentChatMessage(
     val text: String,
     val timestamp: Long = System.currentTimeMillis(),
     val proposedPlan: ProposedAgentPlan? = null,
+    val playableLessons: List<AgentPlayableLesson> = emptyList(),
+    val autoPlayFirstLesson: Boolean = false,
+    val showChannelCatalog: Boolean = false,
     val isStreaming: Boolean = false,
     val isError: Boolean = false
+)
+
+data class AiChatSession(
+    val id: String,
+    val title: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val programId: String = "",
+    val programTitle: String = "",
+    val messages: List<AiAgentChatMessage> = emptyList()
 )
 
 data class AiAgentTask(
@@ -150,6 +181,15 @@ data class AiAgentSchedule(
     val lastRunStatus: String = "অপেক্ষমাণ"
 )
 
+data class QuarterInspectionItem(
+    val phaseId: String,
+    val phaseTitle: String,
+    val isCurrent: Boolean = false,
+    val lessonsCount: Int = 0,
+    val videosCount: Int = 0,
+    val slidesCount: Int = 0
+)
+
 data class CourseInspectionSummary(
     val programId: String,
     val programTitle: String,
@@ -158,7 +198,9 @@ data class CourseInspectionSummary(
     val totalLessonsCount: Int,
     val videoLessonsCount: Int,
     val slideAttachmentsCount: Int,
-    val subjectBreakdown: List<SubjectInspectionItem>
+    val subjectBreakdown: List<SubjectInspectionItem>,
+    val quarters: List<QuarterInspectionItem> = emptyList(),
+    val allLessonsCatalog: List<AgentPlayableLesson> = emptyList()
 )
 
 data class SubjectInspectionItem(

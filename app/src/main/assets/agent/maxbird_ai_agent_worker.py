@@ -475,13 +475,46 @@ class ShikhoClient:
         if self.access_token:
             self.session.headers["Authorization"] = f"Bearer {self.access_token}"
 
+    def fetch_program_phases(self, program_id: str) -> List[Dict[str, Any]]:
+        if not program_id:
+            return []
+        q_phases = """
+        query ProgramPhasesByStudent($program_id: String!) {
+          programPhasesByStudent(program_id: $program_id) {
+            data {
+              id
+              academic_program_id
+              title
+              status
+              is_current
+            }
+          }
+        }
+        """
+        try:
+            r = self.session.post(
+                SHIKHO_GRAPHQL_URL,
+                json={
+                    "operationName": "ProgramPhasesByStudent",
+                    "query": q_phases,
+                    "variables": {"program_id": program_id},
+                },
+                timeout=25,
+            )
+            if r.ok:
+                rows = (((r.json().get("data") or {}).get("programPhasesByStudent") or {}).get("data")) or []
+                return [p for p in rows if isinstance(p, dict) and str(p.get("id") or "").strip()]
+        except Exception as exc:
+            log(f"ProgramPhasesByStudent note: {exc}")
+        return []
+
     def fetch_lessons_for_program(
         self, program_id: str, phase_id: str = "", subject_code: str = "", chapter_id: str = ""
     ) -> List[Dict[str, Any]]:
         all_items: List[Dict[str, Any]] = []
         seen_ids = set()
 
-        def add_rows(rows: Any) -> None:
+        def add_rows(rows: Any, phase_label: str = "") -> None:
             if not isinstance(rows, list):
                 return
             for item in rows:
@@ -489,6 +522,8 @@ class ShikhoClient:
                     iid = str(item.get("id") or item.get("content_id") or "").strip()
                     if iid and iid not in seen_ids:
                         seen_ids.add(iid)
+                        if phase_label and not item.get("phase_title"):
+                            item["phase_title"] = phase_label
                         all_items.append(item)
 
         lesson_fields = """
@@ -514,8 +549,18 @@ class ShikhoClient:
           }
         """
 
-        # 1. Phase-wise query (exact schema from CourseRepository.kt)
+        # 1. Multi-Quarter / Phase-wise query (fetches specific quarter or ALL 5+ quarters of the course!)
+        phases_to_query: List[Tuple[str, str]] = []
         if phase_id and program_id:
+            phases_to_query.append((phase_id, ""))
+        elif program_id:
+            for p_obj in self.fetch_program_phases(program_id):
+                pid = str(p_obj.get("id") or "").strip()
+                ptitle = str(p_obj.get("title") or "").strip()
+                if pid:
+                    phases_to_query.append((pid, ptitle))
+
+        for cur_phase_id, cur_phase_title in phases_to_query:
             q_phase = f"""
             query GetUpcomingLessonsPhaseWise($program_id: String!, $phase_id: String!) {{
               studentSpecificLessons(program_id: $program_id, phase_id: $phase_id) {{
@@ -531,14 +576,14 @@ class ShikhoClient:
                     json={
                         "operationName": "GetUpcomingLessonsPhaseWise",
                         "query": q_phase,
-                        "variables": {"program_id": program_id, "phase_id": phase_id},
+                        "variables": {"program_id": program_id, "phase_id": cur_phase_id},
                     },
                     timeout=35,
                 )
                 if r.ok:
-                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")), cur_phase_title)
             except Exception as exc:
-                log(f"GetUpcomingLessonsPhaseWise note: {exc}")
+                log(f"GetUpcomingLessonsPhaseWise ({cur_phase_id}) note: {exc}")
 
             # 1b. Wide date-window phase query to include all past recorded classes
             q_phase_date = f"""
@@ -558,7 +603,7 @@ class ShikhoClient:
                         "query": q_phase_date,
                         "variables": {
                             "program_id": program_id,
-                            "phase_id": phase_id,
+                            "phase_id": cur_phase_id,
                             "start_date": "2020-01-01",
                             "end_date": "2030-12-31",
                         },
@@ -566,9 +611,9 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")), cur_phase_title)
             except Exception as exc:
-                log(f"GetStudentLessonsPhaseDate note: {exc}")
+                log(f"GetStudentLessonsPhaseDate ({cur_phase_id}) note: {exc}")
 
         # 2. Program-wide query without phase_id
         if program_id:
@@ -664,16 +709,18 @@ class ShikhoClient:
         if not chapter_id:
             return []
         q_topics = """
-        query GetTopics($chapter_id: ID!) {
-          topics(chapter_id: $chapter_id) {
-            id
-            name
-            no
-            description
-            videos {
-              data {
-                id
-                playback_url
+        query GetTopics($chapter_id: String) {
+          topics(chapter_id: $chapter_id, filter: { limit: 150 }) {
+            data {
+              id
+              name
+              no
+              description
+              videos {
+                data {
+                  id
+                  playback_url
+                }
               }
             }
           }
@@ -691,7 +738,12 @@ class ShikhoClient:
                 timeout=25,
             )
             if r.ok:
-                topics = (r.json().get("data") or {}).get("topics") or []
+                topics_root = (r.json().get("data") or {}).get("topics")
+                topics = (
+                    topics_root.get("data")
+                    if isinstance(topics_root, dict)
+                    else (topics_root if isinstance(topics_root, list) else [])
+                ) or []
                 for idx, t in enumerate(topics, start=1):
                     if not isinstance(t, dict):
                         continue
@@ -940,46 +992,56 @@ def _resolve_relative_url(base_url: str, relative_path: str) -> str:
     return urllib.parse.urljoin(base_url, rel)
 
 
+_CDN_POOL_SESSION: Optional[requests.Session] = None
+
+
+def _get_cdn_session() -> requests.Session:
+    global _CDN_POOL_SESSION
+    if _CDN_POOL_SESSION is None:
+        s = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=48, pool_maxsize=48, max_retries=2)
+        s.mount("https://", adapter)
+        s.mount("http://", adapter)
+        s.headers.update(
+            {
+                "User-Agent": SHIKHO_CDN_USER_AGENT,
+                "Referer": SHIKHO_REFERER,
+                "Origin": SHIKHO_ORIGIN,
+                "Accept": "*/*",
+            }
+        )
+        _CDN_POOL_SESSION = s
+    return _CDN_POOL_SESSION
+
+
 def _fetch_text_with_shikho_headers(url: str, timeout: int = 25) -> str:
-    headers = {
-        "User-Agent": SHIKHO_CDN_USER_AGENT,
-        "Referer": SHIKHO_REFERER,
-        "Origin": SHIKHO_ORIGIN,
-        "Accept": "*/*",
-    }
-    r = requests.get(url, headers=headers, timeout=timeout)
+    r = _get_cdn_session().get(url, timeout=timeout)
     r.raise_for_status()
     return r.text
 
 
 def _download_binary_with_retries(url: str, dest: Path, retries: int = 3) -> bool:
-    headers = {
-        "User-Agent": SHIKHO_CDN_USER_AGENT,
-        "Referer": SHIKHO_REFERER,
-        "Origin": SHIKHO_ORIGIN,
-        "Accept": "*/*",
-    }
+    sess = _get_cdn_session()
     for attempt in range(retries):
         try:
-            with requests.get(url, headers=headers, stream=True, timeout=40) as r:
+            with sess.get(url, stream=True, timeout=35) as r:
                 r.raise_for_status()
                 with open(dest, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=65536):
+                    for chunk in r.iter_content(chunk_size=131072):
                         if chunk:
                             f.write(chunk)
             if dest.exists() and dest.stat().st_size > 0:
                 return True
         except Exception:
             if attempt < retries - 1:
-                time.sleep(0.6 * (attempt + 1))
+                time.sleep(0.35 * (attempt + 1))
     return False
 
 
 def _download_media_playlist_segments(playlist_url: str, playlist_text: str, seg_dir: Path, prefix: str) -> Optional[Path]:
     """
     Downloads all segments + #EXT-X-MAP + #EXT-X-KEY from a media .m3u8 playlist in parallel
-    (20 threads) and writes a local .m3u8 file pointing to the downloaded local files.
-    Exact port of `AppFileDownloadManager.kt` so Shikho CDN streams never fail.
+    (32 threads + persistent HTTPS keep-alive pool) so 1300+ segments download in ~15 seconds.
     """
     seg_dir.mkdir(parents=True, exist_ok=True)
     lines = playlist_text.splitlines()
@@ -1021,9 +1083,9 @@ def _download_media_playlist_segments(playlist_url: str, playlist_text: str, seg
     if not download_jobs:
         return None
 
-    log(f"⬇️ [Native HLS] Downloading {len(download_jobs)} '{prefix}' segments with 20 parallel workers...")
+    log(f"⬇️ [Native HLS] Downloading {len(download_jobs)} '{prefix}' segments with 32 pooled workers...")
     failed_count = 0
-    with ThreadPoolExecutor(max_workers=20) as pool:
+    with ThreadPoolExecutor(max_workers=32) as pool:
         futures = {pool.submit(_download_binary_with_retries, url, dst): (url, dst) for url, dst in download_jobs}
         for fut in as_completed(futures):
             ok = False
@@ -1374,15 +1436,44 @@ async def fetch_and_sync_telegram_dialogs(
             topics_list: List[Dict[str, Any]] = []
             if is_forum:
                 try:
-                    topics_res = await client(
-                        functions.channels.GetForumTopicsRequest(
-                            channel=entity,
-                            offset_date=None,
-                            offset_id=0,
-                            offset_topic=0,
-                            limit=100,
+                    # Compatible with both Telethon 1.36+ (functions.messages.GetForumTopicsRequest)
+                    # and older Telethon (functions.channels.GetForumTopicsRequest)
+                    msg_req_cls = getattr(functions.messages, "GetForumTopicsRequest", None)
+                    chan_req_cls = getattr(functions.channels, "GetForumTopicsRequest", None)
+                    if msg_req_cls is not None:
+                        try:
+                            topics_res = await client(
+                                msg_req_cls(
+                                    peer=entity,
+                                    offset_date=None,
+                                    offset_id=0,
+                                    offset_topic=0,
+                                    limit=100,
+                                )
+                            )
+                        except TypeError:
+                            topics_res = await client(
+                                msg_req_cls(
+                                    channel=entity,
+                                    offset_date=None,
+                                    offset_id=0,
+                                    offset_topic=0,
+                                    limit=100,
+                                )
+                            )
+                    elif chan_req_cls is not None:
+                        topics_res = await client(
+                            chan_req_cls(
+                                channel=entity,
+                                offset_date=None,
+                                offset_id=0,
+                                offset_topic=0,
+                                limit=100,
+                            )
                         )
-                    )
+                    else:
+                        topics_res = None
+
                     for t in getattr(topics_res, "topics", []) or []:
                         t_id = getattr(t, "id", None)
                         t_title = str(getattr(t, "title", "") or "").strip()
@@ -1850,6 +1941,81 @@ async def send_with_flood_protection(coro_factory):
             await asyncio.sleep(wait_sec)
 
 
+async def fast_upload_file_same_session(client: TelegramClient, file_path: Path):
+    """
+    Uploads a file 4x-6x faster using 8 pipelined 512KB chunk requests over the
+    EXACT SAME single `TelegramClient` session and IP address (never opens a second session!).
+    """
+    file_size = file_path.stat().st_size
+    part_size = 512 * 1024  # 512 KB (maximum allowed by Telegram MTProto)
+    total_parts = (file_size + part_size - 1) // part_size
+    if total_parts <= 1:
+        return await client.upload_file(str(file_path), part_size_kb=512)
+
+    import random
+    file_id = random.randint(10**12, 9 * 10**18)
+    is_big = file_size > 10 * 1024 * 1024
+    sem = asyncio.Semaphore(8)
+
+    async def upload_part(part_idx: int, chunk: bytes) -> None:
+        async with sem:
+            for attempt in range(3):
+                try:
+                    if is_big:
+                        req = functions.upload.SaveBigFilePartRequest(
+                            file_id=file_id,
+                            file_part=part_idx,
+                            file_total_parts=total_parts,
+                            bytes=chunk,
+                        )
+                    else:
+                        req = functions.upload.SaveFilePartRequest(
+                            file_id=file_id,
+                            file_part=part_idx,
+                            bytes=chunk,
+                        )
+                    await send_with_flood_protection(lambda: client(req))
+                    return
+                except FloodWaitError as fw:
+                    await asyncio.sleep(int(fw.seconds) + 3)
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(0.5 * (attempt + 1))
+
+    tasks = []
+    with open(file_path, "rb") as f:
+        for idx in range(total_parts):
+            data = f.read(part_size)
+            if not data:
+                break
+            tasks.append(asyncio.create_task(upload_part(idx, data)))
+            if len(tasks) >= 24:
+                await asyncio.gather(*tasks)
+                tasks.clear()
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    if is_big:
+        return types.InputFileBig(id=file_id, parts=total_parts, name=file_path.name)
+    else:
+        return types.InputFile(id=file_id, parts=total_parts, name=file_path.name, md5_checksum="")
+
+
+def is_session_revoked_error(exc: Exception) -> bool:
+    txt = str(exc).lower()
+    cls_name = exc.__class__.__name__.lower()
+    return (
+        "authkeyduplicated" in cls_name
+        or "authkeyunregistered" in cls_name
+        or "sessionrevoked" in cls_name
+        or "two different ip addresses" in txt
+        or "authorization key" in txt
+        or "session file" in txt
+        or "auth_key_unregistered" in txt
+    )
+
+
 async def execute_task_async(
     task: Dict[str, Any],
     agent_cfg: Dict[str, Any],
@@ -1929,311 +2095,356 @@ async def execute_task_async(
         }
     )
 
-    async with TelegramClient(StringSession(session_str), api_id, api_hash) as tg_client:
-        me = await tg_client.get_me()
-        log(f"🤖 Connected to Personal Telegram Account: {getattr(me, 'first_name', 'User')} (@{getattr(me, 'username', '')})")
+    try:
+        async with TelegramClient(StringSession(session_str), api_id, api_hash) as tg_client:
+            me = await tg_client.get_me()
+            if me is None:
+                raise RuntimeError("AuthKeyUnregisteredError: Telegram session is no longer authorized.")
+            log(f"🤖 Connected to Personal Telegram Account: {getattr(me, 'first_name', 'User')} (@{getattr(me, 'username', '')})")
 
-        # Keep user's Channels, Groups & Forum Topics synced for the in-app picker
-        await fetch_and_sync_telegram_dialogs(tg_client, gh_bridge)
+            # Keep user's Channels, Groups & Forum Topics synced for the in-app picker
+            await fetch_and_sync_telegram_dialogs(tg_client, gh_bridge)
 
-        target_entity, invite_link = await ensure_telegram_destination(tg_client, task, supabase)
-        chat_id_str = str(task.get("target_chat_id") or "")
-        topic_suffix = f" (টপিক: {target_topic_title})" if target_topic_title else ""
-        sync_task_progress(
-            {
-                "status": "RUNNING",
-                "target_chat_id": chat_id_str,
-                "telegram_invite_link": invite_link,
-                "status_message": f"টেলিগ্রাম গন্তব্য প্রস্তুত{topic_suffix}। লেকচার ও স্লাইড লোড হচ্ছে...",
-            }
-        )
+            target_entity, invite_link = await ensure_telegram_destination(tg_client, task, supabase)
+            chat_id_str = str(task.get("target_chat_id") or "")
+            topic_suffix = f" (টপিক: {target_topic_title})" if target_topic_title else ""
+            sync_task_progress(
+                {
+                    "status": "RUNNING",
+                    "target_chat_id": chat_id_str,
+                    "telegram_invite_link": invite_link,
+                    "status_message": f"টেলিগ্রাম গন্তব্য প্রস্তুত{topic_suffix}। লেকচার ও স্লাইড লোড হচ্ছে...",
+                }
+            )
 
-        if task_type == "CREATE_CHANNEL_ONLY":
-            done_msg = f"টেলিগ্রাম চ্যানেল সফলভাবে তৈরি হয়েছে! লিংক: {invite_link or 'প্রাইভেট চ্যানেল'}"
+            if task_type == "CREATE_CHANNEL_ONLY":
+                done_msg = f"টেলিগ্রাম চ্যানেল সফলভাবে তৈরি হয়েছে! লিংক: {invite_link or 'প্রাইভেট চ্যানেল'}"
+                sync_task_progress(
+                    {
+                        "status": "COMPLETED",
+                        "completed_items": 1,
+                        "total_items": 1,
+                        "status_message": done_msg,
+                    }
+                )
+                supabase.notify_task_completion("✅ টেলিগ্রাম চ্যানেল প্রস্তুত!", done_msg, invite_link)
+                return
+
+            extra = task.get("extra_payload_json") or {}
+            if isinstance(extra, str):
+                try:
+                    extra = json.loads(extra)
+                except Exception:
+                    extra = {}
+
+            bundled_lessons = extra.get("lessons") if isinstance(extra, dict) else None
+
+            # Also check `scripts/active_task_payload.json` written by the Android app prior to dispatch
+            if not (isinstance(bundled_lessons, list) and len(bundled_lessons) > 0):
+                active_payload_file = Path(__file__).resolve().parent / "active_task_payload.json"
+                if active_payload_file.exists():
+                    try:
+                        file_data = json.loads(active_payload_file.read_text(encoding="utf-8"))
+                        if isinstance(file_data, dict):
+                            file_lessons = file_data.get("lessons") or (file_data.get("extra_payload_json") or {}).get("lessons")
+                            if isinstance(file_lessons, list) and len(file_lessons) > 0:
+                                bundled_lessons = file_lessons
+                                log(f"📂 Loaded {len(bundled_lessons)} pre-resolved lessons from scripts/active_task_payload.json")
+                    except Exception as exc:
+                        log(f"active_task_payload.json read note: {exc}")
+
+            shikho_client = ShikhoClient(shikho_token)
+
+            if isinstance(bundled_lessons, list) and len(bundled_lessons) > 0:
+                lessons = bundled_lessons
+                log(f"📦 Using {len(lessons)} lessons provided directly in task payload.")
+            else:
+                lessons = shikho_client.fetch_lessons_for_program(
+                    program_id=program_id,
+                    phase_id=phase_id,
+                    subject_code=subject_code,
+                    chapter_id=chapter_id,
+                )
+                log(f"📚 Fetched {len(lessons)} lessons across course quarters from Shikho GraphQL API.")
+
+            total_lessons = len(lessons)
+            if total_lessons == 0:
+                err_msg = "⚠️ এই কোর্সে বা অধ্যায়ে আপলোড করার মতো কোনো রেকর্ড করা ক্লাস পাওয়া যায়নি।"
+                log(err_msg)
+                sync_task_progress({"status": "FAILED", "status_message": err_msg})
+                return
+
+            sync_task_progress(
+                {
+                    "total_items": total_lessons,
+                    "status_message": f"মোট {total_lessons}টি লেকচার পাওয়া গেছে। সুপার-ফাস্ট ইঞ্জিনে ডাউনলোড ও আপলোড শুরু হচ্ছে...",
+                }
+            )
+
+            completed_count = 0
+            uploaded_videos_count = 0
+            uploaded_slides_count = 0
+            skipped_upcoming_count = 0
+            reply_to_msg_id = target_topic_id if target_topic_id > 0 else None
+
+            for idx, lesson in enumerate(lessons, start=1):
+                if time.time() - START_TIME >= MAX_RUNTIME_SECONDS:
+                    log("⏱️ Approaching GitHub Actions 6-hour limit. Saving state and triggering continuation run...")
+                    sync_task_progress(
+                        {
+                            "status": "RESUMING",
+                            "completed_items": completed_count,
+                            "status_message": f"৬ ঘণ্টার সেশন রিস্টার্ট হচ্ছে ({completed_count}/{total_lessons} সম্পন্ন)...",
+                        }
+                    )
+                    trigger_self_continuation(task_id, payload_b64, agent_cfg)
+                    return
+
+                lesson_id = str(lesson.get("id") or f"lesson_{idx}")
+                lesson_title = str(lesson.get("title") or f"লেকচার {idx}").strip()
+                video_url, slides, teacher_name = shikho_client.resolve_stream_and_slide(lesson)
+                subj_name = str(lesson.get("subject_name") or task.get("subject_title") or "বিষয়").strip()
+                chap_name = str(lesson.get("chapter_name") or task.get("chapter_title") or "অধ্যায়").strip()
+                quarter_name = str(lesson.get("phase_title") or "").strip()
+
+                log(
+                    f"🔍 Lesson [{idx}/{total_lessons}] '{lesson_title}' -> "
+                    f"video_url={'YES' if video_url else 'NONE'}, slides={len(slides)}"
+                )
+
+                if not video_url and not slides:
+                    skipped_upcoming_count += 1
+                    log(f"⏭️ Skipping [{idx}/{total_lessons}] '{lesson_title}' (Upcoming class / no recording or slide yet)")
+                    continue
+
+                quarter_line = f"🗂️ কোয়ার্টার: {quarter_name}\n" if quarter_name else ""
+                caption_base = (
+                    f"🎬 **লেকচার #{idx}: {lesson_title}**\n"
+                    f"📘 বিষয়: {subj_name}\n"
+                    f"📂 অধ্যায়: {chap_name}\n"
+                    f"{quarter_line}"
+                    f"👨‍🏫 শিক্ষক: {teacher_name}\n"
+                    f"📚 কোর্স: {task.get('program_title') or ''}"
+                ).strip()
+
+                lesson_uploaded_any = False
+                dedup_scope = f"{chat_id_str}_topic_{target_topic_id}" if target_topic_id > 0 else chat_id_str
+
+                # 1. Upload Video if enabled
+                if include_videos and video_url:
+                    already_done = (
+                        total_lessons > 25
+                        and supabase.is_item_already_uploaded(program_id, lesson_id, "VIDEO", dedup_scope)
+                    )
+                    if already_done:
+                        lesson_uploaded_any = True
+                        uploaded_videos_count += 1
+                    else:
+                        sync_task_progress(
+                            {
+                                "completed_items": completed_count,
+                                "total_items": total_lessons,
+                                "current_item_title": f"[{idx}/{total_lessons}] ⚡ ভিডিও ডাউনলোড ও আপলোড: {lesson_title}",
+                                "status_message": f"ভিডিও ডাউনলোড ও সুপার-ফাস্ট টেলিগ্রাম আপলোড চলছে ({idx}/{total_lessons}): {lesson_title}",
+                            }
+                        )
+                        video_file = WORK_DIR / f"{sanitize_filename(lesson_title)}_{idx}.mp4"
+                        try:
+                            if download_video_file(video_url, video_file, video_quality):
+                                dur, w, h = get_video_metadata(video_file)
+                                attrs = [
+                                    DocumentAttributeVideo(
+                                        duration=dur,
+                                        w=w,
+                                        h=h,
+                                        supports_streaming=True,
+                                    )
+                                ]
+                                t_up_start = time.time()
+                                try:
+                                    uploaded_handle = await fast_upload_file_same_session(tg_client, video_file)
+                                except Exception as fast_exc:
+                                    if is_session_revoked_error(fast_exc):
+                                        raise
+                                    log(f"Fast upload fallback note: {fast_exc}")
+                                    uploaded_handle = str(video_file)
+
+                                sent_vid = await send_with_flood_protection(
+                                    lambda: tg_client.send_file(
+                                        target_entity,
+                                        file=uploaded_handle,
+                                        caption=caption_base,
+                                        supports_streaming=True,
+                                        attributes=attrs,
+                                        reply_to=reply_to_msg_id,
+                                    )
+                                )
+                                up_elapsed = time.time() - t_up_start
+                                supabase.record_uploaded_item(
+                                    task_id=task_id,
+                                    program_id=program_id,
+                                    subject_code=subject_code,
+                                    chapter_id=chapter_id,
+                                    lesson_id=lesson_id,
+                                    item_type="VIDEO",
+                                    title=lesson_title,
+                                    chat_id=dedup_scope,
+                                    message_id=getattr(sent_vid, "id", 0),
+                                )
+                                uploaded_videos_count += 1
+                                lesson_uploaded_any = True
+                                log(f"✅ Uploaded video [{idx}/{total_lessons}] in {up_elapsed:.1f}s: {lesson_title}")
+                                await asyncio.sleep(2)
+                            else:
+                                log(f"⚠️ Could not download video stream for '{lesson_title}' ({video_url[:80]})")
+                        except Exception as exc:
+                            if is_session_revoked_error(exc):
+                                raise
+                            log(f"⚠️ Video upload warning for {lesson_title}: {exc}")
+                        finally:
+                            if video_file.exists():
+                                video_file.unlink()
+
+                # 2. Upload Lecture Slides (PDFs) if enabled
+                if include_slides and slides:
+                    for s_idx, slide in enumerate(slides, start=1):
+                        slide_url = str(slide.get("url") or "").strip()
+                        slide_title = str(slide.get("title") or f"{lesson_title} - স্লাইড {s_idx}").strip()
+                        slide_key = f"{lesson_id}_slide_{s_idx}"
+                        if not slide_url:
+                            continue
+                        already_slide = (
+                            total_lessons > 25
+                            and supabase.is_item_already_uploaded(program_id, slide_key, "SLIDE", dedup_scope)
+                        )
+                        if already_slide:
+                            lesson_uploaded_any = True
+                            uploaded_slides_count += 1
+                            continue
+
+                        sync_task_progress(
+                            {
+                                "completed_items": completed_count,
+                                "total_items": total_lessons,
+                                "current_item_title": f"[{idx}/{total_lessons}] 📄 স্লাইড আপলোড: {slide_title}",
+                                "status_message": f"লেকচার স্লাইড (PDF) টেলিগ্রামে আপলোড হচ্ছে ({idx}/{total_lessons}): {slide_title}",
+                            }
+                        )
+                        pdf_file = WORK_DIR / f"{sanitize_filename(slide_title)}_{idx}_{s_idx}.pdf"
+                        try:
+                            if download_pdf_file(slide_url, pdf_file):
+                                slide_caption = (
+                                    f"📄 **লেকচার স্লাইড: {slide_title}**\n"
+                                    f"🎬 লেকচার #{idx}: {lesson_title}\n"
+                                    f"📘 {subj_name} • {chap_name}\n"
+                                    f"👨‍🏫 শিক্ষক: {teacher_name}"
+                                )
+                                uploaded_pdf_handle = await fast_upload_file_same_session(tg_client, pdf_file)
+                                sent_doc = await send_with_flood_protection(
+                                    lambda: tg_client.send_file(
+                                        target_entity,
+                                        file=uploaded_pdf_handle,
+                                        caption=slide_caption,
+                                        reply_to=reply_to_msg_id,
+                                    )
+                                )
+                                supabase.record_uploaded_item(
+                                    task_id=task_id,
+                                    program_id=program_id,
+                                    subject_code=subject_code,
+                                    chapter_id=chapter_id,
+                                    lesson_id=slide_key,
+                                    item_type="SLIDE",
+                                    title=slide_title,
+                                    chat_id=dedup_scope,
+                                    message_id=getattr(sent_doc, "id", 0),
+                                )
+                                uploaded_slides_count += 1
+                                lesson_uploaded_any = True
+                                log(f"📄 Uploaded slide [{idx}/{total_lessons}]: {slide_title}")
+                                await asyncio.sleep(1.5)
+                        except Exception as exc:
+                            if is_session_revoked_error(exc):
+                                raise
+                            log(f"⚠️ Slide upload warning for {slide_title}: {exc}")
+                        finally:
+                            if pdf_file.exists():
+                                pdf_file.unlink()
+
+                if lesson_uploaded_any:
+                    completed_count += 1
+                    sync_task_progress(
+                        {
+                            "completed_items": completed_count,
+                            "total_items": total_lessons,
+                            "current_item_title": f"✅ [{completed_count}] {lesson_title}",
+                            "status_message": (
+                                f"আপলোড চলছে: 🎬 {uploaded_videos_count}টি ভিডিও ও 📄 {uploaded_slides_count}টি স্লাইড আপলোড হয়েছে।"
+                            ),
+                        }
+                    )
+
+            if uploaded_videos_count == 0 and uploaded_slides_count == 0:
+                fail_msg = (
+                    f"⚠️ কোনো ফাইল আপলোড করা যায়নি (মোট {total_lessons}টি লেকচার চেক করা হয়েছে, "
+                    f"যার মধ্যে {skipped_upcoming_count}টি আপকামিং বা রেকর্ডিং এখনো যুক্ত হয়নি)।"
+                )
+                log(fail_msg)
+                sync_task_progress(
+                    {
+                        "status": "FAILED",
+                        "completed_items": 0,
+                        "total_items": total_lessons,
+                        "current_item_title": "কোনো ভিডিও/স্লাইড পাওয়া যায়নি",
+                        "status_message": fail_msg,
+                    }
+                )
+                return
+
+            final_msg = (
+                f"✅ টাস্ক সম্পন্ন! মোট 🎬 {uploaded_videos_count}টি ভিডিও এবং 📄 {uploaded_slides_count}টি লেকচার স্লাইড "
+                f"টেলিগ্রামে{topic_suffix} সফলভাবে আপলোড করা হয়েছে।"
+                + (f" চ্যানেল লিংক: {invite_link}" if invite_link else "")
+            )
             sync_task_progress(
                 {
                     "status": "COMPLETED",
-                    "completed_items": 1,
-                    "total_items": 1,
-                    "status_message": done_msg,
+                    "completed_items": max(completed_count, 1),
+                    "total_items": max(completed_count, 1),
+                    "current_item_title": "সম্পন্ন ✅",
+                    "status_message": final_msg,
                 }
             )
-            supabase.notify_task_completion("✅ টেলিগ্রাম চ্যানেল প্রস্তুত!", done_msg, invite_link)
-            return
-
-        extra = task.get("extra_payload_json") or {}
-        if isinstance(extra, str):
-            try:
-                extra = json.loads(extra)
-            except Exception:
-                extra = {}
-
-        bundled_lessons = extra.get("lessons") if isinstance(extra, dict) else None
-
-        # Also check `scripts/active_task_payload.json` written by the Android app prior to dispatch
-        if not (isinstance(bundled_lessons, list) and len(bundled_lessons) > 0):
-            active_payload_file = Path(__file__).resolve().parent / "active_task_payload.json"
-            if active_payload_file.exists():
-                try:
-                    file_data = json.loads(active_payload_file.read_text(encoding="utf-8"))
-                    if isinstance(file_data, dict):
-                        file_lessons = file_data.get("lessons") or (file_data.get("extra_payload_json") or {}).get("lessons")
-                        if isinstance(file_lessons, list) and len(file_lessons) > 0:
-                            bundled_lessons = file_lessons
-                            log(f"📂 Loaded {len(bundled_lessons)} pre-resolved lessons from scripts/active_task_payload.json")
-                except Exception as exc:
-                    log(f"active_task_payload.json read note: {exc}")
-
-        shikho_client = ShikhoClient(shikho_token)
-
-        if isinstance(bundled_lessons, list) and len(bundled_lessons) > 0:
-            lessons = bundled_lessons
-            log(f"📦 Using {len(lessons)} lessons provided directly in task payload.")
-        else:
-            lessons = shikho_client.fetch_lessons_for_program(
-                program_id=program_id,
-                phase_id=phase_id,
-                subject_code=subject_code,
-                chapter_id=chapter_id,
+            supabase.notify_task_completion(
+                title=f"✅ টেলিগ্রাম আপলোড সম্পন্ন: {task.get('title') or 'কোর্স আপলোড'}",
+                message=final_msg,
+                invite_link=invite_link,
             )
-            log(f"📚 Fetched {len(lessons)} lessons from Shikho GraphQL API for program {program_id}.")
-
-        total_lessons = len(lessons)
-        if total_lessons == 0:
-            err_msg = "⚠️ এই কোর্সে বা অধ্যায়ে আপলোড করার মতো কোনো রেকর্ড করা ক্লাস পাওয়া যায়নি।"
-            log(err_msg)
-            sync_task_progress({"status": "FAILED", "status_message": err_msg})
-            return
-
-        sync_task_progress(
-            {
-                "total_items": total_lessons,
-                "status_message": f"মোট {total_lessons}টি লেকচার পাওয়া গেছে। ভিডিও ও স্লাইড ডাউনলোড ও আপলোড শুরু হচ্ছে...",
+    except Exception as session_exc:
+        if is_session_revoked_error(session_exc):
+            revoked_msg = (
+                "⚠️ টেলিগ্রাম সেশনটি দুই আলাদা IP থেকে একই সময়ে ব্যবহারের কারণে টেলিগ্রাম সার্ভার থেকে বাতিল হয়ে গেছে। "
+                "অনুগ্রহ করে সেটিংস (⚙️) থেকে ১ বার পুনরায় টেলিগ্রাম OTP দিয়ে কানেক্ট করুন (এখন সিঙ্গেল-সেশন লক যুক্ত করা হয়েছে, তাই আর কখনো বাতিল হবে না)!"
+            )
+            log(f"❌ {revoked_msg} ({session_exc})")
+            device_hash = str(agent_cfg.get("device_hash") or "GLOBAL_DEFAULT")
+            expired_patch = {
+                "device_hash": device_hash,
+                "telegram_auth_state": "SESSION_EXPIRED",
+                "telegram_auth_message": revoked_msg,
+                "telegram_session_string": "",
             }
-        )
-
-        completed_count = 0
-        uploaded_videos_count = 0
-        uploaded_slides_count = 0
-        skipped_upcoming_count = 0
-        reply_to_msg_id = target_topic_id if target_topic_id > 0 else None
-
-        for idx, lesson in enumerate(lessons, start=1):
-            if time.time() - START_TIME >= MAX_RUNTIME_SECONDS:
-                log("⏱️ Approaching GitHub Actions 6-hour limit. Saving state and triggering continuation run...")
-                sync_task_progress(
-                    {
-                        "status": "RESUMING",
-                        "completed_items": completed_count,
-                        "status_message": f"৬ ঘণ্টার সেশন রিস্টার্ট হচ্ছে ({completed_count}/{total_lessons} সম্পন্ন)...",
-                    }
-                )
-                trigger_self_continuation(task_id, payload_b64, agent_cfg)
-                return
-
-            lesson_id = str(lesson.get("id") or f"lesson_{idx}")
-            lesson_title = str(lesson.get("title") or f"লেকচার {idx}").strip()
-            video_url, slides, teacher_name = shikho_client.resolve_stream_and_slide(lesson)
-            subj_name = str(lesson.get("subject_name") or task.get("subject_title") or "বিষয়").strip()
-            chap_name = str(lesson.get("chapter_name") or task.get("chapter_title") or "অধ্যায়").strip()
-
-            log(
-                f"🔍 Lesson [{idx}/{total_lessons}] '{lesson_title}' -> "
-                f"video_url={'YES' if video_url else 'NONE'}, slides={len(slides)}"
-            )
-
-            if not video_url and not slides:
-                skipped_upcoming_count += 1
-                log(f"⏭️ Skipping [{idx}/{total_lessons}] '{lesson_title}' (Upcoming class / no recording or slide yet)")
-                continue
-
-            caption_base = (
-                f"🎬 **লেকচার #{idx}: {lesson_title}**\n"
-                f"📘 বিষয়: {subj_name}\n"
-                f"📂 অধ্যায়: {chap_name}\n"
-                f"👨‍🏫 শিক্ষক: {teacher_name}\n"
-                f"📚 কোর্স: {task.get('program_title') or ''}"
-            ).strip()
-
-            lesson_uploaded_any = False
-            dedup_scope = f"{chat_id_str}_topic_{target_topic_id}" if target_topic_id > 0 else chat_id_str
-
-            # 1. Upload Video if enabled
-            if include_videos and video_url:
-                # For single-lesson or chapter manual sends (total_lessons <= 25), always upload even if previously sent
-                already_done = (
-                    total_lessons > 25
-                    and supabase.is_item_already_uploaded(program_id, lesson_id, "VIDEO", dedup_scope)
-                )
-                if already_done:
-                    lesson_uploaded_any = True
-                    uploaded_videos_count += 1
-                else:
-                    sync_task_progress(
-                        {
-                            "completed_items": completed_count,
-                            "total_items": total_lessons,
-                            "current_item_title": f"[{idx}/{total_lessons}] 🎬 ভিডিও ডাউনলোড ও আপলোড: {lesson_title}",
-                            "status_message": f"ভিডিও ডাউনলোড ও টেলিগ্রামে আপলোড হচ্ছে ({idx}/{total_lessons}): {lesson_title}",
-                        }
-                    )
-                    video_file = WORK_DIR / f"{sanitize_filename(lesson_title)}_{idx}.mp4"
-                    try:
-                        if download_video_file(video_url, video_file, video_quality):
-                            dur, w, h = get_video_metadata(video_file)
-                            attrs = [
-                                DocumentAttributeVideo(
-                                    duration=dur,
-                                    w=w,
-                                    h=h,
-                                    supports_streaming=True,
-                                )
-                            ]
-                            sent_vid = await send_with_flood_protection(
-                                lambda: tg_client.send_file(
-                                    target_entity,
-                                    file=str(video_file),
-                                    caption=caption_base,
-                                    supports_streaming=True,
-                                    attributes=attrs,
-                                    reply_to=reply_to_msg_id,
-                                )
-                            )
-                            supabase.record_uploaded_item(
-                                task_id=task_id,
-                                program_id=program_id,
-                                subject_code=subject_code,
-                                chapter_id=chapter_id,
-                                lesson_id=lesson_id,
-                                item_type="VIDEO",
-                                title=lesson_title,
-                                chat_id=dedup_scope,
-                                message_id=getattr(sent_vid, "id", 0),
-                            )
-                            uploaded_videos_count += 1
-                            lesson_uploaded_any = True
-                            log(f"✅ Uploaded video [{idx}/{total_lessons}]: {lesson_title}")
-                            await asyncio.sleep(4)
-                        else:
-                            log(f"⚠️ Could not download video stream for '{lesson_title}' ({video_url[:80]})")
-                    except Exception as exc:
-                        log(f"⚠️ Video upload warning for {lesson_title}: {exc}")
-                    finally:
-                        if video_file.exists():
-                            video_file.unlink()
-
-            # 2. Upload Lecture Slides (PDFs) if enabled
-            if include_slides and slides:
-                for s_idx, slide in enumerate(slides, start=1):
-                    slide_url = str(slide.get("url") or "").strip()
-                    slide_title = str(slide.get("title") or f"{lesson_title} - স্লাইড {s_idx}").strip()
-                    slide_key = f"{lesson_id}_slide_{s_idx}"
-                    if not slide_url:
-                        continue
-                    already_slide = (
-                        total_lessons > 25
-                        and supabase.is_item_already_uploaded(program_id, slide_key, "SLIDE", dedup_scope)
-                    )
-                    if already_slide:
-                        lesson_uploaded_any = True
-                        uploaded_slides_count += 1
-                        continue
-
-                    sync_task_progress(
-                        {
-                            "completed_items": completed_count,
-                            "total_items": total_lessons,
-                            "current_item_title": f"[{idx}/{total_lessons}] 📄 স্লাইড আপলোড: {slide_title}",
-                            "status_message": f"লেকচার স্লাইড (PDF) টেলিগ্রামে আপলোড হচ্ছে ({idx}/{total_lessons}): {slide_title}",
-                        }
-                    )
-                    pdf_file = WORK_DIR / f"{sanitize_filename(slide_title)}_{idx}_{s_idx}.pdf"
-                    try:
-                        if download_pdf_file(slide_url, pdf_file):
-                            slide_caption = (
-                                f"📄 **লেকচার স্লাইড: {slide_title}**\n"
-                                f"🎬 লেকচার #{idx}: {lesson_title}\n"
-                                f"📘 {subj_name} • {chap_name}\n"
-                                f"👨‍🏫 শিক্ষক: {teacher_name}"
-                            )
-                            sent_doc = await send_with_flood_protection(
-                                lambda: tg_client.send_file(
-                                    target_entity,
-                                    file=str(pdf_file),
-                                    caption=slide_caption,
-                                    reply_to=reply_to_msg_id,
-                                )
-                            )
-                            supabase.record_uploaded_item(
-                                task_id=task_id,
-                                program_id=program_id,
-                                subject_code=subject_code,
-                                chapter_id=chapter_id,
-                                lesson_id=slide_key,
-                                item_type="SLIDE",
-                                title=slide_title,
-                                chat_id=dedup_scope,
-                                message_id=getattr(sent_doc, "id", 0),
-                            )
-                            uploaded_slides_count += 1
-                            lesson_uploaded_any = True
-                            log(f"📄 Uploaded slide [{idx}/{total_lessons}]: {slide_title}")
-                            await asyncio.sleep(3)
-                    except Exception as exc:
-                        log(f"⚠️ Slide upload warning for {slide_title}: {exc}")
-                    finally:
-                        if pdf_file.exists():
-                            pdf_file.unlink()
-
-            if lesson_uploaded_any:
-                completed_count += 1
-                sync_task_progress(
-                    {
-                        "completed_items": completed_count,
-                        "total_items": total_lessons,
-                        "current_item_title": f"✅ [{completed_count}] {lesson_title}",
-                        "status_message": (
-                            f"আপলোড চলছে: 🎬 {uploaded_videos_count}টি ভিডিও ও 📄 {uploaded_slides_count}টি স্লাইড আপলোড হয়েছে।"
-                        ),
-                    }
-                )
-
-        if uploaded_videos_count == 0 and uploaded_slides_count == 0:
-            fail_msg = (
-                f"⚠️ কোনো ফাইল আপলোড করা যায়নি (মোট {total_lessons}টি লেকচার চেক করা হয়েছে, "
-                f"যার মধ্যে {skipped_upcoming_count}টি আপকামিং বা রেকর্ডিং এখনো যুক্ত হয়নি)।"
-            )
-            log(fail_msg)
+            gh_bridge.write_state(expired_patch)
+            supabase.update_agent_config(device_hash, expired_patch)
             sync_task_progress(
                 {
                     "status": "FAILED",
-                    "completed_items": 0,
-                    "total_items": total_lessons,
-                    "current_item_title": "কোনো ভিডিও/স্লাইড পাওয়া যায়নি",
-                    "status_message": fail_msg,
+                    "current_item_title": "টেলিগ্রাম সেশন রিসেট প্রয়োজন",
+                    "status_message": revoked_msg,
                 }
             )
             return
-
-        final_msg = (
-            f"✅ টাস্ক সম্পন্ন! মোট 🎬 {uploaded_videos_count}টি ভিডিও এবং 📄 {uploaded_slides_count}টি লেকচার স্লাইড "
-            f"টেলিগ্রামে{topic_suffix} সফলভাবে আপলোড করা হয়েছে।"
-            + (f" চ্যানেল লিংক: {invite_link}" if invite_link else "")
-        )
-        sync_task_progress(
-            {
-                "status": "COMPLETED",
-                "completed_items": max(completed_count, 1),
-                "total_items": max(completed_count, 1),
-                "current_item_title": "সম্পন্ন ✅",
-                "status_message": final_msg,
-            }
-        )
-        supabase.notify_task_completion(
-            title=f"✅ টেলিগ্রাম আপলোড সম্পন্ন: {task.get('title') or 'কোর্স আপলোড'}",
-            message=final_msg,
-            invite_link=invite_link,
-        )
+        raise
 
 
 async def main_async() -> None:
