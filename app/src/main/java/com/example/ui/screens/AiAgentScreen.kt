@@ -329,6 +329,7 @@ fun AiAgentScreen(
                             }
                         },
                         onRetryTask = { viewModel.retryOrResumeTask(activeOrLatestTask) },
+                        onDeleteTask = { viewModel.deleteTask(activeOrLatestTask.id) },
                         onOpenAllTasks = {
                             settingsInitialSection = 1
                             showSettingsSheet = true
@@ -446,8 +447,20 @@ fun AiAgentScreen(
                 },
                 onRetryTask = { viewModel.retryOrResumeTask(it) },
                 onCancelRun = { viewModel.cancelRunningWorkflow(it) },
+                onDeleteTask = { viewModel.deleteTask(it) },
+                onClearCompletedTasks = { viewModel.clearAllCompletedTasks() },
                 onToggleSchedule = { sched, enabled -> viewModel.toggleSchedule(sched, enabled) },
                 onDeleteSchedule = { viewModel.deleteSchedule(it) },
+                onRunScheduleNow = { viewModel.triggerScheduleNow(it) },
+                onCreateLifetimeCourseSync = { progId, progTitle, timeBn, cronExpr, startNow ->
+                    viewModel.createCourseLifetimeSyncRoutine(
+                        programId = progId,
+                        programTitle = progTitle,
+                        timeDisplayBn = timeBn,
+                        cronExpression = cronExpr,
+                        startImmediateFullUpload = startNow
+                    )
+                },
                 onClose = { showSettingsSheet = false }
             )
         }
@@ -1071,6 +1084,7 @@ private fun LiveTaskCompactBanner(
     activeRunsCount: Int,
     onOpenTelegramLink: (String) -> Unit,
     onRetryTask: () -> Unit,
+    onDeleteTask: () -> Unit,
     onOpenAllTasks: () -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -1126,6 +1140,17 @@ private fun LiveTaskCompactBanner(
                     color = Color(0xFF38BDF8)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
+                    onClick = onDeleteTask,
+                    modifier = Modifier.size(26.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "টাস্ক ডিলিট করুন",
+                        tint = Color(0xFFFCA5A5),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = null,
@@ -1163,7 +1188,12 @@ private fun LiveTaskCompactBanner(
                         )
                     }
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         if (task.telegramInviteLink.isNotBlank()) {
                             Button(
                                 onClick = { onOpenTelegramLink(task.telegramInviteLink) },
@@ -1174,7 +1204,7 @@ private fun LiveTaskCompactBanner(
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("চ্যানেল ওপেন", fontSize = 11.sp)
+                                Text("গ্রুপ/চ্যানেল ওপেন", fontSize = 11.sp)
                             }
                         }
                         OutlinedButton(
@@ -1188,12 +1218,22 @@ private fun LiveTaskCompactBanner(
                             Text("রিস্টার্ট", fontSize = 11.sp, color = Color.White)
                         }
                         OutlinedButton(
+                            onClick = onDeleteTask,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFF87171), modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("মুছুন", fontSize = 11.sp, color = Color(0xFFF87171))
+                        }
+                        OutlinedButton(
                             onClick = onOpenAllTasks,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
-                            Text("সব লগ দেখুন", fontSize = 11.sp, color = Color.White)
+                            Text("সব লগ ও রুটিন", fontSize = 11.sp, color = Color.White)
                         }
                     }
                 }
@@ -1693,10 +1733,22 @@ private fun InteractiveConfirmationPlanCard(
         mutableStateOf(plan.createNewChannel || dialogs.isEmpty())
     }
     var customChannelName by remember(plan) {
-        mutableStateOf(plan.targetChannelTitle)
+        mutableStateOf(plan.targetChannelTitle.ifBlank { plan.programTitle })
     }
     var useForumTopics by remember(plan) {
         mutableStateOf(plan.useForumTopics)
+    }
+    var customTopicName by remember(plan) {
+        mutableStateOf(plan.targetTopicTitle.ifBlank { if (plan.useForumTopics) plan.subjectTitle else "" })
+    }
+    var enableLifetimeSync by remember(plan) {
+        mutableStateOf(plan.enableLifetimeSync || plan.actionType == "CREATE_SCHEDULE")
+    }
+    var selectedScheduleTimeBn by remember(plan) {
+        mutableStateOf(plan.scheduleTimeBn.ifBlank { "প্রতিদিন রাত ০১:০০ (1:00 AM)" })
+    }
+    var selectedCronExpr by remember(plan) {
+        mutableStateOf(plan.cronExpression.ifBlank { "0 19 * * *" })
     }
     var selectedDialogId by remember(plan, dialogs) {
         val matched = dialogs.firstOrNull { d -> d.id == plan.targetChatId }
@@ -1710,6 +1762,13 @@ private fun InteractiveConfirmationPlanCard(
     var selectedQuality by remember(plan) {
         mutableStateOf(plan.videoQuality.ifBlank { "720p" })
     }
+
+    val scheduleTimePresets = listOf(
+        Triple("রাত ১:০০ টা", "প্রতিদিন রাত ০১:০০ (1:00 AM)", "0 19 * * *"),
+        Triple("রাত ২:০০ টা", "প্রতিদিন রাত ০২:০০ (2:00 AM)", "0 20 * * *"),
+        Triple("রাত ১২:০০ টা", "প্রতিদিন রাত ১২:০০ (12:00 AM)", "0 18 * * *"),
+        Triple("সকাল ৮:০০ টা", "প্রতিদিন সকাল ০৮:০০ (8:00 AM)", "0 2 * * *")
+    )
 
     Card(
         shape = RoundedCornerShape(18.dp),
@@ -1748,7 +1807,7 @@ private fun InteractiveConfirmationPlanCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Mode Toggle: Existing Channel/Group vs Create New Channel
+            // Mode Toggle: Existing Channel/Group vs Create New Channel/Group
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1773,7 +1832,7 @@ private fun InteractiveConfirmationPlanCard(
                     onClick = { createNewMode = true },
                     label = {
                         Text(
-                            text = "➕ নতুন চ্যানেল খুলুন",
+                            text = "➕ নতুন গ্রুপ/চ্যানেল খুলুন",
                             fontSize = 11.sp
                         )
                     },
@@ -1816,6 +1875,7 @@ private fun InteractiveConfirmationPlanCard(
                                 .clickable {
                                     selectedDialogId = dialog.id
                                     selectedTopicId = 0
+                                    if (dialog.isForum) useForumTopics = true
                                 }
                         ) {
                             Row(
@@ -1866,7 +1926,7 @@ private fun InteractiveConfirmationPlanCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         QuarterChip(
-                            title = "General (মূল গ্রুপ)",
+                            title = "সাবজেক্ট অনুযায়ী অটো টপিক",
                             selected = selectedTopicId == 0,
                             onClick = { selectedTopicId = 0 }
                         )
@@ -1885,7 +1945,7 @@ private fun InteractiveConfirmationPlanCard(
                     onValueChange = { customChannelName = it },
                     label = {
                         Text(
-                            "নতুন টেলিগ্রাম চ্যানেল বা গ্রুপের নাম দিন",
+                            if (useForumTopics) "নতুন পাবলিক ফোরাম গ্রুপের নাম (কোর্সের নাম)" else "নতুন টেলিগ্রাম চ্যানেলের নাম দিন",
                             fontSize = 11.sp
                         )
                     },
@@ -1898,14 +1958,33 @@ private fun InteractiveConfirmationPlanCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     QuarterChip(
-                        title = "📢 ব্রডকাস্ট চ্যানেল",
+                        title = "🗂️ পাবলিক ফোরাম গ্রুপ (টপিকসহ)",
+                        selected = useForumTopics,
+                        onClick = { useForumTopics = true }
+                    )
+                    QuarterChip(
+                        title = "📢 সাধারণ চ্যানেল",
                         selected = !useForumTopics,
                         onClick = { useForumTopics = false }
                     )
-                    QuarterChip(
-                        title = "🗂️ টপিক সুপারগ্রুপ",
-                        selected = useForumTopics,
-                        onClick = { useForumTopics = true }
+                }
+
+                if (useForumTopics) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = customTopicName,
+                        onValueChange = { customTopicName = it },
+                        label = {
+                            Text(
+                                "টপিকের নাম (খালি রাখলে প্রতিটি বিষয়ের নামে আলাদা টপিক তৈরি হবে)",
+                                fontSize = 10.sp
+                            )
+                        },
+                        placeholder = {
+                            Text("যেমন: বাংলা ১ম পত্র (অথবা সব বিষয়ের জন্য খালি রাখুন)", fontSize = 11.sp)
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -1931,6 +2010,67 @@ private fun InteractiveConfirmationPlanCard(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 24/7 Lifetime Auto-Sync Toggle & Custom Time Picker (যেমন: রাত ১:০০ টা)
+            Surface(
+                color = Color(0xFF1E293B),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        1.dp,
+                        if (enableLifetimeSync) Color(0xFF10B981).copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f),
+                        RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🔄 ২৪/৭ লাইফটাইম অটো-সিঙ্ক রুটিন",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "প্রতিদিন নির্ধারিত সময়ে নতুন ক্লাস চেক করে সাবজেক্ট টপিক ওয়াইজ আপলোড করবে",
+                                fontSize = 10.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        Switch(
+                            checked = enableLifetimeSync,
+                            onCheckedChange = { enableLifetimeSync = it }
+                        )
+                    }
+
+                    if (enableLifetimeSync) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            scheduleTimePresets.forEach { (chipLabel, fullBn, cron) ->
+                                QuarterChip(
+                                    title = "⏰ $chipLabel",
+                                    selected = selectedCronExpr == cron,
+                                    onClick = {
+                                        selectedScheduleTimeBn = fullBn
+                                        selectedCronExpr = cron
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             val chosenTopicTitle = selectedDialog?.topics?.firstOrNull { t -> t.id == selectedTopicId }?.title.orEmpty()
@@ -1938,9 +2078,9 @@ private fun InteractiveConfirmationPlanCard(
             Button(
                 onClick = {
                     val updatedPlan = plan.copy(
-                        actionType = if (plan.actionType == "CREATE_SCHEDULE") "CREATE_SCHEDULE" else "START_UPLOAD_TASK",
+                        actionType = if (plan.actionType == "CREATE_SCHEDULE" && !createNewMode) "CREATE_SCHEDULE" else "START_UPLOAD_TASK",
                         createNewChannel = createNewMode,
-                        useForumTopics = useForumTopics,
+                        useForumTopics = useForumTopics || selectedDialog?.isForum == true,
                         targetChatId = if (createNewMode) "" else selectedDialog?.id.orEmpty(),
                         targetChannelTitle = if (createNewMode) {
                             customChannelName.trim().ifBlank { plan.programTitle }
@@ -1948,8 +2088,15 @@ private fun InteractiveConfirmationPlanCard(
                             selectedDialog?.title ?: plan.targetChannelTitle
                         },
                         targetTopicId = if (createNewMode) 0 else selectedTopicId,
-                        targetTopicTitle = if (createNewMode) "" else chosenTopicTitle,
-                        videoQuality = selectedQuality
+                        targetTopicTitle = if (createNewMode) {
+                            if (useForumTopics) customTopicName.trim() else ""
+                        } else {
+                            chosenTopicTitle.ifBlank { customTopicName.trim() }
+                        },
+                        videoQuality = selectedQuality,
+                        enableLifetimeSync = enableLifetimeSync,
+                        scheduleTimeBn = selectedScheduleTimeBn,
+                        cronExpression = selectedCronExpr
                     )
                     onConfirmPlan(updatedPlan)
                 },
@@ -2002,8 +2149,12 @@ private fun AgentSettingsAndTasksSheetContent(
     onSaveTelegram: (String, String, String, String, String, String, String) -> Unit,
     onRetryTask: (AiAgentTask) -> Unit,
     onCancelRun: (Long) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onClearCompletedTasks: () -> Unit,
     onToggleSchedule: (AiAgentSchedule, Boolean) -> Unit,
     onDeleteSchedule: (String) -> Unit,
+    onRunScheduleNow: (AiAgentSchedule) -> Unit,
+    onCreateLifetimeCourseSync: (String, String, String, String, Boolean) -> Unit,
     onClose: () -> Unit
 ) {
     var selectedSection by rememberSaveable { mutableIntStateOf(initialSection) }
@@ -2084,8 +2235,12 @@ private fun AgentSettingsAndTasksSheetContent(
                 state = state,
                 onRetryTask = onRetryTask,
                 onCancelRun = onCancelRun,
+                onDeleteTask = onDeleteTask,
+                onClearCompletedTasks = onClearCompletedTasks,
                 onToggleSchedule = onToggleSchedule,
                 onDeleteSchedule = onDeleteSchedule,
+                onRunScheduleNow = onRunScheduleNow,
+                onCreateLifetimeCourseSync = onCreateLifetimeCourseSync,
                 onOpenUrl = { url ->
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -2384,15 +2539,219 @@ private fun TasksAndRoutinesSection(
     state: AiAgentUiState,
     onRetryTask: (AiAgentTask) -> Unit,
     onCancelRun: (Long) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onClearCompletedTasks: () -> Unit,
     onToggleSchedule: (AiAgentSchedule, Boolean) -> Unit,
     onDeleteSchedule: (String) -> Unit,
+    onRunScheduleNow: (AiAgentSchedule) -> Unit,
+    onCreateLifetimeCourseSync: (String, String, String, String, Boolean) -> Unit,
     onOpenUrl: (String) -> Unit
 ) {
+    var selectedRoutineProgId by remember(state.selectedProgramId) {
+        mutableStateOf(state.selectedProgramId)
+    }
+    var selectedRoutineProgTitle by remember(state.selectedProgramTitle) {
+        mutableStateOf(state.selectedProgramTitle)
+    }
+    var selectedTimeBn by remember { mutableStateOf("প্রতিদিন রাত ০১:০০ (1:00 AM)") }
+    var selectedCron by remember { mutableStateOf("0 19 * * *") }
+
+    val timeOptions = listOf(
+        Triple("রাত ১:০০ টা", "প্রতিদিন রাত ০১:০০ (1:00 AM)", "0 19 * * *"),
+        Triple("রাত ২:০০ টা", "প্রতিদিন রাত ০২:০০ (2:00 AM)", "0 20 * * *"),
+        Triple("রাত ১২:০০ টা", "প্রতিদিন রাত ১২:০০ (12:00 AM)", "0 18 * * *"),
+        Triple("সকাল ৮:০০ টা", "প্রতিদিন সকাল ০৮:০০ (8:00 AM)", "0 2 * * *")
+    )
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // 0. Quick 1-Click Full-Course Subject-Topic-Wise Upload + 24/7 Lifetime Routine Card
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFF10B981).copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "🚀 সম্পূর্ণ কোর্স আপলোড ও ২৪/৭ লাইফটাইম অটো-সিঙ্ক",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp,
+                        color = Color(0xFF34D399)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "যেকোনো কোর্স সিলেক্ট করে সময় নির্ধারণ করুন। এটি ১ম থেকে শেষ কোয়ার্টার পর্যন্ত সব ক্লাস সাবজেক্ট টপিক ওয়াইজ সাজাবে এবং প্রতিদিন নির্ধারিত সময়ে নতুন ক্লাস অটো আপলোড করবে (সিলেবাস পরিবর্তন বা লগআউট করলেও সচল থাকবে)।",
+                        fontSize = 11.sp,
+                        color = Color(0xFFCBD5E1)
+                    )
+
+                    if (state.enrolledPrograms.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            state.enrolledPrograms.forEach { prog ->
+                                val pTitle = prog.title_bn ?: prog.id
+                                QuarterChip(
+                                    title = pTitle,
+                                    selected = selectedRoutineProgId == prog.id,
+                                    onClick = {
+                                        selectedRoutineProgId = prog.id
+                                        selectedRoutineProgTitle = pTitle
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "প্রতিদিন চেক করার সময় নির্বাচন করুন:",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        timeOptions.forEach { (shortLabel, fullBn, cron) ->
+                            QuarterChip(
+                                title = "⏰ $shortLabel",
+                                selected = selectedCron == cron,
+                                onClick = {
+                                    selectedTimeBn = fullBn
+                                    selectedCron = cron
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                onCreateLifetimeCourseSync(
+                                    selectedRoutineProgId,
+                                    selectedRoutineProgTitle,
+                                    selectedTimeBn,
+                                    selectedCron,
+                                    true
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "🚀 সব কোয়ার্টার আপলোড + রুটিন চালু",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color.White
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                onCreateLifetimeCourseSync(
+                                    selectedRoutineProgId,
+                                    selectedRoutineProgTitle,
+                                    selectedTimeBn,
+                                    selectedCron,
+                                    false
+                                )
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = "শুধু রুটিন সেভ",
+                                fontSize = 11.sp,
+                                color = Color(0xFF38BDF8)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. 24/7 Schedules List (with ON/OFF toggle, Run Now, and Delete)
+        if (state.schedules.isNotEmpty()) {
+            item {
+                Text(
+                    text = "⏰ সক্রিয় ২৪/৭ অটো রুটিনসমূহ (${state.schedules.size})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+            items(state.schedules, key = { it.id }) { sched ->
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = sched.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(
+                                    text = "⏰ ${sched.timeDisplayBn} • ${if (sched.isEnabled) "চালু আছে ✅" else "বন্ধ আছে ⏸️"}",
+                                    fontSize = 11.sp,
+                                    color = if (sched.isEnabled) Color(0xFF10B981) else Color(0xFF94A3B8)
+                                )
+                                if (sched.targetChannelTitle.isNotBlank()) {
+                                    Text(
+                                        text = "🎯 গ্রুপ/চ্যানেল: ${sched.targetChannelTitle} (সাবজেক্ট টপিক ওয়াইজ)",
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                            Switch(checked = sched.isEnabled, onCheckedChange = { onToggleSchedule(sched, it) })
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { onRunScheduleNow(sched) },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Text("▶️ এখনই সিঙ্ক করুন", fontSize = 11.sp)
+                            }
+                            if (sched.telegramInviteLink.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = { onOpenUrl(sched.telegramInviteLink) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Text("গ্রুপ ওপেন", fontSize = 11.sp)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { onDeleteSchedule(sched.id) },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "ডিলিট", tint = Color(0xFFF87171), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("রুটিন মুছুন", fontSize = 11.sp, color = Color(0xFFF87171))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (state.workflowRuns.isNotEmpty()) {
             item {
                 Text(
@@ -2433,11 +2792,29 @@ private fun TasksAndRoutinesSection(
         }
 
         item {
-            Text(
-                text = "ব্যাকগ্রাউন্ড টাস্কসমূহ (${state.tasks.size})",
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ব্যাকগ্রাউন্ড টাস্কসমূহ (${state.tasks.size})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                if (state.tasks.any { it.status.uppercase() in setOf("COMPLETED", "FAILED", "CANCELLED") }) {
+                    OutlinedButton(
+                        onClick = onClearCompletedTasks,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFF87171), modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("সম্পন্নগুলো মুছুন", fontSize = 11.sp, color = Color(0xFFF87171))
+                    }
+                }
+            }
         }
 
         items(state.tasks, key = { it.id }) { task ->
@@ -2446,47 +2823,38 @@ private fun TasksAndRoutinesSection(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text(text = task.title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = task.title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { onDeleteTask(task.id) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "টাস্ক মুছুন",
+                                tint = Color(0xFFF87171),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                     Text(text = task.statusMessage, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (task.telegramInviteLink.isNotBlank()) {
                             Button(onClick = { onOpenUrl(task.telegramInviteLink) }, shape = RoundedCornerShape(8.dp)) {
-                                Text("টেলিগ্রাম চ্যানেল", fontSize = 11.sp)
+                                Text("টেলিগ্রাম গ্রুপ/চ্যানেল", fontSize = 11.sp)
                             }
                         }
                         OutlinedButton(onClick = { onRetryTask(task) }, shape = RoundedCornerShape(8.dp)) {
                             Text("রিস্টার্ট", fontSize = 11.sp)
                         }
-                    }
-                }
-            }
-        }
-
-        if (state.schedules.isNotEmpty()) {
-            item {
-                Text(
-                    text = "২৪/৭ অটো রুটিন (${state.schedules.size})",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-            }
-            items(state.schedules, key = { it.id }) { sched ->
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(text = sched.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text(text = sched.timeDisplayBn, fontSize = 11.sp)
-                        }
-                        Switch(checked = sched.isEnabled, onCheckedChange = { onToggleSchedule(sched, it) })
-                        IconButton(onClick = { onDeleteSchedule(sched.id) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "ডিলিট")
+                        OutlinedButton(onClick = { onDeleteTask(task.id) }, shape = RoundedCornerShape(8.dp)) {
+                            Text("ডিলিট", fontSize = 11.sp, color = Color(0xFFF87171))
                         }
                     }
                 }

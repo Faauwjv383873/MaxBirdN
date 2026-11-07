@@ -288,7 +288,7 @@ class AiAgentRepository(
                 if (b64.isBlank()) return null
                 val rawJson = String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8)
                 val obj = JSONObject(rawJson)
-                for (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password")) {
+                for (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password", "shikho_access_token")) {
                     val v = obj.optString(k, "")
                     if (v.isNotBlank()) {
                         obj.put(k, unsealSecret(v))
@@ -336,7 +336,7 @@ class AiAgentRepository(
         while (keys.hasNext()) {
             val k = keys.next()
             val v = patch.opt(k)
-            if (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password") &&
+            if (k in listOf("telegram_session_string", "telegram_partial_session", "telegram_2fa_password", "shikho_access_token") &&
                 v is String && v.isNotBlank()
             ) {
                 merged.put(k, sealSecret(v))
@@ -508,9 +508,10 @@ class AiAgentRepository(
                 }
             }
 
-            // 2. Push latest non-blank config to Supabase under this device_hash
+            // 2. Push latest non-blank config to Supabase & GitHub Auth State under this device_hash
             val latestGh = getGitHubConfig()
             val latestTg = getTelegramConfig()
+            val currentShikhoToken = sessionManager.getAccessToken()?.trim().orEmpty()
             val fullPayload = JSONObject().apply {
                 put("device_hash", deviceHash)
                 if (latestGh.personalAccessToken.isNotBlank()) put("github_pat", latestGh.personalAccessToken)
@@ -526,6 +527,18 @@ class AiAgentRepository(
                 if (latestTg.accountDisplayName.isNotBlank()) put("telegram_account_name", latestTg.accountDisplayName)
                 if (latestTg.botToken.isNotBlank()) put("telegram_bot_token", latestTg.botToken)
                 if (latestTg.defaultChatId.isNotBlank()) put("telegram_default_chat_id", latestTg.defaultChatId)
+            }
+
+            if (currentShikhoToken.isNotBlank() && latestGh.personalAccessToken.isNotBlank()) {
+                runCatching {
+                    writeGitHubAuthState(
+                        latestGh,
+                        JSONObject().apply {
+                            put("device_hash", deviceHash)
+                            put("shikho_access_token", currentShikhoToken)
+                        }
+                    )
+                }
             }
 
             if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
@@ -818,49 +831,58 @@ class AiAgentRepository(
         branch: String
     ): Boolean {
         val apiUrl = "https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/$path"
-        var existingSha: String? = null
-        try {
-            val getReq = Request.Builder()
-                .url("$apiUrl?ref=$branch")
-                .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
-                .addHeader("Accept", "application/vnd.github+json")
-                .get()
-                .build()
-            httpClient.newCall(getReq).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string().orEmpty()
-                    if (body.trim().startsWith("{")) {
-                        existingSha = JSONObject(body).optString("sha", "").takeIf { it.isNotBlank() }
+        for (attempt in 1..2) {
+            var existingSha: String? = null
+            try {
+                val getReq = Request.Builder()
+                    .url("$apiUrl?ref=$branch&_t=${System.currentTimeMillis()}")
+                    .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
+                    .addHeader("Accept", "application/vnd.github+json")
+                    .addHeader("Cache-Control", "no-cache")
+                    .get()
+                    .build()
+                httpClient.newCall(getReq).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string().orEmpty()
+                        if (body.trim().startsWith("{")) {
+                            existingSha = JSONObject(body).optString("sha", "").takeIf { it.isNotBlank() }
+                        }
                     }
                 }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
-        }
 
-        val b64Content = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        val putBody = JSONObject().apply {
-            put("message", commitMessage)
-            put("content", b64Content)
-            put("branch", branch)
-            if (!existingSha.isNullOrBlank()) {
-                put("sha", existingSha)
+            val b64Content = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            val putBody = JSONObject().apply {
+                put("message", commitMessage)
+                put("content", b64Content)
+                put("branch", branch)
+                if (!existingSha.isNullOrBlank()) {
+                    put("sha", existingSha)
+                }
+            }
+
+            val putReq = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
+                .addHeader("Accept", "application/vnd.github+json")
+                .put(putBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            try {
+                httpClient.newCall(putReq).execute().use { resp ->
+                    if (resp.isSuccessful || resp.code == 200 || resp.code == 201) {
+                        return true
+                    }
+                    if (resp.code != 409 && resp.code != 422) {
+                        return false
+                    }
+                }
+            } catch (_: Exception) {
+                if (attempt == 2) return false
             }
         }
-
-        val putReq = Request.Builder()
-            .url(apiUrl)
-            .addHeader("Authorization", "Bearer ${gh.personalAccessToken}")
-            .addHeader("Accept", "application/vnd.github+json")
-            .put(putBody.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            httpClient.newCall(putReq).execute().use { resp ->
-                resp.isSuccessful || resp.code == 200 || resp.code == 201
-            }
-        } catch (_: Exception) {
-            false
-        }
+        return false
     }
 
     // =========================================================================
@@ -1903,15 +1925,10 @@ class AiAgentRepository(
         }
 
         val arr = JSONArray()
-        // Prefer items that actually resolved a video or slide first; if none did yet, include all so worker can retry
-        val withMedia = resolvedObjects.filter {
-            it.optString("video_url").isNotBlank() ||
-                it.optString("slide_url").isNotBlank() ||
-                (it.optJSONArray("slides")?.length() ?: 0) > 0
-        }
-        val finalObjects = withMedia.ifEmpty { resolvedObjects }
-        finalObjects.forEach { arr.put(it) }
-        Pair(finalObjects.size, arr)
+        // Always include ALL lessons in chronological order! Never drop lessons whose stream URLs
+        // were not pre-resolved yet — the Python cloud worker resolves them directly via Shikho GraphQL.
+        resolvedObjects.forEach { arr.put(it) }
+        Pair(resolvedObjects.size, arr)
     }
 
     /**
@@ -1924,7 +1941,8 @@ class AiAgentRepository(
         phaseId: String?,
         subjectCode: String = "",
         chapterId: String = "",
-        specificLessonIds: List<String> = emptyList()
+        specificLessonIds: List<String> = emptyList(),
+        subjectTitle: String = ""
     ): Pair<Int, JSONArray> = withContext(Dispatchers.IO) {
         val (_, allLessons) = fetchAllLessonsAcrossQuarters(
             programId = programId,
@@ -1939,10 +1957,17 @@ class AiAgentRepository(
             if (specificSet.isNotEmpty()) {
                 return@filter lesson.id in specificSet || (lesson.content_id != null && lesson.content_id in specificSet)
             }
-            val matchesSubject = subjectCode.isBlank() ||
-                lesson.subject_code.equals(subjectCode, ignoreCase = true) ||
-                lesson.subject_id.equals(subjectCode, ignoreCase = true) ||
-                (lesson.subject_name?.contains(subjectCode, ignoreCase = true) == true)
+            val matchesSubject = (subjectCode.isBlank() && subjectTitle.isBlank()) ||
+                (subjectCode.isNotBlank() && (
+                    lesson.subject_code.equals(subjectCode, ignoreCase = true) ||
+                        lesson.subject_id.equals(subjectCode, ignoreCase = true) ||
+                        (lesson.subject_name?.contains(subjectCode, ignoreCase = true) == true)
+                    )) ||
+                (subjectTitle.isNotBlank() && (
+                    lesson.subject_name?.equals(subjectTitle, ignoreCase = true) == true ||
+                        lesson.subject_name?.contains(subjectTitle, ignoreCase = true) == true ||
+                        subjectTitle.contains(lesson.subject_name.orEmpty().ifBlank { "___" }, ignoreCase = true)
+                    ))
             val matchesChapter = chapterId.isBlank() ||
                 lesson.chapter_id.equals(chapterId, ignoreCase = true) ||
                 (lesson.chapter_name?.contains(chapterId, ignoreCase = true) == true)
@@ -2106,6 +2131,20 @@ class AiAgentRepository(
     }
 
     suspend fun fetchSchedules(): List<AiAgentSchedule> = withContext(Dispatchers.IO) {
+        val localList = getLocalSchedules().toMutableList()
+        try {
+            val ghState = readGitHubAuthState(getGitHubConfig())
+            val ghSchedArr = ghState?.optJSONArray("schedules")
+            if (ghSchedArr != null && ghSchedArr.length() > 0) {
+                val parsedGh = parseSchedulesArray(ghSchedArr)
+                if (parsedGh.isNotEmpty() && localList.isEmpty()) {
+                    saveSchedulesListLocally(parsedGh)
+                    return@withContext parsedGh
+                }
+            }
+        } catch (_: Exception) {
+        }
+
         val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
         if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
             try {
@@ -2134,15 +2173,64 @@ class AiAgentRepository(
         getLocalSchedules()
     }
 
+    private fun serializeSchedulesArray(schedules: List<AiAgentSchedule>): JSONArray {
+        val arr = JSONArray()
+        val deviceHash = runCatching { getCurrentDeviceHash() }.getOrDefault("")
+        schedules.forEach { s ->
+            arr.put(
+                JSONObject().apply {
+                    put("id", s.id)
+                    put("title", s.title)
+                    put("schedule_type", s.scheduleType)
+                    put("cron_expression", s.cronExpression)
+                    put("time_display_bn", s.timeDisplayBn)
+                    put("program_id", s.programId)
+                    put("program_title", s.programTitle)
+                    put("phase_id", s.phaseId)
+                    put("subject_code", s.subjectCode)
+                    put("target_chat_id", s.targetChatId)
+                    put("target_channel_title", s.targetChannelTitle)
+                    put("telegram_invite_link", s.telegramInviteLink)
+                    put("use_forum_topics", s.useForumTopics)
+                    put("video_quality", s.videoQuality)
+                    put("include_videos", s.includeVideos)
+                    put("include_slides", s.includeSlides)
+                    put("include_daily_routine", s.includeDailyRoutine)
+                    put("is_enabled", s.isEnabled)
+                    put("last_run_at", s.lastRunAt)
+                    put("last_run_status", s.lastRunStatus)
+                    put("created_by_device_hash", deviceHash)
+                }
+            )
+        }
+        return arr
+    }
+
     suspend fun saveSchedule(schedule: AiAgentSchedule) = withContext(Dispatchers.IO) {
         val current = getLocalSchedules().toMutableList()
-        val idx = current.indexOfFirst { it.id == schedule.id }
+        val idx = current.indexOfFirst { it.id == schedule.id || (schedule.programId.isNotBlank() && it.programId == schedule.programId && it.subjectCode == schedule.subjectCode) }
         if (idx >= 0) {
             current[idx] = schedule
         } else {
             current.add(0, schedule)
         }
         saveSchedulesListLocally(current)
+
+        val gh = getGitHubConfig()
+        val currentShikhoToken = sessionManager.getAccessToken()?.trim().orEmpty()
+        if (gh.personalAccessToken.isNotBlank()) {
+            runCatching {
+                writeGitHubAuthState(
+                    gh,
+                    JSONObject().apply {
+                        put("schedules", serializeSchedulesArray(current))
+                        if (currentShikhoToken.isNotBlank()) {
+                            put("shikho_access_token", currentShikhoToken)
+                        }
+                    }
+                )
+            }
+        }
 
         val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
         if (supabaseUrl.isBlank() || anonKey.isBlank()) return@withContext
@@ -2185,6 +2273,18 @@ class AiAgentRepository(
         val updated = getLocalSchedules().filterNot { it.id == scheduleId }
         saveSchedulesListLocally(updated)
 
+        val gh = getGitHubConfig()
+        if (gh.personalAccessToken.isNotBlank()) {
+            runCatching {
+                writeGitHubAuthState(
+                    gh,
+                    JSONObject().apply {
+                        put("schedules", serializeSchedulesArray(updated))
+                    }
+                )
+            }
+        }
+
         val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
         if (supabaseUrl.isBlank() || anonKey.isBlank()) return@withContext
         try {
@@ -2196,6 +2296,42 @@ class AiAgentRepository(
                 .build()
             httpClient.newCall(req).execute().close()
         } catch (_: Exception) {}
+    }
+
+    suspend fun deleteTask(taskId: String) = withContext(Dispatchers.IO) {
+        val updated = getLocalTasks().filterNot { it.id == taskId }
+        saveTasksListLocally(updated)
+
+        val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
+        if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
+            try {
+                val req = Request.Builder()
+                    .url("${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_tasks?id=eq.$taskId")
+                    .addHeader("apikey", anonKey)
+                    .addHeader("Authorization", "Bearer $anonKey")
+                    .delete()
+                    .build()
+                httpClient.newCall(req).execute().close()
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun clearCompletedTasks() = withContext(Dispatchers.IO) {
+        val activeOnly = getLocalTasks().filter { it.status.uppercase() in setOf("RUNNING", "QUEUED", "RESUMING") }
+        saveTasksListLocally(activeOnly)
+
+        val (supabaseUrl, anonKey) = DeviceActivationRepository.getSupabaseConfig()
+        if (supabaseUrl.isNotBlank() && anonKey.isNotBlank()) {
+            try {
+                val req = Request.Builder()
+                    .url("${supabaseUrl.trimEnd('/')}/rest/v1/ai_agent_tasks?status=in.(COMPLETED,FAILED,CANCELLED)")
+                    .addHeader("apikey", anonKey)
+                    .addHeader("Authorization", "Bearer $anonKey")
+                    .delete()
+                    .build()
+                httpClient.newCall(req).execute().close()
+            } catch (_: Exception) {}
+        }
     }
 
     fun isTaskCompletionAlreadyNotified(taskId: String): Boolean {
@@ -2307,30 +2443,7 @@ class AiAgentRepository(
     }
 
     private fun saveSchedulesListLocally(schedules: List<AiAgentSchedule>) {
-        val arr = JSONArray()
-        schedules.forEach { s ->
-            arr.put(
-                JSONObject().apply {
-                    put("id", s.id)
-                    put("title", s.title)
-                    put("schedule_type", s.scheduleType)
-                    put("cron_expression", s.cronExpression)
-                    put("time_display_bn", s.timeDisplayBn)
-                    put("program_id", s.programId)
-                    put("program_title", s.programTitle)
-                    put("phase_id", s.phaseId)
-                    put("subject_code", s.subjectCode)
-                    put("target_chat_id", s.targetChatId)
-                    put("target_channel_title", s.targetChannelTitle)
-                    put("include_videos", s.includeVideos)
-                    put("include_slides", s.includeSlides)
-                    put("include_daily_routine", s.includeDailyRoutine)
-                    put("is_enabled", s.isEnabled)
-                    put("last_run_at", s.lastRunAt)
-                    put("last_run_status", s.lastRunStatus)
-                }
-            )
-        }
+        val arr = serializeSchedulesArray(schedules)
         prefs.edit().putString(KEY_LOCAL_SCHEDULES_JSON, arr.toString()).apply()
     }
 
@@ -2341,16 +2454,19 @@ class AiAgentRepository(
             list.add(
                 AiAgentSchedule(
                     id = obj.optString("id", UUID.randomUUID().toString()),
-                    title = obj.optString("title", "দৈনিক রুটিন সিঙ্ক"),
+                    title = obj.optString("title", "দৈনিক ২৪/৭ রুটিন সিঙ্ক"),
                     scheduleType = obj.optString("schedule_type", "DAILY_COURSE_SYNC"),
-                    cronExpression = obj.optString("cron_expression", "0 2 * * *"),
-                    timeDisplayBn = obj.optString("time_display_bn", "প্রতিদিন সকাল ০৮:০০"),
+                    cronExpression = obj.optString("cron_expression", "0 19 * * *"),
+                    timeDisplayBn = obj.optString("time_display_bn", "প্রতিদিন রাত ০১:০০"),
                     programId = obj.optString("program_id", ""),
                     programTitle = obj.optString("program_title", ""),
                     phaseId = obj.optString("phase_id", ""),
                     subjectCode = obj.optString("subject_code", ""),
                     targetChatId = obj.optString("target_chat_id", ""),
                     targetChannelTitle = obj.optString("target_channel_title", ""),
+                    telegramInviteLink = obj.optString("telegram_invite_link", ""),
+                    useForumTopics = obj.optBoolean("use_forum_topics", true),
+                    videoQuality = obj.optString("video_quality", "720p"),
                     includeVideos = obj.optBoolean("include_videos", true),
                     includeSlides = obj.optBoolean("include_slides", true),
                     includeDailyRoutine = obj.optBoolean("include_daily_routine", true),
@@ -2416,8 +2532,9 @@ class AiAgentRepository(
                             includeSlides = planObj.optBoolean("include_slides", true),
                             createNewChannel = planObj.optBoolean("create_new_channel", true),
                             useForumTopics = planObj.optBoolean("use_forum_topics", false),
-                            scheduleTimeBn = planObj.optString("schedule_time_bn", "প্রতিদিন সকাল ০৮:০০"),
-                            cronExpression = planObj.optString("cron_expression", "0 2 * * *"),
+                            enableLifetimeSync = planObj.optBoolean("enable_lifetime_sync", false),
+                            scheduleTimeBn = planObj.optString("schedule_time_bn", "প্রতিদিন রাত ০১:০০"),
+                            cronExpression = planObj.optString("cron_expression", "0 19 * * *"),
                             estimatedVideos = planObj.optInt("estimated_videos", 0),
                             estimatedSlides = planObj.optInt("estimated_slides", 0),
                             specificLessonIds = specIds
@@ -2540,6 +2657,7 @@ class AiAgentRepository(
                                 put("include_slides", p.includeSlides)
                                 put("create_new_channel", p.createNewChannel)
                                 put("use_forum_topics", p.useForumTopics)
+                                put("enable_lifetime_sync", p.enableLifetimeSync)
                                 put("schedule_time_bn", p.scheduleTimeBn)
                                 put("cron_expression", p.cronExpression)
                                 put("estimated_videos", p.estimatedVideos)

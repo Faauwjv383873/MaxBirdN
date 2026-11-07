@@ -133,7 +133,12 @@ class GitHubAuthBridge:
                     raw_json = base64.b64decode(content_b64).decode("utf-8")
                     parsed = json.loads(raw_json)
                     if isinstance(parsed, dict):
-                        for k in ("telegram_session_string", "telegram_partial_session", "telegram_2fa_password"):
+                        for k in (
+                            "telegram_session_string",
+                            "telegram_partial_session",
+                            "telegram_2fa_password",
+                            "shikho_access_token",
+                        ):
                             if parsed.get(k):
                                 parsed[k] = unseal_secret(str(parsed[k]))
                         return parsed
@@ -163,7 +168,16 @@ class GitHubAuthBridge:
             pass
 
         for k, v in patch.items():
-            if k in ("telegram_session_string", "telegram_partial_session", "telegram_2fa_password") and v:
+            if (
+                k
+                in (
+                    "telegram_session_string",
+                    "telegram_partial_session",
+                    "telegram_2fa_password",
+                    "shikho_access_token",
+                )
+                and v
+            ):
                 merged[k] = seal_secret(str(v))
             else:
                 merged[k] = v
@@ -217,7 +231,12 @@ class SupabaseBridge:
                 r = requests.get(u, headers=self.headers, timeout=12)
                 if r.ok and isinstance(r.json(), list) and r.json():
                     row = r.json()[0]
-                    for k in ("telegram_session_string", "telegram_partial_session", "telegram_2fa_password"):
+                    for k in (
+                        "telegram_session_string",
+                        "telegram_partial_session",
+                        "telegram_2fa_password",
+                        "shikho_access_token",
+                    ):
                         if row.get(k):
                             row[k] = unseal_secret(str(row[k]))
                     return row
@@ -509,12 +528,17 @@ class ShikhoClient:
         return []
 
     def fetch_lessons_for_program(
-        self, program_id: str, phase_id: str = "", subject_code: str = "", chapter_id: str = ""
+        self,
+        program_id: str,
+        phase_id: str = "",
+        subject_code: str = "",
+        chapter_id: str = "",
+        subject_title: str = "",
     ) -> List[Dict[str, Any]]:
         all_items: List[Dict[str, Any]] = []
         seen_ids = set()
 
-        def add_rows(rows: Any, phase_label: str = "") -> None:
+        def add_rows(rows: Any, phase_label: str = "", phase_order: int = 99) -> None:
             if not isinstance(rows, list):
                 return
             for item in rows:
@@ -524,6 +548,7 @@ class ShikhoClient:
                         seen_ids.add(iid)
                         if phase_label and not item.get("phase_title"):
                             item["phase_title"] = phase_label
+                        item["_phase_order"] = phase_order
                         all_items.append(item)
 
         lesson_fields = """
@@ -560,7 +585,7 @@ class ShikhoClient:
                 if pid:
                     phases_to_query.append((pid, ptitle))
 
-        for cur_phase_id, cur_phase_title in phases_to_query:
+        for q_idx, (cur_phase_id, cur_phase_title) in enumerate(phases_to_query, start=1):
             q_phase = f"""
             query GetUpcomingLessonsPhaseWise($program_id: String!, $phase_id: String!) {{
               studentSpecificLessons(program_id: $program_id, phase_id: $phase_id) {{
@@ -581,7 +606,11 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")), cur_phase_title)
+                    add_rows(
+                        (((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")),
+                        cur_phase_title,
+                        q_idx,
+                    )
             except Exception as exc:
                 log(f"GetUpcomingLessonsPhaseWise ({cur_phase_id}) note: {exc}")
 
@@ -611,12 +640,16 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")), cur_phase_title)
+                    add_rows(
+                        (((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")),
+                        cur_phase_title,
+                        q_idx,
+                    )
             except Exception as exc:
                 log(f"GetStudentLessonsPhaseDate ({cur_phase_id}) note: {exc}")
 
-        # 2. Program-wide query without phase_id
-        if program_id:
+        # 2. Program-wide query without phase_id (handles courses with no quarters or extra lessons)
+        if program_id and not phase_id:
             q_all = f"""
             query GetUpcomingLessons($program_id: String!) {{
               studentSpecificLessons(program_id: $program_id) {{
@@ -637,7 +670,7 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")), "", 90)
             except Exception as exc:
                 log(f"GetUpcomingLessons note: {exc}")
 
@@ -665,13 +698,14 @@ class ShikhoClient:
                     timeout=35,
                 )
                 if r.ok:
-                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")))
+                    add_rows((((r.json().get("data") or {}).get("studentSpecificLessons") or {}).get("data")), "", 90)
             except Exception as exc:
                 log(f"GetStudentLessonsDateOnly note: {exc}")
 
         # 3. Filter by non-exam, subject, and chapter
         filtered: List[Dict[str, Any]] = []
         subj_q = subject_code.strip().lower()
+        subj_title_q = subject_title.strip().lower()
         chap_q = chapter_id.strip().lower()
         now_ms = int(time.time() * 1000)
 
@@ -686,11 +720,13 @@ class ShikhoClient:
             if start_raw.isdigit() and int(start_raw) > now_ms + 3600_000 and not has_pb:
                 continue
 
-            if subj_q:
+            if subj_q or subj_title_q:
                 s_code = str(item.get("subject_code") or "").lower()
                 s_id = str(item.get("subject_id") or "").lower()
                 s_name = str(item.get("subject_name") or "").lower()
-                if subj_q not in (s_code, s_id) and subj_q not in s_name:
+                code_match = bool(subj_q and (subj_q in (s_code, s_id) or subj_q in s_name))
+                title_match = bool(subj_title_q and (subj_title_q in s_name or s_name in subj_title_q))
+                if not (code_match or title_match):
                     continue
             if chap_q:
                 c_id = str(item.get("chapter_id") or "").lower()
@@ -699,7 +735,17 @@ class ShikhoClient:
                     continue
             filtered.append(item)
 
-        # 4. If a chapter_id was requested and no live classes matched, also check Animated Lessons (GetTopics)
+        # 4. Sort sequentially: Quarter 1 -> Quarter 5, then chronological start_time ascending
+        def sort_key(item: Dict[str, Any]) -> Tuple[int, int]:
+            p_ord = int(item.get("_phase_order") or 99)
+            live_o = item.get("live_class") if isinstance(item.get("live_class"), dict) else {}
+            st = str(item.get("start_time") or live_o.get("start_time") or "0").strip()
+            st_int = int(st) if st.isdigit() else 0
+            return (p_ord, st_int)
+
+        filtered.sort(key=sort_key)
+
+        # 5. If a chapter_id was requested and no live classes matched, also check Animated Lessons (GetTopics)
         if chap_q and not filtered:
             filtered.extend(self.fetch_animated_topics_for_chapter(chapter_id))
 
@@ -999,7 +1045,7 @@ def _get_cdn_session() -> requests.Session:
     global _CDN_POOL_SESSION
     if _CDN_POOL_SESSION is None:
         s = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=48, pool_maxsize=48, max_retries=2)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=64, pool_maxsize=64, max_retries=2)
         s.mount("https://", adapter)
         s.mount("http://", adapter)
         s.headers.update(
@@ -1041,7 +1087,7 @@ def _download_binary_with_retries(url: str, dest: Path, retries: int = 3) -> boo
 def _download_media_playlist_segments(playlist_url: str, playlist_text: str, seg_dir: Path, prefix: str) -> Optional[Path]:
     """
     Downloads all segments + #EXT-X-MAP + #EXT-X-KEY from a media .m3u8 playlist in parallel
-    (32 threads + persistent HTTPS keep-alive pool) so 1300+ segments download in ~15 seconds.
+    (48 threads + persistent HTTPS keep-alive pool) so 1300+ segments download in ~10-14 seconds.
     """
     seg_dir.mkdir(parents=True, exist_ok=True)
     lines = playlist_text.splitlines()
@@ -1083,9 +1129,9 @@ def _download_media_playlist_segments(playlist_url: str, playlist_text: str, seg
     if not download_jobs:
         return None
 
-    log(f"⬇️ [Native HLS] Downloading {len(download_jobs)} '{prefix}' segments with 32 pooled workers...")
+    log(f"⬇️ [Native HLS] Downloading {len(download_jobs)} '{prefix}' segments with 48 pooled workers...")
     failed_count = 0
-    with ThreadPoolExecutor(max_workers=32) as pool:
+    with ThreadPoolExecutor(max_workers=48) as pool:
         futures = {pool.submit(_download_binary_with_retries, url, dst): (url, dst) for url, dst in download_jobs}
         for fut in as_completed(futures):
             ok = False
@@ -1830,27 +1876,171 @@ async def handle_telegram_auth_flow(
             await client.disconnect()
 
 
+async def enable_forum_on_supergroup(client: TelegramClient, chat_entity: Any) -> bool:
+    """
+    Enables Forum Topics on a Telegram supergroup across all Telethon versions
+    (including Telethon 1.45+ where ToggleForumRequest added `tabs: bool`).
+    """
+    toggle_cls = getattr(functions.channels, "ToggleForumRequest", None)
+    if toggle_cls is None:
+        return False
+    try:
+        import inspect
+        sig = inspect.signature(toggle_cls.__init__)
+        kwargs: Dict[str, Any] = {"channel": chat_entity, "enabled": True}
+        if "tabs" in sig.parameters:
+            kwargs["tabs"] = False
+        await client(toggle_cls(**kwargs))
+        log("✅ Enabled Forum Topics on supergroup!")
+        return True
+    except TypeError:
+        try:
+            await client(toggle_cls(channel=chat_entity, enabled=True))
+            log("✅ Enabled Forum Topics on supergroup!")
+            return True
+        except Exception as exc:
+            log(f"ToggleForumRequest fallback note: {exc}")
+            return False
+    except Exception as exc:
+        if "CHAT_NOT_MODIFIED" in str(exc):
+            return True
+        log(f"ToggleForumRequest note: {exc}")
+        return False
+
+
+async def create_or_get_forum_topic(
+    client: TelegramClient,
+    chat_entity: Any,
+    topic_title: str,
+    topic_cache: Dict[str, int],
+    course_title: str = "",
+) -> int:
+    """
+    Finds an existing Forum Topic by title or creates a new Forum Topic inside `chat_entity`.
+    Compatible with Telethon 1.36 - 1.45+ (`functions.messages.CreateForumTopicRequest(peer=...)`)
+    as well as older Telethon (`functions.channels.CreateForumTopicRequest(channel=...)`).
+    """
+    clean_title = (topic_title or "").strip()[:100]
+    if not clean_title:
+        return 0
+    norm_key = re.sub(r"\s+", " ", clean_title).lower()
+    if norm_key in topic_cache and topic_cache[norm_key] > 0:
+        return topic_cache[norm_key]
+
+    # 1. Check existing topics on the group first so we never create duplicate subject topics
+    try:
+        msg_get_cls = getattr(functions.messages, "GetForumTopicsRequest", None)
+        chan_get_cls = getattr(functions.channels, "GetForumTopicsRequest", None)
+        topics_res = None
+        if msg_get_cls is not None:
+            try:
+                topics_res = await client(
+                    msg_get_cls(peer=chat_entity, offset_date=None, offset_id=0, offset_topic=0, limit=100)
+                )
+            except TypeError:
+                topics_res = await client(
+                    msg_get_cls(channel=chat_entity, offset_date=None, offset_id=0, offset_topic=0, limit=100)
+                )
+        elif chan_get_cls is not None:
+            topics_res = await client(
+                chan_get_cls(channel=chat_entity, offset_date=None, offset_id=0, offset_topic=0, limit=100)
+            )
+        for t in getattr(topics_res, "topics", []) or []:
+            t_id = int(getattr(t, "id", 0) or 0)
+            t_title = str(getattr(t, "title", "") or "").strip()
+            if t_id > 0 and t_title:
+                t_norm = re.sub(r"\s+", " ", t_title).lower()
+                topic_cache[t_norm] = t_id
+                if t_norm == norm_key or clean_title.lower() in t_norm or t_norm in clean_title.lower():
+                    log(f"📌 Using existing Forum Topic '{t_title}' (topicId={t_id})")
+                    topic_cache[norm_key] = t_id
+                    return t_id
+    except Exception as exc:
+        log(f"Existing forum topic lookup note: {exc}")
+
+    # 2. Create a brand new Forum Topic
+    create_cls = (
+        getattr(functions.messages, "CreateForumTopicRequest", None)
+        or getattr(functions.channels, "CreateForumTopicRequest", None)
+    )
+    if create_cls is None:
+        log("⚠️ CreateForumTopicRequest not found in Telethon functions.messages or functions.channels")
+        return 0
+
+    try:
+        import inspect
+        import random
+        sig = inspect.signature(create_cls.__init__)
+        rnd_id = random.randint(10**7, 9 * 10**8)
+        kwargs: Dict[str, Any] = {
+            "title": clean_title,
+            "random_id": rnd_id,
+        }
+        if "peer" in sig.parameters:
+            kwargs["peer"] = chat_entity
+        else:
+            kwargs["channel"] = chat_entity
+
+        created_topic_res = await send_with_flood_protection(lambda: client(create_cls(**kwargs)))
+        new_topic_id = 0
+        for update in getattr(created_topic_res, "updates", []) or []:
+            msg_obj = getattr(update, "message", None)
+            if msg_obj is not None and getattr(msg_obj, "id", 0) > 0:
+                new_topic_id = int(msg_obj.id)
+                break
+            if hasattr(update, "id") and getattr(update, "id", 0) > 0:
+                new_topic_id = int(update.id)
+                break
+
+        if new_topic_id > 0:
+            topic_cache[norm_key] = new_topic_id
+            log(f"✅ Created Forum Topic '{clean_title}' (topicId={new_topic_id})")
+            try:
+                subj_tag = re.sub(r"[^\w\u0980-\u09FF]+", "_", clean_title).strip("_")
+                intro_msg = (
+                    f"📘 **বিষয়/টপিক: {clean_title}**\n"
+                    + (f"🎓 কোর্স: {course_title}\n" if course_title else "")
+                    + f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ এই টপিকের ভেতরে **{clean_title}**-এর সকল অধ্যায়ের ক্লাস (HD ভিডিও) ও লেকচার স্লাইড (PDF) ধারাবাহিকভাবে সাজানো আছে।\n"
+                    f"🔍 যেকোনো ক্লাস খুঁজতে উপরে Search বারে অধ্যায় বা ক্লাসের নাম লিখে সার্চ করুন।\n"
+                    f"🏷️ #{subj_tag}"
+                )
+                sent_intro = await client.send_message(chat_entity, intro_msg, reply_to=new_topic_id)
+                await client.pin_message(chat_entity, sent_intro.id, notify=False)
+            except Exception:
+                pass
+            return new_topic_id
+    except Exception as exc:
+        log(f"⚠️ CreateForumTopicRequest failed for '{clean_title}': {exc}")
+
+    return 0
+
+
 async def ensure_telegram_destination(
     client: TelegramClient,
     task: Dict[str, Any],
     supabase: SupabaseBridge,
+    gh_bridge: Optional[GitHubAuthBridge] = None,
 ) -> Tuple[Any, str]:
     """
-    Ensures the target Telegram Channel or Supergroup exists.
-    If the user selected an existing Channel/Group (`target_chat_id` is non-empty and `create_new_channel` is False),
-    resolves that exact entity (warming up dialogs cache first if needed).
-    Otherwise creates a new Channel or Supergroup on the user's Telegram account.
+    Ensures the target Telegram Channel or Forum Supergroup exists.
+    If `use_forum_topics` is True (or the user requested a Group/Topic), creates a Supergroup,
+    enables Forum Topics, optionally assigns a public username or invite link, and creates
+    the requested Topic if specified.
     """
     existing_chat_id = str(task.get("target_chat_id") or "").strip()
     create_new = bool(task.get("create_new_channel", False))
     existing_invite = str(task.get("telegram_invite_link") or "").strip()
+    use_megagroup = bool(task.get("use_forum_topics", False)) or bool(task.get("target_topic_title"))
     channel_title = (
         str(task.get("target_channel_title") or "").strip()
         or str(task.get("program_title") or "").strip()
         or "MaxBird Course Archive"
     )
     subject_title = str(task.get("subject_title") or "").strip()
-    if subject_title and subject_title not in channel_title and create_new:
+    # Only append subject_title to channel_title if we are NOT using Forum Topics (since in a Forum Group,
+    # the Group is the Course and each Subject is a Topic inside the Group).
+    if subject_title and subject_title not in channel_title and create_new and not use_megagroup:
         channel_title = f"{channel_title} — {subject_title}"
 
     if existing_chat_id and not create_new:
@@ -1859,31 +2049,36 @@ async def ensure_telegram_destination(
             try:
                 entity = await client.get_entity(entity_key)
             except Exception:
-                # Warm up Telethon entity cache by fetching dialogs
-                await client.get_dialogs(limit=120)
+                await client.get_dialogs(limit=150)
                 entity = await client.get_entity(entity_key)
+            if use_megagroup and getattr(entity, "megagroup", False) and not getattr(entity, "forum", False):
+                await enable_forum_on_supergroup(client, entity)
             if not existing_invite:
                 username = getattr(entity, "username", "")
                 if username:
                     existing_invite = f"https://t.me/{username}"
             return entity, existing_invite
         except Exception as exc:
-            log(f"Existing chat_id {existing_chat_id} lookup note: {exc}. Falling back to channel creation...")
+            log(f"Existing chat_id {existing_chat_id} lookup note: {exc}. Falling back to creation...")
 
     if existing_chat_id and create_new:
-        # Check if task already created its channel in an earlier run
         try:
             entity_key = int(existing_chat_id) if existing_chat_id.lstrip("-").isdigit() else existing_chat_id
-            entity = await client.get_entity(entity_key)
+            try:
+                entity = await client.get_entity(entity_key)
+            except Exception:
+                await client.get_dialogs(limit=150)
+                entity = await client.get_entity(entity_key)
+            if use_megagroup and getattr(entity, "megagroup", False) and not getattr(entity, "forum", False):
+                await enable_forum_on_supergroup(client, entity)
             return entity, existing_invite
         except Exception:
             pass
 
     about_text = (
         f"📚 কোর্স: {task.get('program_title') or channel_title}\n"
-        f"🤖 স্বয়ংক্রিয়ভাবে সাজানো ভিডিও লেকচার ও লেকচার স্লাইড আর্কাইভ।"
+        f"🤖 স্বয়ংক্রিয়ভাবে সাবজেক্ট ও অধ্যায় অনুযায়ী সাজানো এইচডি (HD) ভিডিও লেকচার ও পিডিএফ স্লাইড আর্কাইভ।"
     )
-    use_megagroup = bool(task.get("use_forum_topics", False))
 
     result = await client(
         functions.channels.CreateChannelRequest(
@@ -1896,19 +2091,57 @@ async def ensure_telegram_destination(
     created_chat = result.chats[0]
     peer_id = f"-100{created_chat.id}"
 
+    # Enable Forum Topics if this is a Supergroup
+    if use_megagroup:
+        await enable_forum_on_supergroup(client, created_chat)
+
+    # Attempt to set a public username if possible (makes it a Public Group/Channel searchable via link),
+    # and always fallback to ExportChatInviteRequest if public username limits or format prevent it.
     invite_link = ""
-    try:
-        invite_res = await client(
-            functions.messages.ExportChatInviteRequest(peer=created_chat)
+    if use_megagroup:
+        try:
+            import random
+            slug_base = re.sub(r"[^a-zA-Z0-9]", "", channel_title)[:16] or "MaxBirdCourse"
+            if not slug_base[0].isalpha():
+                slug_base = f"Course{slug_base}"
+            public_uname = f"{slug_base}_{random.randint(1000, 9999)}"
+            upd_uname_cls = getattr(functions.channels, "UpdateUsernameRequest", None)
+            if upd_uname_cls is not None:
+                await client(upd_uname_cls(channel=created_chat, username=public_uname))
+                invite_link = f"https://t.me/{public_uname}"
+                log(f"🌐 Configured public group username: @{public_uname}")
+        except Exception as pub_exc:
+            log(f"Public username optional setup note (using invite link instead): {pub_exc}")
+
+    if not invite_link:
+        try:
+            invite_res = await client(
+                functions.messages.ExportChatInviteRequest(peer=created_chat)
+            )
+            invite_link = getattr(invite_res, "link", "") or ""
+        except Exception as exc:
+            log(f"Invite link export note: {exc}")
+
+    # If a specific topic title was requested (e.g. 'বাংলা ১ম পত্র'), create that Forum Topic right away
+    desired_topic_title = str(task.get("target_topic_title") or "").strip()
+    if use_megagroup and desired_topic_title and not task.get("target_topic_id"):
+        new_topic_id = await create_or_get_forum_topic(
+            client=client,
+            chat_entity=created_chat,
+            topic_title=desired_topic_title,
+            topic_cache={},
+            course_title=str(task.get("program_title") or channel_title),
         )
-        invite_link = getattr(invite_res, "link", "") or ""
-    except Exception as exc:
-        log(f"Invite link export note: {exc}")
+        if new_topic_id > 0:
+            task["target_topic_id"] = new_topic_id
+            task["target_topic_title"] = desired_topic_title
 
     header_msg = (
         f"🎓 **{channel_title}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ এই চ্যানেলে স্বয়ংক্রিয়ভাবে সকল ক্লাসের **HD ভিডিও** এবং **লেকচার স্লাইড (PDF)** ধারাবাহিকভাবে আপলোড করা হচ্ছে।\n"
+        f"✅ এই {'পাবলিক ফোরাম গ্রুপে বিষয়ভিত্তিক (Subject-Topic-Wise) টপিকের ভেতরে' if use_megagroup else 'চ্যানেলে'} "
+        f"স্বয়ংক্রিয়ভাবে সকল ক্লাসের **HD ভিডিও** এবং **লেকচার স্লাইড (PDF)** ধারাবাহিকভাবে আপলোড করা হচ্ছে।\n"
+        f"🔍 যেকোনো ক্লাস বা স্লাইড খুঁজতে বিষয়ের টপিকে ঢুকে অথবা উপরে Search বারে সার্চ করুন।\n"
         f"📅 শুরু হয়েছে: {datetime.datetime.now().strftime('%d %b %Y')}"
     )
     try:
@@ -1923,11 +2156,45 @@ async def ensure_telegram_destination(
             "target_chat_id": peer_id,
             "telegram_invite_link": invite_link,
             "target_channel_title": channel_title,
+            "target_topic_id": task.get("target_topic_id", 0),
+            "target_topic_title": task.get("target_topic_title", ""),
         },
     )
+    # Also update any 24/7 schedule associated with this program_id if its target_chat_id was empty
+    prog_id = str(task.get("program_id") or "").strip()
+    if prog_id:
+        try:
+            for sched in supabase.fetch_enabled_schedules():
+                if str(sched.get("program_id") or "") == prog_id and not str(sched.get("target_chat_id") or "").strip():
+                    supabase.update_schedule(
+                        str(sched.get("id") or ""),
+                        {
+                            "target_chat_id": peer_id,
+                            "target_channel_title": channel_title,
+                        },
+                    )
+        except Exception:
+            pass
+        if gh_bridge is not None:
+            try:
+                st = gh_bridge.read_state()
+                scheds = st.get("schedules")
+                if isinstance(scheds, list):
+                    changed = False
+                    for s in scheds:
+                        if isinstance(s, dict) and str(s.get("program_id") or "") == prog_id and not str(s.get("target_chat_id") or "").strip():
+                            s["target_chat_id"] = peer_id
+                            s["target_channel_title"] = channel_title
+                            s["telegram_invite_link"] = invite_link
+                            changed = True
+                    if changed:
+                        gh_bridge.write_state({"schedules": scheds})
+            except Exception:
+                pass
+
     task["target_chat_id"] = peer_id
     task["telegram_invite_link"] = invite_link
-    log(f"✅ Created Telegram Channel/Group '{channel_title}' (ID: {peer_id}, Link: {invite_link})")
+    log(f"✅ Created Telegram {'Forum Supergroup' if use_megagroup else 'Channel'} '{channel_title}' (ID: {peer_id}, Link: {invite_link})")
     return created_chat, invite_link
 
 
@@ -1943,8 +2210,10 @@ async def send_with_flood_protection(coro_factory):
 
 async def fast_upload_file_same_session(client: TelegramClient, file_path: Path):
     """
-    Uploads a file 4x-6x faster using 8 pipelined 512KB chunk requests over the
-    EXACT SAME single `TelegramClient` session and IP address (never opens a second session!).
+    High-speed continuous sliding-window uploader (16 concurrent 512KB MTProto part workers)
+    over the EXACT SAME single `TelegramClient` session and IP address.
+    Never opens a second session or triggers AuthKeyDuplicatedError, while eliminating
+    batch stop-and-wait stalls for maximum throughput.
     """
     file_size = file_path.stat().st_size
     part_size = 512 * 1024  # 512 KB (maximum allowed by Telegram MTProto)
@@ -1955,46 +2224,63 @@ async def fast_upload_file_same_session(client: TelegramClient, file_path: Path)
     import random
     file_id = random.randint(10**12, 9 * 10**18)
     is_big = file_size > 10 * 1024 * 1024
-    sem = asyncio.Semaphore(8)
+    concurrency = min(16, total_parts)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=concurrency * 2)
 
     async def upload_part(part_idx: int, chunk: bytes) -> None:
-        async with sem:
-            for attempt in range(3):
-                try:
-                    if is_big:
-                        req = functions.upload.SaveBigFilePartRequest(
-                            file_id=file_id,
-                            file_part=part_idx,
-                            file_total_parts=total_parts,
-                            bytes=chunk,
-                        )
-                    else:
-                        req = functions.upload.SaveFilePartRequest(
-                            file_id=file_id,
-                            file_part=part_idx,
-                            bytes=chunk,
-                        )
-                    await send_with_flood_protection(lambda: client(req))
-                    return
-                except FloodWaitError as fw:
-                    await asyncio.sleep(int(fw.seconds) + 3)
-                except Exception:
-                    if attempt == 2:
-                        raise
-                    await asyncio.sleep(0.5 * (attempt + 1))
+        for attempt in range(4):
+            try:
+                if is_big:
+                    req = functions.upload.SaveBigFilePartRequest(
+                        file_id=file_id,
+                        file_part=part_idx,
+                        file_total_parts=total_parts,
+                        bytes=chunk,
+                    )
+                else:
+                    req = functions.upload.SaveFilePartRequest(
+                        file_id=file_id,
+                        file_part=part_idx,
+                        bytes=chunk,
+                    )
+                await send_with_flood_protection(lambda: client(req))
+                return
+            except FloodWaitError as fw:
+                await asyncio.sleep(int(fw.seconds) + 3)
+            except Exception:
+                if attempt == 3:
+                    raise
+                await asyncio.sleep(0.4 * (attempt + 1))
 
-    tasks = []
-    with open(file_path, "rb") as f:
-        for idx in range(total_parts):
-            data = f.read(part_size)
-            if not data:
+    async def worker() -> None:
+        while True:
+            item = await queue.get()
+            if item is None:
+                queue.task_done()
                 break
-            tasks.append(asyncio.create_task(upload_part(idx, data)))
-            if len(tasks) >= 24:
-                await asyncio.gather(*tasks)
-                tasks.clear()
-        if tasks:
-            await asyncio.gather(*tasks)
+            part_idx, chunk = item
+            try:
+                await upload_part(part_idx, chunk)
+            finally:
+                queue.task_done()
+
+    workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
+    try:
+        with open(file_path, "rb") as f:
+            for idx in range(total_parts):
+                data = f.read(part_size)
+                if not data:
+                    break
+                await queue.put((idx, data))
+        for _ in range(concurrency):
+            await queue.put(None)
+        await queue.join()
+        for w in workers:
+            await w
+    except Exception:
+        for w in workers:
+            w.cancel()
+        raise
 
     if is_big:
         return types.InputFileBig(id=file_id, parts=total_parts, name=file_path.name)
@@ -2028,10 +2314,12 @@ async def execute_task_async(
     program_id = str(task.get("program_id") or "").strip()
     phase_id = str(task.get("phase_id") or "").strip()
     subject_code = str(task.get("subject_code") or "").strip()
+    subject_title_filter = str(task.get("subject_title") or "").strip()
     chapter_id = str(task.get("chapter_id") or "").strip()
     video_quality = str(task.get("video_quality") or "720p").strip()
     include_videos = bool(task.get("include_videos", True))
     include_slides = bool(task.get("include_slides", True))
+    use_forum_topics = bool(task.get("use_forum_topics", False)) or bool(task.get("target_topic_title"))
     target_topic_id = int(task.get("target_topic_id") or 0)
     target_topic_title = str(task.get("target_topic_title") or "").strip()
 
@@ -2102,12 +2390,16 @@ async def execute_task_async(
                 raise RuntimeError("AuthKeyUnregisteredError: Telegram session is no longer authorized.")
             log(f"🤖 Connected to Personal Telegram Account: {getattr(me, 'first_name', 'User')} (@{getattr(me, 'username', '')})")
 
-            # Keep user's Channels, Groups & Forum Topics synced for the in-app picker
+            target_entity, invite_link = await ensure_telegram_destination(tg_client, task, supabase, gh_bridge)
+            target_topic_id = int(task.get("target_topic_id") or target_topic_id or 0)
+            target_topic_title = str(task.get("target_topic_title") or target_topic_title or "").strip()
+            chat_id_str = str(task.get("target_chat_id") or "")
+            is_target_forum = bool(getattr(target_entity, "forum", False)) or use_forum_topics
+            topic_suffix = f" (টপিক: {target_topic_title})" if target_topic_title else (" (সাবজেক্ট টপিক ওয়াইজ)" if is_target_forum else "")
+
+            # Sync user's Channels, Groups & Forum Topics (including any newly created group/topic)
             await fetch_and_sync_telegram_dialogs(tg_client, gh_bridge)
 
-            target_entity, invite_link = await ensure_telegram_destination(tg_client, task, supabase)
-            chat_id_str = str(task.get("target_chat_id") or "")
-            topic_suffix = f" (টপিক: {target_topic_title})" if target_topic_title else ""
             sync_task_progress(
                 {
                     "status": "RUNNING",
@@ -2118,7 +2410,7 @@ async def execute_task_async(
             )
 
             if task_type == "CREATE_CHANNEL_ONLY":
-                done_msg = f"টেলিগ্রাম চ্যানেল সফলভাবে তৈরি হয়েছে! লিংক: {invite_link or 'প্রাইভেট চ্যানেল'}"
+                done_msg = f"টেলিগ্রাম চ্যানেল/গ্রুপ সফলভাবে তৈরি হয়েছে! লিংক: {invite_link or 'প্রাইভেট'}"
                 sync_task_progress(
                     {
                         "status": "COMPLETED",
@@ -2127,7 +2419,7 @@ async def execute_task_async(
                         "status_message": done_msg,
                     }
                 )
-                supabase.notify_task_completion("✅ টেলিগ্রাম চ্যানেল প্রস্তুত!", done_msg, invite_link)
+                supabase.notify_task_completion("✅ টেলিগ্রাম গন্তব্য প্রস্তুত!", done_msg, invite_link)
                 return
 
             extra = task.get("extra_payload_json") or {}
@@ -2137,35 +2429,72 @@ async def execute_task_async(
                 except Exception:
                     extra = {}
 
+            specific_lesson_ids = extra.get("specific_lesson_ids") if isinstance(extra, dict) else None
+            has_specific_ids = isinstance(specific_lesson_ids, list) and len(specific_lesson_ids) > 0
             bundled_lessons = extra.get("lessons") if isinstance(extra, dict) else None
 
-            # Also check `scripts/active_task_payload.json` written by the Android app prior to dispatch
+            # Check `scripts/active_task_payload.json` ONLY if it matches the current `task_id`
             if not (isinstance(bundled_lessons, list) and len(bundled_lessons) > 0):
                 active_payload_file = Path(__file__).resolve().parent / "active_task_payload.json"
                 if active_payload_file.exists():
                     try:
                         file_data = json.loads(active_payload_file.read_text(encoding="utf-8"))
                         if isinstance(file_data, dict):
-                            file_lessons = file_data.get("lessons") or (file_data.get("extra_payload_json") or {}).get("lessons")
-                            if isinstance(file_lessons, list) and len(file_lessons) > 0:
-                                bundled_lessons = file_lessons
-                                log(f"📂 Loaded {len(bundled_lessons)} pre-resolved lessons from scripts/active_task_payload.json")
+                            file_task_id = str(file_data.get("task_id") or "").strip()
+                            if not file_task_id or file_task_id == task_id:
+                                file_lessons = file_data.get("lessons") or (file_data.get("extra_payload_json") or {}).get("lessons")
+                                if isinstance(file_lessons, list) and len(file_lessons) > 0:
+                                    bundled_lessons = file_lessons
+                                    log(f"📂 Loaded {len(bundled_lessons)} lessons from scripts/active_task_payload.json for task {task_id}")
+                            else:
+                                log(f"ℹ️ Ignoring stale active_task_payload.json (file task_id={file_task_id} != {task_id})")
                     except Exception as exc:
                         log(f"active_task_payload.json read note: {exc}")
 
             shikho_client = ShikhoClient(shikho_token)
 
-            if isinstance(bundled_lessons, list) and len(bundled_lessons) > 0:
-                lessons = bundled_lessons
-                log(f"📦 Using {len(lessons)} lessons provided directly in task payload.")
-            else:
-                lessons = shikho_client.fetch_lessons_for_program(
+            # Always ensure we have ALL lessons for a course/subject/quarter upload (never truncate to 5 pre-resolved items!)
+            api_lessons: List[Dict[str, Any]] = []
+            if program_id and (not has_specific_ids or not bundled_lessons):
+                api_lessons = shikho_client.fetch_lessons_for_program(
                     program_id=program_id,
                     phase_id=phase_id,
                     subject_code=subject_code,
                     chapter_id=chapter_id,
+                    subject_title=subject_title_filter,
                 )
-                log(f"📚 Fetched {len(lessons)} lessons across course quarters from Shikho GraphQL API.")
+                if api_lessons:
+                    log(f"📚 Fetched {len(api_lessons)} complete lessons across quarters from Shikho GraphQL API.")
+
+            if has_specific_ids:
+                want_ids = {str(x) for x in specific_lesson_ids}
+                if isinstance(bundled_lessons, list) and len(bundled_lessons) > 0:
+                    lessons = [ls for ls in bundled_lessons if str(ls.get("id") or "") in want_ids] or bundled_lessons
+                else:
+                    lessons = [ls for ls in api_lessons if str(ls.get("id") or "") in want_ids]
+                log(f"🎯 Filtered {len(lessons)} specific requested lesson(s).")
+            elif isinstance(bundled_lessons, list) and len(bundled_lessons) > 0 and len(bundled_lessons) >= len(api_lessons):
+                # Merge any pre-resolved video_url/slides from bundled_lessons with api_lessons metadata
+                lessons = bundled_lessons
+                log(f"📦 Using {len(lessons)} complete lessons from task bundle.")
+            elif api_lessons:
+                # Merge any pre-resolved stream URLs from bundled_lessons into the complete api_lessons list
+                bundled_by_id = {
+                    str(b.get("id") or ""): b
+                    for b in (bundled_lessons or [])
+                    if isinstance(b, dict) and b.get("id")
+                }
+                for ls in api_lessons:
+                    b_match = bundled_by_id.get(str(ls.get("id") or ""))
+                    if b_match:
+                        if b_match.get("video_url") and not ls.get("video_url"):
+                            ls["video_url"] = b_match["video_url"]
+                        if b_match.get("slides") and not ls.get("slides"):
+                            ls["slides"] = b_match["slides"]
+                lessons = api_lessons
+                log(f"📚 Using {len(lessons)} complete merged lessons from Shikho GraphQL API + bundle.")
+            else:
+                lessons = bundled_lessons or []
 
             total_lessons = len(lessons)
             if total_lessons == 0:
@@ -2177,212 +2506,354 @@ async def execute_task_async(
             sync_task_progress(
                 {
                     "total_items": total_lessons,
-                    "status_message": f"মোট {total_lessons}টি লেকচার পাওয়া গেছে। সুপার-ফাস্ট ইঞ্জিনে ডাউনলোড ও আপলোড শুরু হচ্ছে...",
+                    "status_message": f"মোট {total_lessons}টি লেকচার পাওয়া গেছে। সুপার-ফাস্ট প্রি-ফেচ ও ১৬-লেন ইঞ্জিনে আপলোড শুরু হচ্ছে...",
                 }
             )
+
+            # Load dual-layer deduplication cache from GitHub state + Supabase
+            current_gh_state = gh_bridge.read_state()
+            uploaded_keys_list = current_gh_state.get("uploaded_keys")
+            uploaded_keys_set: Set[str] = set(uploaded_keys_list) if isinstance(uploaded_keys_list, list) else set()
+            newly_uploaded_keys: List[str] = []
+
+            def is_already_uploaded_dual(l_id: str, item_type: str, scope: str) -> bool:
+                mem_key = f"{program_id}:{l_id}:{item_type}:{scope}"
+                base_key = f"{program_id}:{l_id}:{item_type}:{chat_id_str}"
+                if mem_key in uploaded_keys_set or base_key in uploaded_keys_set:
+                    return True
+                if supabase.is_item_already_uploaded(program_id, l_id, item_type, scope):
+                    uploaded_keys_set.add(mem_key)
+                    return True
+                return False
+
+            def mark_uploaded_dual(
+                l_id: str,
+                item_type: str,
+                title_str: str,
+                scope: str,
+                msg_id: int,
+            ) -> None:
+                mem_key = f"{program_id}:{l_id}:{item_type}:{scope}"
+                base_key = f"{program_id}:{l_id}:{item_type}:{chat_id_str}"
+                uploaded_keys_set.add(mem_key)
+                uploaded_keys_set.add(base_key)
+                newly_uploaded_keys.append(mem_key)
+                supabase.record_uploaded_item(
+                    task_id=task_id,
+                    program_id=program_id,
+                    subject_code=subject_code,
+                    chapter_id=chapter_id,
+                    lesson_id=l_id,
+                    item_type=item_type,
+                    title=title_str,
+                    chat_id=scope,
+                    message_id=msg_id,
+                )
+                # Flush to GitHub state periodically so even without Supabase, zero duplicates happen
+                if len(newly_uploaded_keys) % 5 == 0:
+                    gh_bridge.write_state({"uploaded_keys": list(uploaded_keys_set)[-5000:]})
+
+            # Forum Topic cache for automatic Subject-Topic-Wise organization
+            forum_topic_cache: Dict[str, int] = {}
+            if target_topic_id > 0 and target_topic_title:
+                norm_t = re.sub(r"\s+", " ", target_topic_title.strip()).lower()
+                forum_topic_cache[norm_t] = target_topic_id
+
+            # Pre-resolve stream URLs for lessons so we can prefetch Lesson i+1 while uploading Lesson i
+            resolved_lessons: List[Dict[str, Any]] = []
+            for idx, lesson in enumerate(lessons, start=1):
+                video_url, slides, teacher_name = shikho_client.resolve_stream_and_slide(lesson)
+                resolved_lessons.append(
+                    {
+                        "idx": idx,
+                        "lesson": lesson,
+                        "id": str(lesson.get("id") or f"lesson_{idx}"),
+                        "title": str(lesson.get("title") or f"লেকচার {idx}").strip(),
+                        "video_url": video_url,
+                        "slides": slides,
+                        "teacher_name": teacher_name,
+                        "subj_name": str(lesson.get("subject_name") or task.get("subject_title") or "সাধারণ বিষয়").strip(),
+                        "chap_name": str(lesson.get("chapter_name") or task.get("chapter_title") or "অধ্যায়").strip(),
+                        "quarter_name": str(lesson.get("phase_title") or "").strip(),
+                    }
+                )
 
             completed_count = 0
             uploaded_videos_count = 0
             uploaded_slides_count = 0
             skipped_upcoming_count = 0
-            reply_to_msg_id = target_topic_id if target_topic_id > 0 else None
+            already_uploaded_skipped_count = 0
 
-            for idx, lesson in enumerate(lessons, start=1):
-                if time.time() - START_TIME >= MAX_RUNTIME_SECONDS:
-                    log("⏱️ Approaching GitHub Actions 6-hour limit. Saving state and triggering continuation run...")
-                    sync_task_progress(
-                        {
-                            "status": "RESUMING",
-                            "completed_items": completed_count,
-                            "status_message": f"৬ ঘণ্টার সেশন রিস্টার্ট হচ্ছে ({completed_count}/{total_lessons} সম্পন্ন)...",
-                        }
-                    )
-                    trigger_self_continuation(task_id, payload_b64, agent_cfg)
+            # Background prefetcher: downloads the NEXT video while the CURRENT video uploads to Telegram!
+            prefetch_executor = ThreadPoolExecutor(max_workers=1)
+            prefetched_futures: Dict[int, Any] = {}
+
+            def start_prefetch_if_needed(r_item: Dict[str, Any]) -> None:
+                r_idx = r_item["idx"]
+                if r_idx in prefetched_futures:
                     return
-
-                lesson_id = str(lesson.get("id") or f"lesson_{idx}")
-                lesson_title = str(lesson.get("title") or f"লেকচার {idx}").strip()
-                video_url, slides, teacher_name = shikho_client.resolve_stream_and_slide(lesson)
-                subj_name = str(lesson.get("subject_name") or task.get("subject_title") or "বিষয়").strip()
-                chap_name = str(lesson.get("chapter_name") or task.get("chapter_title") or "অধ্যায়").strip()
-                quarter_name = str(lesson.get("phase_title") or "").strip()
-
-                log(
-                    f"🔍 Lesson [{idx}/{total_lessons}] '{lesson_title}' -> "
-                    f"video_url={'YES' if video_url else 'NONE'}, slides={len(slides)}"
+                if not include_videos or not r_item["video_url"]:
+                    return
+                v_file = WORK_DIR / f"{sanitize_filename(r_item['title'])}_{r_idx}.mp4"
+                prefetched_futures[r_idx] = (
+                    v_file,
+                    prefetch_executor.submit(download_video_file, r_item["video_url"], v_file, video_quality),
                 )
 
-                if not video_url and not slides:
-                    skipped_upcoming_count += 1
-                    log(f"⏭️ Skipping [{idx}/{total_lessons}] '{lesson_title}' (Upcoming class / no recording or slide yet)")
-                    continue
-
-                quarter_line = f"🗂️ কোয়ার্টার: {quarter_name}\n" if quarter_name else ""
-                caption_base = (
-                    f"🎬 **লেকচার #{idx}: {lesson_title}**\n"
-                    f"📘 বিষয়: {subj_name}\n"
-                    f"📂 অধ্যায়: {chap_name}\n"
-                    f"{quarter_line}"
-                    f"👨‍🏫 শিক্ষক: {teacher_name}\n"
-                    f"📚 কোর্স: {task.get('program_title') or ''}"
-                ).strip()
-
-                lesson_uploaded_any = False
-                dedup_scope = f"{chat_id_str}_topic_{target_topic_id}" if target_topic_id > 0 else chat_id_str
-
-                # 1. Upload Video if enabled
-                if include_videos and video_url:
-                    already_done = (
-                        total_lessons > 25
-                        and supabase.is_item_already_uploaded(program_id, lesson_id, "VIDEO", dedup_scope)
-                    )
-                    if already_done:
-                        lesson_uploaded_any = True
-                        uploaded_videos_count += 1
-                    else:
+            try:
+                for pos, r_item in enumerate(resolved_lessons):
+                    idx = r_item["idx"]
+                    if time.time() - START_TIME >= MAX_RUNTIME_SECONDS:
+                        log("⏱️ Approaching GitHub Actions 6-hour limit. Saving state and triggering continuation run...")
+                        if newly_uploaded_keys:
+                            gh_bridge.write_state({"uploaded_keys": list(uploaded_keys_set)[-5000:]})
                         sync_task_progress(
                             {
+                                "status": "RESUMING",
                                 "completed_items": completed_count,
-                                "total_items": total_lessons,
-                                "current_item_title": f"[{idx}/{total_lessons}] ⚡ ভিডিও ডাউনলোড ও আপলোড: {lesson_title}",
-                                "status_message": f"ভিডিও ডাউনলোড ও সুপার-ফাস্ট টেলিগ্রাম আপলোড চলছে ({idx}/{total_lessons}): {lesson_title}",
+                                "status_message": f"৬ ঘণ্টার সেশন রিস্টার্ট হচ্ছে ({completed_count}/{total_lessons} সম্পন্ন)...",
                             }
                         )
-                        video_file = WORK_DIR / f"{sanitize_filename(lesson_title)}_{idx}.mp4"
-                        try:
-                            if download_video_file(video_url, video_file, video_quality):
-                                dur, w, h = get_video_metadata(video_file)
-                                attrs = [
-                                    DocumentAttributeVideo(
-                                        duration=dur,
-                                        w=w,
-                                        h=h,
-                                        supports_streaming=True,
-                                    )
-                                ]
-                                t_up_start = time.time()
-                                try:
-                                    uploaded_handle = await fast_upload_file_same_session(tg_client, video_file)
-                                except Exception as fast_exc:
-                                    if is_session_revoked_error(fast_exc):
-                                        raise
-                                    log(f"Fast upload fallback note: {fast_exc}")
-                                    uploaded_handle = str(video_file)
+                        trigger_self_continuation(task_id, payload_b64, agent_cfg)
+                        return
 
-                                sent_vid = await send_with_flood_protection(
-                                    lambda: tg_client.send_file(
-                                        target_entity,
-                                        file=uploaded_handle,
-                                        caption=caption_base,
-                                        supports_streaming=True,
-                                        attributes=attrs,
-                                        reply_to=reply_to_msg_id,
-                                    )
-                                )
-                                up_elapsed = time.time() - t_up_start
-                                supabase.record_uploaded_item(
-                                    task_id=task_id,
-                                    program_id=program_id,
-                                    subject_code=subject_code,
-                                    chapter_id=chapter_id,
-                                    lesson_id=lesson_id,
-                                    item_type="VIDEO",
-                                    title=lesson_title,
-                                    chat_id=dedup_scope,
-                                    message_id=getattr(sent_vid, "id", 0),
-                                )
-                                uploaded_videos_count += 1
-                                lesson_uploaded_any = True
-                                log(f"✅ Uploaded video [{idx}/{total_lessons}] in {up_elapsed:.1f}s: {lesson_title}")
-                                await asyncio.sleep(2)
-                            else:
-                                log(f"⚠️ Could not download video stream for '{lesson_title}' ({video_url[:80]})")
-                        except Exception as exc:
-                            if is_session_revoked_error(exc):
-                                raise
-                            log(f"⚠️ Video upload warning for {lesson_title}: {exc}")
-                        finally:
-                            if video_file.exists():
-                                video_file.unlink()
+                    lesson_id = r_item["id"]
+                    lesson_title = r_item["title"]
+                    video_url = r_item["video_url"]
+                    slides = r_item["slides"]
+                    teacher_name = r_item["teacher_name"]
+                    subj_name = r_item["subj_name"]
+                    chap_name = r_item["chap_name"]
+                    quarter_name = r_item["quarter_name"]
 
-                # 2. Upload Lecture Slides (PDFs) if enabled
-                if include_slides and slides:
-                    for s_idx, slide in enumerate(slides, start=1):
-                        slide_url = str(slide.get("url") or "").strip()
-                        slide_title = str(slide.get("title") or f"{lesson_title} - স্লাইড {s_idx}").strip()
-                        slide_key = f"{lesson_id}_slide_{s_idx}"
-                        if not slide_url:
-                            continue
-                        already_slide = (
-                            total_lessons > 25
-                            and supabase.is_item_already_uploaded(program_id, slide_key, "SLIDE", dedup_scope)
+                    log(
+                        f"🔍 Lesson [{idx}/{total_lessons}] '{lesson_title}' ({subj_name}) -> "
+                        f"video_url={'YES' if video_url else 'NONE'}, slides={len(slides)}"
+                    )
+
+                    if not video_url and not slides:
+                        skipped_upcoming_count += 1
+                        log(f"⏭️ Skipping [{idx}/{total_lessons}] '{lesson_title}' (Upcoming class / no recording or slide yet)")
+                        continue
+
+                    # Determine the Forum Topic ID for this lesson:
+                    # - If the user explicitly fixed a single topic ID, use it.
+                    # - Otherwise, if this is a Forum Supergroup (`is_target_forum`), automatically create/reuse
+                    #   a Topic named after the Subject (`subj_name`, or `target_topic_title` if specified).
+                    lesson_topic_id = target_topic_id
+                    lesson_topic_name = target_topic_title or subj_name
+                    if is_target_forum and lesson_topic_id <= 0 and lesson_topic_name:
+                        lesson_topic_id = await create_or_get_forum_topic(
+                            client=tg_client,
+                            chat_entity=target_entity,
+                            topic_title=lesson_topic_name,
+                            topic_cache=forum_topic_cache,
+                            course_title=str(task.get("program_title") or ""),
                         )
-                        if already_slide:
+
+                    reply_to_msg_id = lesson_topic_id if lesson_topic_id > 0 else None
+                    dedup_scope = f"{chat_id_str}_topic_{lesson_topic_id}" if lesson_topic_id > 0 else chat_id_str
+
+                    # Check if next lesson can be prefetched in background while we process this lesson
+                    for next_pos in range(pos + 1, min(pos + 3, len(resolved_lessons))):
+                        nxt = resolved_lessons[next_pos]
+                        if nxt["video_url"] and not is_already_uploaded_dual(nxt["id"], "VIDEO", dedup_scope):
+                            start_prefetch_if_needed(nxt)
+                            break
+
+                    subj_tag = re.sub(r"[^\w\u0980-\u09FF]+", "_", subj_name).strip("_") or "Subject"
+                    chap_tag = re.sub(r"[^\w\u0980-\u09FF]+", "_", chap_name).strip("_")[:32] or "Chapter"
+                    quarter_line = f"🗂️ কোয়ার্টার: {quarter_name}\n" if quarter_name else ""
+                    caption_base = (
+                        f"🎬 **লেকচার #{idx}: {lesson_title}**\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📘 বিষয়: **{subj_name}**\n"
+                        f"📂 অধ্যায়: {chap_name}\n"
+                        f"{quarter_line}"
+                        f"👨‍🏫 শিক্ষক: {teacher_name}\n"
+                        f"📚 কোর্স: {task.get('program_title') or ''}\n"
+                        f"🏷️ #{subj_tag} #{chap_tag} #লেকচার_{idx} #Video"
+                    ).strip()
+
+                    lesson_uploaded_any = False
+
+                    # 1. Upload Video if enabled
+                    if include_videos and video_url:
+                        if is_already_uploaded_dual(lesson_id, "VIDEO", dedup_scope):
                             lesson_uploaded_any = True
-                            uploaded_slides_count += 1
-                            continue
+                            already_uploaded_skipped_count += 1
+                            uploaded_videos_count += 1
+                            log(f"⏭️ Skipping already uploaded video [{idx}/{total_lessons}]: {lesson_title}")
+                            if idx in prefetched_futures:
+                                pf_file, _ = prefetched_futures.pop(idx)
+                                if pf_file.exists():
+                                    pf_file.unlink()
+                        else:
+                            sync_task_progress(
+                                {
+                                    "completed_items": completed_count,
+                                    "total_items": total_lessons,
+                                    "current_item_title": f"[{idx}/{total_lessons}] ⚡ {subj_name} • {lesson_title}",
+                                    "status_message": f"ভিডিও ডাউনলোড ও ১৬-লেন সুপার-ফাস্ট টেলিগ্রাম আপলোড চলছে ({idx}/{total_lessons}): {lesson_title}",
+                                }
+                            )
+                            video_file = WORK_DIR / f"{sanitize_filename(lesson_title)}_{idx}.mp4"
+                            try:
+                                if idx in prefetched_futures:
+                                    video_file, pf_fut = prefetched_futures.pop(idx)
+                                    log(f"⚡ Using background pre-fetched video stream for [{idx}/{total_lessons}] '{lesson_title}'...")
+                                    dl_ok = await asyncio.get_running_loop().run_in_executor(None, pf_fut.result)
+                                else:
+                                    dl_ok = await asyncio.get_running_loop().run_in_executor(
+                                        None, download_video_file, video_url, video_file, video_quality
+                                    )
 
+                                if dl_ok and video_file.exists():
+                                    # Immediately kick off background prefetch of the next video BEFORE starting Telegram upload!
+                                    for next_pos in range(pos + 1, min(pos + 3, len(resolved_lessons))):
+                                        nxt = resolved_lessons[next_pos]
+                                        if nxt["video_url"]:
+                                            start_prefetch_if_needed(nxt)
+                                            break
+
+                                    dur, w, h = get_video_metadata(video_file)
+                                    attrs = [
+                                        DocumentAttributeVideo(
+                                            duration=dur,
+                                            w=w,
+                                            h=h,
+                                            supports_streaming=True,
+                                        )
+                                    ]
+                                    t_up_start = time.time()
+                                    try:
+                                        uploaded_handle = await fast_upload_file_same_session(tg_client, video_file)
+                                    except Exception as fast_exc:
+                                        if is_session_revoked_error(fast_exc):
+                                            raise
+                                        log(f"Fast upload fallback note: {fast_exc}")
+                                        uploaded_handle = str(video_file)
+
+                                    sent_vid = await send_with_flood_protection(
+                                        lambda: tg_client.send_file(
+                                            target_entity,
+                                            file=uploaded_handle,
+                                            caption=caption_base,
+                                            supports_streaming=True,
+                                            attributes=attrs,
+                                            reply_to=reply_to_msg_id,
+                                        )
+                                    )
+                                    up_elapsed = time.time() - t_up_start
+                                    mark_uploaded_dual(
+                                        l_id=lesson_id,
+                                        item_type="VIDEO",
+                                        title_str=lesson_title,
+                                        scope=dedup_scope,
+                                        msg_id=getattr(sent_vid, "id", 0),
+                                    )
+                                    uploaded_videos_count += 1
+                                    lesson_uploaded_any = True
+                                    log(f"✅ Uploaded video [{idx}/{total_lessons}] in {up_elapsed:.1f}s: {lesson_title} (topic={lesson_topic_id})")
+                                    await asyncio.sleep(1.0)
+                                else:
+                                    log(f"⚠️ Could not download video stream for '{lesson_title}' ({video_url[:80]})")
+                            except Exception as exc:
+                                if is_session_revoked_error(exc):
+                                    raise
+                                log(f"⚠️ Video upload warning for {lesson_title}: {exc}")
+                            finally:
+                                if video_file.exists():
+                                    video_file.unlink()
+
+                    # 2. Upload Lecture Slides (PDFs) if enabled
+                    if include_slides and slides:
+                        for s_idx, slide in enumerate(slides, start=1):
+                            slide_url = str(slide.get("url") or "").strip()
+                            slide_title = str(slide.get("title") or f"{lesson_title} - স্লাইড {s_idx}").strip()
+                            slide_key = f"{lesson_id}_slide_{s_idx}"
+                            if not slide_url:
+                                continue
+                            if is_already_uploaded_dual(slide_key, "SLIDE", dedup_scope):
+                                lesson_uploaded_any = True
+                                already_uploaded_skipped_count += 1
+                                uploaded_slides_count += 1
+                                log(f"⏭️ Skipping already uploaded slide [{idx}/{total_lessons}]: {slide_title}")
+                                continue
+
+                            sync_task_progress(
+                                {
+                                    "completed_items": completed_count,
+                                    "total_items": total_lessons,
+                                    "current_item_title": f"[{idx}/{total_lessons}] 📄 স্লাইড আপলোড: {slide_title}",
+                                    "status_message": f"লেকচার স্লাইড (PDF) টেলিগ্রামে আপলোড হচ্ছে ({idx}/{total_lessons}): {slide_title}",
+                                }
+                            )
+                            pdf_file = WORK_DIR / f"{sanitize_filename(slide_title)}_{idx}_{s_idx}.pdf"
+                            try:
+                                if download_pdf_file(slide_url, pdf_file):
+                                    slide_caption = (
+                                        f"📄 **লেকচার স্লাইড: {slide_title}**\n"
+                                        f"🎬 লেকচার #{idx}: {lesson_title}\n"
+                                        f"📘 বিষয়: **{subj_name}** • {chap_name}\n"
+                                        f"{quarter_line}"
+                                        f"👨‍🏫 শিক্ষক: {teacher_name}\n"
+                                        f"🏷️ #{subj_tag} #{chap_tag} #লেকচার_{idx} #Slide_PDF"
+                                    )
+                                    uploaded_pdf_handle = await fast_upload_file_same_session(tg_client, pdf_file)
+                                    sent_doc = await send_with_flood_protection(
+                                        lambda: tg_client.send_file(
+                                            target_entity,
+                                            file=uploaded_pdf_handle,
+                                            caption=slide_caption,
+                                            reply_to=reply_to_msg_id,
+                                        )
+                                    )
+                                    mark_uploaded_dual(
+                                        l_id=slide_key,
+                                        item_type="SLIDE",
+                                        title_str=slide_title,
+                                        scope=dedup_scope,
+                                        msg_id=getattr(sent_doc, "id", 0),
+                                    )
+                                    uploaded_slides_count += 1
+                                    lesson_uploaded_any = True
+                                    log(f"📄 Uploaded slide [{idx}/{total_lessons}]: {slide_title} (topic={lesson_topic_id})")
+                                    await asyncio.sleep(0.8)
+                            except Exception as exc:
+                                if is_session_revoked_error(exc):
+                                    raise
+                                log(f"⚠️ Slide upload warning for {slide_title}: {exc}")
+                            finally:
+                                if pdf_file.exists():
+                                    pdf_file.unlink()
+
+                    if lesson_uploaded_any:
+                        completed_count += 1
                         sync_task_progress(
                             {
                                 "completed_items": completed_count,
                                 "total_items": total_lessons,
-                                "current_item_title": f"[{idx}/{total_lessons}] 📄 স্লাইড আপলোড: {slide_title}",
-                                "status_message": f"লেকচার স্লাইড (PDF) টেলিগ্রামে আপলোড হচ্ছে ({idx}/{total_lessons}): {slide_title}",
+                                "current_item_title": f"✅ [{completed_count}/{total_lessons}] {subj_name} • {lesson_title}",
+                                "status_message": (
+                                    f"আপলোড চলছে: 🎬 {uploaded_videos_count}টি ভিডিও ও 📄 {uploaded_slides_count}টি স্লাইড সম্পন্ন।"
+                                ),
                             }
                         )
-                        pdf_file = WORK_DIR / f"{sanitize_filename(slide_title)}_{idx}_{s_idx}.pdf"
-                        try:
-                            if download_pdf_file(slide_url, pdf_file):
-                                slide_caption = (
-                                    f"📄 **লেকচার স্লাইড: {slide_title}**\n"
-                                    f"🎬 লেকচার #{idx}: {lesson_title}\n"
-                                    f"📘 {subj_name} • {chap_name}\n"
-                                    f"👨‍🏫 শিক্ষক: {teacher_name}"
-                                )
-                                uploaded_pdf_handle = await fast_upload_file_same_session(tg_client, pdf_file)
-                                sent_doc = await send_with_flood_protection(
-                                    lambda: tg_client.send_file(
-                                        target_entity,
-                                        file=uploaded_pdf_handle,
-                                        caption=slide_caption,
-                                        reply_to=reply_to_msg_id,
-                                    )
-                                )
-                                supabase.record_uploaded_item(
-                                    task_id=task_id,
-                                    program_id=program_id,
-                                    subject_code=subject_code,
-                                    chapter_id=chapter_id,
-                                    lesson_id=slide_key,
-                                    item_type="SLIDE",
-                                    title=slide_title,
-                                    chat_id=dedup_scope,
-                                    message_id=getattr(sent_doc, "id", 0),
-                                )
-                                uploaded_slides_count += 1
-                                lesson_uploaded_any = True
-                                log(f"📄 Uploaded slide [{idx}/{total_lessons}]: {slide_title}")
-                                await asyncio.sleep(1.5)
-                        except Exception as exc:
-                            if is_session_revoked_error(exc):
-                                raise
-                            log(f"⚠️ Slide upload warning for {slide_title}: {exc}")
-                        finally:
-                            if pdf_file.exists():
-                                pdf_file.unlink()
+            finally:
+                prefetch_executor.shutdown(wait=False)
+                for _, (pf_file, _) in list(prefetched_futures.items()):
+                    try:
+                        if pf_file.exists():
+                            pf_file.unlink()
+                    except Exception:
+                        pass
 
-                if lesson_uploaded_any:
-                    completed_count += 1
-                    sync_task_progress(
-                        {
-                            "completed_items": completed_count,
-                            "total_items": total_lessons,
-                            "current_item_title": f"✅ [{completed_count}] {lesson_title}",
-                            "status_message": (
-                                f"আপলোড চলছে: 🎬 {uploaded_videos_count}টি ভিডিও ও 📄 {uploaded_slides_count}টি স্লাইড আপলোড হয়েছে।"
-                            ),
-                        }
-                    )
+            if newly_uploaded_keys:
+                gh_bridge.write_state({"uploaded_keys": list(uploaded_keys_set)[-5000:]})
+
+            # Keep forum topics list in GitHub state fresh after creating any new subject topics
+            await fetch_and_sync_telegram_dialogs(tg_client, gh_bridge)
 
             if uploaded_videos_count == 0 and uploaded_slides_count == 0:
                 fail_msg = (
@@ -2403,8 +2874,8 @@ async def execute_task_async(
 
             final_msg = (
                 f"✅ টাস্ক সম্পন্ন! মোট 🎬 {uploaded_videos_count}টি ভিডিও এবং 📄 {uploaded_slides_count}টি লেকচার স্লাইড "
-                f"টেলিগ্রামে{topic_suffix} সফলভাবে আপলোড করা হয়েছে।"
-                + (f" চ্যানেল লিংক: {invite_link}" if invite_link else "")
+                f"টেলিগ্রামে{topic_suffix} সফলভাবে সাজানো হয়েছে।"
+                + (f" লিংক: {invite_link}" if invite_link else "")
             )
             sync_task_progress(
                 {
@@ -2492,6 +2963,15 @@ async def main_async() -> None:
                 merged[k] = unseal_secret(str(v)) if isinstance(v, str) else v
         agent_cfg = merged
 
+    # If a fresh shikho_access_token was passed in task or agent_config, persist it in GitHub state
+    # so 24/7 scheduled cron jobs always have a working token even after syllabus change or logout/login.
+    fresh_shikho_tok = (
+        str((payload.get("task") or {}).get("shikho_access_token") or "").strip()
+        or str(agent_cfg.get("shikho_access_token") or "").strip()
+    )
+    if fresh_shikho_tok and fresh_shikho_tok != str(gh_state.get("shikho_access_token") or "").strip():
+        gh_bridge.write_state({"shikho_access_token": fresh_shikho_tok})
+
     # 0. Check if this run is an interactive in-app Telegram OTP / StringSession or Dialogs sync request
     auth_action = str(payload.get("auth_action") or "").strip().upper()
     if auth_action in ("TELEGRAM_SEND_CODE", "TELEGRAM_SIGN_IN", "TELEGRAM_FETCH_DIALOGS"):
@@ -2523,46 +3003,71 @@ async def main_async() -> None:
     for task in pending_tasks:
         task_device_hash = str(task.get("created_by_device_hash") or device_hash).strip()
         task_cfg = supabase.get_agent_config(device_hash=task_device_hash) if task_device_hash else agent_cfg
+        merged_cfg = dict(agent_cfg)
+        if task_cfg:
+            merged_cfg.update({k: v for k, v in task_cfg.items() if v})
         await execute_task_async(
             task=task,
-            agent_cfg=task_cfg or agent_cfg,
+            agent_cfg=merged_cfg,
             supabase=supabase,
             gh_bridge=gh_bridge,
             payload_b64="",
         )
 
-    # 3. If triggered by hourly schedule cron, also check enabled recurring schedules
-    if os.environ.get("TRIGGER_EVENT") == "schedule":
-        schedules = supabase.fetch_enabled_schedules()
-        for sched in schedules:
-            sched_id = str(sched.get("id") or "")
+    # 3. If triggered by schedule cron (or ALL_PENDING), check enabled recurring schedules from both Supabase AND GitHub state
+    if os.environ.get("TRIGGER_EVENT") == "schedule" or input_task_id == "ALL_PENDING":
+        supa_schedules = supabase.fetch_enabled_schedules()
+        gh_schedules_raw = gh_state.get("schedules") if isinstance(gh_state, dict) else []
+        gh_schedules = [
+            s for s in (gh_schedules_raw if isinstance(gh_schedules_raw, list) else [])
+            if isinstance(s, dict) and s.get("is_enabled", True)
+        ]
+        by_id: Dict[str, Dict[str, Any]] = {}
+        for s in gh_schedules + supa_schedules:
+            sid = str(s.get("id") or s.get("program_id") or "")
+            if sid:
+                by_id[sid] = s
+
+        for sched_id, sched in by_id.items():
+            if not sched.get("is_enabled", True):
+                continue
             sched_device_hash = str(sched.get("created_by_device_hash") or device_hash).strip()
             sched_cfg = supabase.get_agent_config(device_hash=sched_device_hash) if sched_device_hash else agent_cfg
+            merged_cfg = dict(agent_cfg)
+            if sched_cfg:
+                merged_cfg.update({k: v for k, v in sched_cfg.items() if v})
+
+            target_chat = str(sched.get("target_chat_id") or "").strip()
             synthetic_task = {
                 "id": f"sched_run_{sched_id}_{int(time.time())}",
-                "title": sched.get("title") or "দৈনিক রুটিন সিঙ্ক",
+                "title": sched.get("title") or "দৈনিক ২৪/৭ রুটিন সিঙ্ক",
                 "task_type": "COURSE_TELEGRAM_UPLOAD",
                 "program_id": sched.get("program_id") or "",
-                "program_title": sched.get("program_title") or "",
+                "program_title": sched.get("program_title") or sched.get("title") or "",
                 "phase_id": sched.get("phase_id") or "",
                 "subject_code": sched.get("subject_code") or "",
-                "target_chat_id": sched.get("target_chat_id") or "",
-                "target_channel_title": sched.get("target_channel_title") or "",
+                "target_chat_id": target_chat,
+                "target_channel_title": sched.get("target_channel_title") or sched.get("program_title") or "",
+                "create_new_channel": not bool(target_chat),
+                "use_forum_topics": sched.get("use_forum_topics", True),
+                "video_quality": sched.get("video_quality") or "720p",
                 "include_videos": sched.get("include_videos", True),
                 "include_slides": sched.get("include_slides", True),
             }
             if synthetic_task["program_id"]:
+                log(f"⏰ Running 24/7 Scheduled Routine '{synthetic_task['title']}' for program_id={synthetic_task['program_id']}...")
                 await execute_task_async(
                     task=synthetic_task,
-                    agent_cfg=sched_cfg or agent_cfg,
+                    agent_cfg=merged_cfg,
                     supabase=supabase,
                     gh_bridge=gh_bridge,
                     payload_b64="",
                 )
+                now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 supabase.update_schedule(
                     sched_id,
                     {
-                        "last_run_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "last_run_at": now_iso,
                         "last_run_status": "সফলভাবে সিঙ্ক সম্পন্ন ✅",
                     },
                 )
@@ -2570,3 +3075,4 @@ async def main_async() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+

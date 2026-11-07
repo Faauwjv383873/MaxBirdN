@@ -655,12 +655,17 @@ class AiAgentViewModel(
                     CRITICAL BEHAVIOR RULES:
                     1. PLAY VIDEO / OPEN SLIDES (`action_type = "PLAY_VIDEO"`):
                        - If the user asks to play a video, watch a class, or find a specific lecture (e.g. "অমুক ভিডিওটা প্লে করে দাও", "ডেটাবেজ ম্যানেজমেন্ট ক্লাসটা চালাও", "বাংলা ১ম ক্লাস প্লে করো"), choose `PLAY_VIDEO`, set `video_search_query` to the topic/lesson keywords, and set `auto_play_video = true` if they asked to play it now.
-                    2. ASK PERMISSION BEFORE UPLOADING (`action_type = "ASK_CONFIRMATION"` or `"PROPOSE_PLAN"`):
-                       - When the user says they want to upload videos/slides to a group or channel (or names a specific group/channel like "POWER PLAY 27 গ্রুপে আইসিটি ভিডিও আপলোড করব"), you MUST first match their group/channel from the Synced Telegram Channels list (`target_chat_id`, `target_channel_title`, `target_topic_id`), format a neat ```text ... ``` summary block showing the Course, Quarter, Subject, Video/Slide count, and Target Group/Channel, and politely ASK the user for confirmation: "আপনি কি এই গ্রুপে/চ্যানেলে আপলোড শুরু করার অনুমতি দিচ্ছেন?"
-                       - Set `create_new_channel = false` if you matched an existing `target_chat_id` from their Telegram dialogs, or `true` if creating a brand new channel.
-                    3. IMMEDIATE UPLOAD (`action_type = "START_UPLOAD_TASK"`):
-                       - Only choose `START_UPLOAD_TASK` if the user explicitly confirms permission or explicitly says "এখনই আপলোড শুরু করো / অনুমতি দিলাম".
-                    4. SHOW CHANNELS (`action_type = "SHOW_CHANNELS"`):
+                    2. PUBLIC GROUP WITH FORUM TOPICS (`use_forum_topics = true`):
+                       - When the user asks to create a "গ্রুপ", "পাবলিক গ্রুপ", "সুপারগ্রুপ" or mentions creating a "টপিক" (e.g. "পাবলিক গ্রুপ তৈরি করে তার মধ্যে বাংলা ১ম পত্র নামে একটি টপিক তৈরি করে আপলোড করো"):
+                         You MUST set `use_forum_topics = true` and `create_new_channel = true`!
+                         Also set `target_topic_title` to the subject or topic title requested by the user (e.g. "বাংলা ১ম পত্র")!
+                    3. ASK PERMISSION BEFORE UPLOADING (`action_type = "ASK_CONFIRMATION"` or `"PROPOSE_PLAN"`):
+                       - Format a neat ```text ... ``` summary block showing the Course, Quarter, Subject, Video/Slide count, Target Group/Channel name, whether it's a Supergroup with Topics, and the Topic Name, and politely ask: "আপনি কি এই গ্রুপে/টপিকে আপলোড শুরু করার অনুমতি দিচ্ছেন?"
+                    4. IMMEDIATE UPLOAD (`action_type = "START_UPLOAD_TASK"`):
+                       - Only choose `START_UPLOAD_TASK` if the user explicitly confirms permission or says "এখনই আপলোড শুরু করো / অনুমতি দিলাম".
+                    5. 24/7 RECURRING SCHEDULE (`action_type = "CREATE_SCHEDULE"`):
+                       - If the user asks for automated recurring uploads at a specific time (e.g. "প্রতিদিন রাত ১টায় নতুন ক্লাস আপলোড করার রুটিন সেট করো", "সারাজীবন চেক করে নতুন ক্লাস আপলোড করবে"), choose `CREATE_SCHEDULE`, set `schedule_time_bn` to their chosen time (e.g. "প্রতিদিন রাত ০১:০০"), and compute the UTC `cron_expression` (e.g. 1:00 AM BD is 19:00 UTC previous day -> "0 19 * * *").
+                    6. SHOW CHANNELS (`action_type = "SHOW_CHANNELS"`):
                        - If the user asks to see their connected Telegram groups, channels, or topics, choose `SHOW_CHANNELS`.
 
                     Recent Conversation History:
@@ -703,10 +708,13 @@ class AiAgentViewModel(
                 val finalPhaseId = matchedQuarter?.phaseId ?: state.selectedPhaseId
                 val finalPhaseTitle = matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle
 
-                val matchedSubject = inspection?.subjectBreakdown?.firstOrNull {
-                    (subjCode.isNotBlank() && it.subjectCode.equals(subjCode, ignoreCase = true)) ||
-                        (subjTitle.isNotBlank() && it.subjectTitle.contains(subjTitle, ignoreCase = true))
-                }
+                val matchedSubject = matchSubjectFromPromptOrHint(
+                    userPrompt = cleanPrompt,
+                    hintCode = subjCode,
+                    hintTitle = subjTitle,
+                    breakdown = inspection?.subjectBreakdown.orEmpty(),
+                    fallbackSelectedCode = state.selectedSubjectCode
+                )
 
                 // Match existing Telegram channel/group if user mentioned one
                 val reqChatId = json.optString("target_chat_id", "").trim()
@@ -722,18 +730,75 @@ class AiAgentViewModel(
                         (t.title.length >= 3 && cleanPrompt.contains(t.title, ignoreCase = true))
                 }
 
-                val finalChatId = matchedDialog?.id ?: reqChatId.ifBlank { state.telegramConfig.defaultChatId }
-                val finalChannelTitle = matchedDialog?.title ?: reqChannelTitle.ifBlank {
-                    if (matchedSubject != null) "${state.selectedProgramTitle} — ${matchedSubject.subjectTitle}"
-                    else state.selectedProgramTitle
+                val promptLower = cleanPrompt.lowercase()
+                val promptWantsGroup = promptLower.contains("গ্রুপ") ||
+                    promptLower.contains("গুরুপ") ||
+                    promptLower.contains("পাবলিক") ||
+                    promptLower.contains("সুপারগ্রুপ") ||
+                    promptLower.contains("group")
+                val promptWantsTopic = promptLower.contains("টপিক") ||
+                    promptLower.contains("topic") ||
+                    promptLower.contains("সাবজেক্ট ওয়াইজ") ||
+                    promptLower.contains("সাবজেক্ট টপিক")
+                val promptWantsLifetimeSync = promptLower.contains("প্রতিদিন") ||
+                    promptLower.contains("রুটিন") ||
+                    promptLower.contains("সারাজীবন") ||
+                    promptLower.contains("নতুন ক্লাস") ||
+                    promptLower.contains("রাত ১") ||
+                    promptLower.contains("রাত 1") ||
+                    promptLower.contains("২৪/৭") ||
+                    promptLower.contains("24/7")
+
+                val useTopics = json.optBoolean("use_forum_topics", false) ||
+                    promptWantsGroup ||
+                    promptWantsTopic ||
+                    matchedDialog?.isForum == true
+
+                val finalChatId = if (promptWantsGroup && promptLower.contains("নতুন")) {
+                    ""
+                } else {
+                    matchedDialog?.id ?: reqChatId.ifBlank { state.telegramConfig.defaultChatId }
                 }
-                val createNewChan = if (matchedDialog != null) false else json.optBoolean("create_new_channel", finalChatId.isBlank())
+                val createNewChan = if (promptWantsGroup && promptLower.contains("নতুন")) {
+                    true
+                } else if (matchedDialog != null) {
+                    false
+                } else {
+                    json.optBoolean("create_new_channel", finalChatId.isBlank())
+                }
+
+                // When creating a Forum Supergroup (`useTopics = true`), the Group name is the Course Title,
+                // and the Subject is the Forum Topic inside it!
+                val finalChannelTitle = matchedDialog?.title ?: run {
+                    if (useTopics) {
+                        state.selectedProgramTitle
+                    } else if (reqChannelTitle.isNotBlank()) {
+                        reqChannelTitle
+                    } else if (matchedSubject != null) {
+                        "${state.selectedProgramTitle} — ${matchedSubject.subjectTitle}"
+                    } else {
+                        state.selectedProgramTitle
+                    }
+                }
+
                 val quality = json.optString("video_quality", "720p")
                 val incVideos = json.optBoolean("include_videos", true)
                 val incSlides = json.optBoolean("include_slides", true)
-                val useTopics = json.optBoolean("use_forum_topics", false)
-                val schedTimeBn = json.optString("schedule_time_bn", "প্রতিদিন সকাল ০৮:০০")
-                val cronExpr = json.optString("cron_expression", "0 2 * * *")
+                val targetTopicName = matchedTopic?.title
+                    ?: matchedSubject?.subjectTitle?.takeIf { useTopics }
+                    ?: json.optString("target_topic_title", "").trim()
+
+                val (parsedTimeBn, parsedCron) = parseBengaliScheduleTime(cleanPrompt)
+                val schedTimeBn = if (promptWantsLifetimeSync || actionType == "CREATE_SCHEDULE") {
+                    parsedTimeBn
+                } else {
+                    json.optString("schedule_time_bn", parsedTimeBn).ifBlank { parsedTimeBn }
+                }
+                val cronExpr = if (promptWantsLifetimeSync || actionType == "CREATE_SCHEDULE") {
+                    parsedCron
+                } else {
+                    json.optString("cron_expression", parsedCron).ifBlank { parsedCron }
+                }
 
                 // Handle PLAY_VIDEO action: find matching lessons and resolve the top lesson's stream URL!
                 val playableMatches: List<AgentPlayableLesson> = if (actionType == "PLAY_VIDEO") {
@@ -763,12 +828,13 @@ class AiAgentViewModel(
                         targetChannelTitle = finalChannelTitle.ifBlank { state.selectedProgramTitle },
                         targetChatId = finalChatId,
                         targetTopicId = matchedTopic?.id ?: json.optInt("target_topic_id", 0),
-                        targetTopicTitle = matchedTopic?.title ?: json.optString("target_topic_title", ""),
+                        targetTopicTitle = targetTopicName,
                         videoQuality = quality,
                         includeVideos = incVideos,
                         includeSlides = incSlides,
                         createNewChannel = createNewChan,
                         useForumTopics = useTopics,
+                        enableLifetimeSync = promptWantsLifetimeSync || actionType == "CREATE_SCHEDULE",
                         scheduleTimeBn = schedTimeBn,
                         cronExpression = cronExpr,
                         estimatedVideos = matchedSubject?.videosCount ?: (inspection?.videoLessonsCount ?: 0),
@@ -813,6 +879,171 @@ class AiAgentViewModel(
         }
     }
 
+    private fun normalizeSubjectTextForMatching(text: String): String {
+        return text.lowercase()
+            .replace("1", "১")
+            .replace("2", "২")
+            .replace("প্রথম", "১ম")
+            .replace("দ্বিতীয়", "২য়")
+            .replace("দ্বিতীয়", "২য়")
+            .replace("পএ", "পত্র")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun matchSubjectFromPromptOrHint(
+        userPrompt: String,
+        hintCode: String,
+        hintTitle: String,
+        breakdown: List<SubjectInspectionItem>,
+        fallbackSelectedCode: String
+    ): SubjectInspectionItem? {
+        if (breakdown.isEmpty()) return null
+        val normPrompt = normalizeSubjectTextForMatching(userPrompt)
+        val normHint = normalizeSubjectTextForMatching(hintTitle)
+
+        // 1. Direct code match
+        if (hintCode.isNotBlank()) {
+            breakdown.firstOrNull { it.subjectCode.equals(hintCode, ignoreCase = true) }?.let { return it }
+        }
+        // 2. Normalized title match from prompt or hint
+        breakdown.firstOrNull { sub ->
+            val normSub = normalizeSubjectTextForMatching(sub.subjectTitle)
+            (normHint.isNotBlank() && (normSub.contains(normHint) || normHint.contains(normSub))) ||
+                (normSub.isNotBlank() && normPrompt.contains(normSub))
+        }?.let { return it }
+
+        // 3. Keyword + paper number match (e.g. "বাংলা 1 ম পএ" -> "বাংলা ১ম পত্র")
+        val wantsSecondPaper = normPrompt.contains("২য়") || normPrompt.contains("2য়") || normPrompt.contains("second")
+        val wantsFirstPaper = normPrompt.contains("১ম") || normPrompt.contains("1ম") || normPrompt.contains("first")
+
+        val subjectKeywords = listOf(
+            "বাংলা" to listOf("বাংলা", "bangla"),
+            "ইংরেজি" to listOf("ইংরেজি", "english"),
+            "তথ্য" to listOf("আইসিটি", "ict", "তথ্য", "ডেটাবেজ"),
+            "ইতিহাস" to listOf("ইতিহাস", "history"),
+            "অর্থনীতি" to listOf("অর্থনীতি", "economics"),
+            "পৌরনীতি" to listOf("পৌরনীতি", "civics"),
+            "যুক্তিবিদ্যা" to listOf("যুক্তিবিদ্যা", "logic"),
+            "সমাজবিজ্ঞান" to listOf("সমাজবিজ্ঞান", "sociology"),
+            "সমাজকর্ম" to listOf("সমাজকর্ম", "social work"),
+            "ভূগোল" to listOf("ভূগোল", "geography"),
+            "ইসলাম" to listOf("ইসলাম", "islam"),
+            "পদার্থ" to listOf("পদার্থ", "physics"),
+            "রসায়ন" to listOf("রসায়ন", "রসায়ন", "chemistry"),
+            "জীববিজ্ঞান" to listOf("জীববিজ্ঞান", "বায়োলজি", "biology"),
+            "গণিত" to listOf("উচ্চতর গণিত", "গণিত", "math")
+        )
+
+        for ((subPrefix, triggers) in subjectKeywords) {
+            if (triggers.any { normPrompt.contains(it) || normHint.contains(it) }) {
+                val candidates = breakdown.filter { normalizeSubjectTextForMatching(it.subjectTitle).contains(subPrefix) }
+                if (candidates.isNotEmpty()) {
+                    if (wantsSecondPaper) {
+                        candidates.firstOrNull { normalizeSubjectTextForMatching(it.subjectTitle).contains("২য়") }?.let { return it }
+                    }
+                    if (wantsFirstPaper) {
+                        candidates.firstOrNull { normalizeSubjectTextForMatching(it.subjectTitle).contains("১ম") }?.let { return it }
+                    }
+                    return candidates.first()
+                }
+            }
+        }
+
+        // 4. Fallback to selected subject chip in UI
+        if (fallbackSelectedCode.isNotBlank()) {
+            return breakdown.firstOrNull { it.subjectCode.equals(fallbackSelectedCode, ignoreCase = true) }
+        }
+        return null
+    }
+
+    /**
+     * Parses any Bengali or English time from the prompt (e.g. "রাত ১ টা", "রাত 1 টা", "রাত ২ টা", "সকাল ৮ টা")
+     * and returns `(timeDisplayBn, utcCronExpression)`. Defaults to "প্রতিদিন রাত ০১:০০ (1:00 AM)" -> "0 19 * * *".
+     */
+    fun parseBengaliScheduleTime(prompt: String): Pair<String, String> {
+        val bnToEnDigits = mapOf(
+            '০' to '0', '১' to '1', '২' to '2', '৩' to '3', '৪' to '4',
+            '৫' to '5', '৬' to '6', '৭' to '7', '৮' to '8', '৯' to '9'
+        )
+        val asciiPrompt = buildString {
+            for (ch in prompt) {
+                append(bnToEnDigits[ch] ?: ch)
+            }
+        }.lowercase()
+
+        val regex = Regex("(রাত|সকাল|দুপুর|বিকাল|বিকেল|সন্ধ্যা)?\\s*(\\d{1,2})(?:[:.](\\d{1,2}))?\\s*(টা|টায়|টায়|am|pm)?")
+        val match = regex.findAll(asciiPrompt).firstOrNull { m ->
+            val period = m.groupValues[1]
+            val suffix = m.groupValues[4]
+            period.isNotBlank() || suffix.isNotBlank()
+        }
+
+        var bdHour24 = 1 // Default: 1:00 AM (রাত ১:০০ টা)
+        var minute = 0
+        var periodLabel = "রাত"
+
+        if (match != null) {
+            val period = match.groupValues[1]
+            val rawHour = match.groupValues[2].toIntOrNull()?.coerceIn(0, 23) ?: 1
+            minute = match.groupValues[3].toIntOrNull()?.coerceIn(0, 59) ?: 0
+            val suffix = match.groupValues[4]
+
+            when {
+                period == "রাত" -> {
+                    periodLabel = "রাত"
+                    bdHour24 = when {
+                        rawHour == 12 -> 0
+                        rawHour in 1..6 -> rawHour
+                        rawHour in 7..11 -> rawHour + 12
+                        else -> rawHour
+                    }
+                }
+                period == "সকাল" -> {
+                    periodLabel = "সকাল"
+                    bdHour24 = if (rawHour == 12) 0 else rawHour
+                }
+                period == "দুপুর" -> {
+                    periodLabel = "দুপুর"
+                    bdHour24 = if (rawHour < 12) rawHour + 12 else rawHour
+                }
+                period == "বিকাল" || period == "বিকেল" -> {
+                    periodLabel = "বিকাল"
+                    bdHour24 = if (rawHour < 12) rawHour + 12 else rawHour
+                }
+                period == "সন্ধ্যা" -> {
+                    periodLabel = "সন্ধ্যা"
+                    bdHour24 = if (rawHour < 12) rawHour + 12 else rawHour
+                }
+                suffix == "pm" -> {
+                    periodLabel = if (rawHour in 6..11) "রাত" else "বিকাল"
+                    bdHour24 = if (rawHour < 12) rawHour + 12 else rawHour
+                }
+                suffix == "am" -> {
+                    periodLabel = if (rawHour in 1..5 || rawHour == 12) "রাত" else "সকাল"
+                    bdHour24 = if (rawHour == 12) 0 else rawHour
+                }
+            }
+        }
+
+        val utcHour = (bdHour24 - 6 + 24) % 24
+        val cron = "$minute $utcHour * * *"
+        val hour12 = when {
+            bdHour24 == 0 -> 12
+            bdHour24 > 12 -> bdHour24 - 12
+            else -> bdHour24
+        }
+        val enToBnDigits = mapOf(
+            '0' to '০', '1' to '১', '2' to '২', '3' to '৩', '4' to '৪',
+            '5' to '৫', '6' to '৬', '7' to '৭', '8' to '৮', '9' to '৯'
+        )
+        val timeStrEn = String.format("%02d:%02d", hour12, minute)
+        val timeStrBn = timeStrEn.map { enToBnDigits[it] ?: it }.joinToString("")
+        val amPm = if (bdHour24 < 12) "AM" else "PM"
+        val displayBn = "প্রতিদিন $periodLabel $timeStrBn ($hour12:${String.format("%02d", minute)} $amPm)"
+        return Pair(displayBn, cron)
+    }
+
     /**
      * Smart Decision Engine when offline or fallback.
      */
@@ -842,25 +1073,13 @@ class AiAgentViewModel(
                 (p.contains("quarter 2") && (q.phaseTitle.contains("2") || q.phaseTitle.contains("২")))
         }
 
-        val matchedSub = inspection?.subjectBreakdown?.firstOrNull { sub ->
-            val t = sub.subjectTitle.lowercase()
-            val c = sub.subjectCode.lowercase()
-            (t.isNotBlank() && p.contains(t)) ||
-                (c.isNotBlank() && c != "gen" && p.contains(c)) ||
-                (t.contains("বাংলা") && p.contains("বাংলা")) ||
-                (t.contains("ইংরেজি") && (p.contains("ইংরেজি") || p.contains("english"))) ||
-                (t.contains("তথ্য") && (p.contains("আইসিটি") || p.contains("ict") || p.contains("ডেটাবেজ"))) ||
-                (t.contains("ইতিহাস") && p.contains("ইতিহাস")) ||
-                (t.contains("অর্থনীতি") && p.contains("অর্থনীতি")) ||
-                (t.contains("পৌরনীতি") && p.contains("পৌরনীতি")) ||
-                (t.contains("যুক্তিবিদ্যা") && p.contains("যুক্তিবিদ্যা")) ||
-                (t.contains("সমাজবিজ্ঞান") && p.contains("সমাজবিজ্ঞান")) ||
-                (t.contains("সমাজকর্ম") && p.contains("সমাজকর্ম")) ||
-                (t.contains("ভূগোল") && p.contains("ভূগোল")) ||
-                (t.contains("ইসলাম") && p.contains("ইসলাম"))
-        } ?: inspection?.subjectBreakdown?.firstOrNull {
-            state.selectedSubjectCode.isNotBlank() && it.subjectCode == state.selectedSubjectCode
-        }
+        val matchedSub = matchSubjectFromPromptOrHint(
+            userPrompt = userPrompt,
+            hintCode = "",
+            hintTitle = "",
+            breakdown = inspection?.subjectBreakdown.orEmpty(),
+            fallbackSelectedCode = state.selectedSubjectCode
+        )
 
         val matchedDialog = state.telegramConfig.dialogs.firstOrNull { d ->
             d.title.length >= 3 && p.contains(d.title.lowercase())
@@ -881,22 +1100,24 @@ class AiAgentViewModel(
         val onlySlide = p.contains("শুধু স্লাইড") || p.contains("শুধু পিডিএফ") || p.contains("ভিডিও বাদে")
         val incVideos = !onlySlide
         val incSlides = !onlyVideo
-        val useForum = p.contains("গ্রুপ") || p.contains("টপিক") || p.contains("group")
+        val useForum = p.contains("গ্রুপ") || p.contains("গুরুপ") || p.contains("পাবলিক") || p.contains("টপিক") || p.contains("group") || p.contains("topic")
+        val (schedTimeBn, cronExpr) = parseBengaliScheduleTime(userPrompt)
 
-        val isShowChannels = (p.contains("চ্যানেল") || p.contains("গ্রুপ")) &&
+        val isShowChannels = (p.contains("চ্যানেল") || p.contains("গ্রুপ") || p.contains("গুরুপ")) &&
             (p.contains("তালিকা") || p.contains("দেখাও") || p.contains("কি কি আছে") || p.contains("লিস্ট")) &&
             !p.contains("আপলোড")
 
-        val isScheduleCmd = (p.contains("রুটিন") || p.contains("প্রতিদিন") || p.contains("সকাল") || p.contains("রাত") || p.contains("schedule")) &&
-            (p.contains("চালু") || p.contains("করো") || p.contains("সেট") || p.contains("অটো"))
+        val isScheduleCmd = (p.contains("রুটিন") || p.contains("প্রতিদিন") || p.contains("সারাজীবন") || p.contains("রাত ১") || p.contains("রাত 1") || p.contains("schedule")) &&
+            (p.contains("চালু") || p.contains("করো") || p.contains("সেট") || p.contains("অটো") || p.contains("আপলোড"))
 
-        val isCreateChannelOnly = (p.contains("চ্যানেল তৈরি") || p.contains("চ্যানেল খোল") || p.contains("গ্রুপ তৈরি") || p.contains("গ্রুপ খোল")) &&
-            !p.contains("আপলোড") && !p.contains("ভিডিও")
+        val isCreateChannelOnly = (p.contains("চ্যানেল তৈরি") || p.contains("চ্যানেল খোল") || p.contains("গ্রুপ তৈরি") || p.contains("গুরুপ তৈরি")) &&
+            !p.contains("আপলোড") && !p.contains("ভিডিও") && !p.contains("ক্লাস")
 
         val isUploadMention = p.contains("আপলোড") || p.contains("টেলিগ্রাম") || p.contains("পাঠাও") ||
             p.contains("পাঠান") || p.contains("প্ল্যান") || p.contains("upload") || matchedSub != null || matchedDialog != null
 
-        val channelTitle = matchedDialog?.title ?: if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else courseTitle
+        val channelTitle = matchedDialog?.title ?: if (useForum) courseTitle else if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else courseTitle
+        val topicTitle = if (useForum && subjTitle.isNotBlank()) subjTitle else ""
         val quartersSummary = inspection?.quarters?.joinToString("\n") { q ->
             "• ${q.phaseTitle}: ${q.videosCount}টি ভিডিও, ${q.slidesCount}টি স্লাইড"
         }?.ifBlank { "• সকল লেকচার প্রস্তুত" } ?: "• সকল লেকচার প্রস্তুত"
@@ -946,44 +1167,50 @@ class AiAgentViewModel(
             }
             isCreateChannelOnly -> {
                 actionType = "CREATE_TELEGRAM_CHANNEL"
-                taskTitle = "$channelTitle — নতুন চ্যানেল তৈরি"
+                taskTitle = "$channelTitle — নতুন ${if (useForum) "পাবলিক গ্রুপ" else "চ্যানেল"} তৈরি"
                 replyBn = "```text\n" +
-                    "অ্যাকশন : নতুন টেলিগ্রাম ${if (useForum) "সুপারগ্রুপ" else "চ্যানেল"} তৈরি\n" +
+                    "অ্যাকশন : নতুন টেলিগ্রাম ${if (useForum) "পাবলিক ফোরাম গ্রুপ (টপিকসহ)" else "চ্যানেল"} তৈরি\n" +
                     "নাম     : $channelTitle\n" +
                     "```\n" +
                     "বস, আপনার নির্দেশ অনুযায়ী **$channelTitle** তৈরি করার কাজ এখনই GitHub Actions-এ পাঠিয়ে দিচ্ছি! 🚀"
             }
             isScheduleCmd -> {
                 actionType = "CREATE_SCHEDULE"
-                taskTitle = "$channelTitle — ২৪/৭ অটো রুটিন"
+                taskTitle = "$courseTitle — ২৪/৭ লাইফটাইম অটো-সিঙ্ক"
                 replyBn = "```text\n" +
-                    "রুটিন   : ২৪/৭ অটোমেটিক ক্লাস সিঙ্ক\n" +
-                    "কোর্স    : $courseTitle\n" +
+                    "রুটিন   : ২৪/৭ লাইফটাইম অটোমেটিক ক্লাস সিঙ্ক (সাবজেক্ট টপিক ওয়াইজ)\n" +
+                    "কোর্স    : $courseTitle (সকল কোয়ার্টার)\n" +
                     "গন্তব্য  : $channelTitle\n" +
-                    "সময়     : প্রতিদিন সকাল ০৮:০০\n" +
+                    "সময়     : $schedTimeBn\n" +
                     "```\n" +
-                    "⏰ বস, আপনার জন্য **২৪/৭ অটোমেটিক রুটিন** চালু করে দিচ্ছি!"
+                    "⏰ বস, আপনার জন্য **$courseTitle**-এর সম্পূর্ণ কোর্স আপলোড ও প্রতিদিন **$schedTimeBn** সময়ে ২৪/৭ অটোমেটিক রুটিন চালু করে দিচ্ছি!"
             }
             isUploadMention -> {
                 actionType = "ASK_CONFIRMATION"
-                taskTitle = "$channelTitle — টেলিগ্রাম আপলোড"
+                taskTitle = if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else "$courseTitle — সম্পূর্ণ কোর্স আপলোড"
                 val targetDesc = if (matchedDialog != null) {
                     "নির্বাচিত গ্রুপ/চ্যানেল: ${matchedDialog.title} (ID: ${matchedDialog.id})"
+                } else if (useForum) {
+                    "নতুন পাবলিক ফোরাম গ্রুপ: $channelTitle"
                 } else {
                     "নতুন চ্যানেল তৈরি হবে: $channelTitle"
                 }
+                val topicDesc = if (useForum) {
+                    topicTitle.ifBlank { "সাবজেক্ট অনুযায়ী অটো টপিক তৈরি হবে" }
+                } else "সাধারণ চ্যানেল"
                 replyBn = "বস, আমি আপনার নির্দেশনা অনুযায়ী আপলোড প্ল্যানটি কোডিং করে সুন্দরভাবে সাজিয়ে নিয়েছি:\n\n" +
                     "```text\n" +
                     "📚 কোর্স        : $courseTitle\n" +
                     "🗂️ কোয়ার্টার    : ${matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle}\n" +
-                    "📖 বিষয়        : ${subjTitle.ifBlank { "সকল বিষয়" }}\n" +
+                    "📖 বিষয়        : ${subjTitle.ifBlank { "সকল বিষয় (সাবজেক্ট টপিক ওয়াইজ)" }}\n" +
+                    "📌 ফোরাম টপিক   : $topicDesc\n" +
                     "🎬 মোট ভিডিও   : ${targetVideos}টি ($quality)\n" +
                     "📄 লেকচার স্লাইড: ${targetSlides}টি (PDF)\n" +
                     "🎯 গন্তব্য      : $targetDesc\n" +
-                    "⚡ স্পিড ইঞ্জিন : ৩২-থ্রেড ডাউনলোড + ৮-লেন টেলিগ্রাম আপলোড (১-২ মিনিট/ভিডিও)\n" +
+                    "⚡ স্পিড ইঞ্জিন : ৪৮-থ্রেড প্রি-ফেচ + ১৬-লেন টেলিগ্রাম আপলোড\n" +
                     "```\n\n" +
-                    "❓ **আপনি কি এই গ্রুপে/চ্যানেলে আপলোড শুরু করার অনুমতি দিচ্ছেন?**\n" +
-                    "নিচে থেকে চ্যানেল/গ্রুপ বা টপিক সিলেক্ট করে **'হ্যাঁ, অনুমতি দিলাম'** বাটনে চাপুন অথবা চ্যাটে **'হ্যাঁ'** লিখুন!"
+                    "❓ **আপনি কি এই গ্রুপে/টপিকে আপলোড শুরু করার অনুমতি দিচ্ছেন?**\n" +
+                    "নিচে থেকে গ্রুপ/টপিক বা ২৪/৭ রুটিন টাইম সিলেক্ট করে **'হ্যাঁ, অনুমতি দিলাম'** বাটনে চাপুন!"
             }
             else -> {
                 actionType = "DISCUSS"
@@ -995,8 +1222,8 @@ class AiAgentViewModel(
                     "মোট ভিডিও: ${totalVideos}টি | মোট স্লাইড: ${totalSlides}টি\n" +
                     "```\n\n" +
                     "আপনি আমাকে বলতে পারেন:\n" +
-                    "• *\"ডেটাবেজ ম্যানেজমেন্ট পর্ব ১ ভিডিওটা প্লে করে দাও\"*\n" +
-                    "• *\"কোয়ার্টার ২-এর সব আইসিটি ক্লাস অমুক গ্রুপে আপলোড করো\"*"
+                    "• *\"নতুন পাবলিক গ্রুপ তৈরি করে বাংলা ১ম পত্র নামে টপিক খুলে সব ক্লাস ও স্লাইড পরপর আপলোড করো\"*\n" +
+                    "• *\"এই কোর্সের সব কোয়ার্টার সাবজেক্ট টপিক ওয়াইজ আপলোড করো এবং প্রতিদিন রাত ১টায় অটো সিঙ্ক চালু রাখো\"*"
             }
         }
 
@@ -1012,13 +1239,14 @@ class AiAgentViewModel(
             put("auto_play_video", true)
             put("target_channel_title", channelTitle)
             put("target_chat_id", matchedDialog?.id ?: "")
+            put("target_topic_title", topicTitle)
             put("video_quality", quality)
             put("include_videos", incVideos)
             put("include_slides", incSlides)
             put("create_new_channel", matchedDialog == null)
             put("use_forum_topics", useForum)
-            put("schedule_time_bn", "প্রতিদিন সকাল ০৮:০০")
-            put("cron_expression", "0 2 * * *")
+            put("schedule_time_bn", schedTimeBn)
+            put("cron_expression", cronExpr)
         }
     }
 
@@ -1060,17 +1288,85 @@ class AiAgentViewModel(
             chapterId = lesson.chapterId,
             chapterTitle = lesson.chapterTitle,
             specificLessonIds = listOf(lesson.id),
-            targetChannelTitle = targetChannelTitle.ifBlank { lesson.subjectTitle },
+            targetChannelTitle = targetChannelTitle.ifBlank { _uiState.value.selectedProgramTitle.ifBlank { lesson.subjectTitle } },
             targetChatId = if (createNewChannel) "" else targetChatId,
             targetTopicId = targetTopicId,
-            targetTopicTitle = targetTopicTitle,
+            targetTopicTitle = targetTopicTitle.ifBlank { if (createNewChannel) lesson.subjectTitle else "" },
             videoQuality = "720p",
             includeVideos = true,
             includeSlides = true,
             createNewChannel = createNewChannel,
-            useForumTopics = false,
+            useForumTopics = createNewChannel || targetTopicId > 0 || targetTopicTitle.isNotBlank(),
             estimatedVideos = 1,
             estimatedSlides = 1
+        )
+        executeProposedPlan(plan)
+    }
+
+    /**
+     * One-click helper to start a Full-Course Subject-Topic-Wise Upload across all quarters (1 to 5+)
+     * AND configure a permanent 24/7 Daily Routine at the user's chosen time (e.g. রাত ০১:০০ টা).
+     * Works forever even if the user later switches syllabus (HSC 27 -> HSC 28 / SSC) or logs out/in!
+     */
+    fun createCourseLifetimeSyncRoutine(
+        programId: String = _uiState.value.selectedProgramId,
+        programTitle: String = _uiState.value.selectedProgramTitle,
+        targetChatId: String = "",
+        targetChannelTitle: String = "",
+        timeDisplayBn: String = "প্রতিদিন রাত ০১:০০ (1:00 AM)",
+        cronExpression: String = "0 19 * * *",
+        videoQuality: String = "720p",
+        startImmediateFullUpload: Boolean = true
+    ) {
+        val cleanProgId = programId.ifBlank { _uiState.value.selectedProgramId }
+        val cleanProgTitle = programTitle.ifBlank { _uiState.value.selectedProgramTitle.ifBlank { "সক্রিয় কোর্স" } }
+        if (cleanProgId.isBlank()) {
+            _uiState.update { it.copy(statusBannerMessage = "⚠️ অনুগ্রহ করে আগে একটি কোর্স সিলেক্ট করুন।") }
+            return
+        }
+        val plan = ProposedAgentPlan(
+            actionType = if (startImmediateFullUpload) "START_UPLOAD_TASK" else "CREATE_SCHEDULE",
+            taskTitle = "$cleanProgTitle — সম্পূর্ণ কোর্স ও ২৪/৭ অটো-সিঙ্ক",
+            programId = cleanProgId,
+            programTitle = cleanProgTitle,
+            phaseId = "", // All Quarters (1 -> 2 -> 3 -> 4 -> 5)
+            phaseTitle = "সব কোয়ার্টার",
+            subjectCode = "", // All Subjects (Subject-Topic-Wise)
+            subjectTitle = "",
+            targetChannelTitle = targetChannelTitle.ifBlank { cleanProgTitle },
+            targetChatId = targetChatId,
+            targetTopicId = 0,
+            targetTopicTitle = "",
+            videoQuality = videoQuality,
+            includeVideos = true,
+            includeSlides = true,
+            createNewChannel = targetChatId.isBlank(),
+            useForumTopics = true,
+            enableLifetimeSync = true,
+            scheduleTimeBn = timeDisplayBn,
+            cronExpression = cronExpression,
+            estimatedVideos = _uiState.value.activeInspection?.videoLessonsCount ?: 50,
+            estimatedSlides = _uiState.value.activeInspection?.slideAttachmentsCount ?: 50
+        )
+        executeProposedPlan(plan)
+    }
+
+    fun triggerScheduleNow(schedule: AiAgentSchedule) {
+        val plan = ProposedAgentPlan(
+            actionType = "START_UPLOAD_TASK",
+            taskTitle = schedule.title,
+            programId = schedule.programId,
+            programTitle = schedule.programTitle.ifBlank { schedule.title },
+            phaseId = schedule.phaseId,
+            subjectCode = schedule.subjectCode,
+            targetChannelTitle = schedule.targetChannelTitle.ifBlank { schedule.programTitle },
+            targetChatId = schedule.targetChatId,
+            videoQuality = schedule.videoQuality,
+            includeVideos = schedule.includeVideos,
+            includeSlides = schedule.includeSlides,
+            createNewChannel = schedule.targetChatId.isBlank(),
+            useForumTopics = schedule.useForumTopics,
+            enableLifetimeSync = false
         )
         executeProposedPlan(plan)
     }
@@ -1079,104 +1375,124 @@ class AiAgentViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isDispatchingTask = true) }
             try {
-                if (plan.actionType == "CREATE_SCHEDULE") {
+                val progId = plan.programId.ifBlank { _uiState.value.selectedProgramId }
+                val progTitle = plan.programTitle.ifBlank { _uiState.value.selectedProgramTitle }
+                val phaseId = plan.phaseId.ifBlank { _uiState.value.selectedPhaseId }
+
+                // 1. If user requested 24/7 Lifetime Sync OR actionType == CREATE_SCHEDULE, save the persistent schedule
+                if (plan.actionType == "CREATE_SCHEDULE" || plan.enableLifetimeSync) {
                     val newSchedule = AiAgentSchedule(
-                        id = "sched_${System.currentTimeMillis()}",
-                        title = plan.taskTitle.ifBlank { "${plan.programTitle} — ২৪/৭ অটো সিঙ্ক" },
+                        id = "sched_${progId.ifBlank { System.currentTimeMillis().toString() }}_${plan.subjectCode.ifBlank { "ALL" }}",
+                        title = "${progTitle}${if (plan.subjectTitle.isNotBlank()) " (${plan.subjectTitle})" else ""} — ২৪/৭ অটো সিঙ্ক",
                         scheduleType = "DAILY_COURSE_SYNC",
-                        cronExpression = plan.cronExpression.ifBlank { "0 2 * * *" },
-                        timeDisplayBn = plan.scheduleTimeBn.ifBlank { "প্রতিদিন সকাল ০৮:০০" },
-                        programId = plan.programId.ifBlank { _uiState.value.selectedProgramId },
-                        programTitle = plan.programTitle.ifBlank { _uiState.value.selectedProgramTitle },
-                        phaseId = plan.phaseId,
+                        cronExpression = plan.cronExpression.ifBlank { "0 19 * * *" },
+                        timeDisplayBn = plan.scheduleTimeBn.ifBlank { "প্রতিদিন রাত ০১:০০ (1:00 AM)" },
+                        programId = progId,
+                        programTitle = progTitle,
+                        phaseId = if (plan.enableLifetimeSync) "" else phaseId, // Empty = checks all quarters 1..5+
                         subjectCode = plan.subjectCode,
-                        targetChatId = plan.targetChatId.ifBlank { _uiState.value.telegramConfig.defaultChatId },
-                        targetChannelTitle = plan.targetChannelTitle.ifBlank { plan.programTitle },
+                        targetChatId = if (plan.createNewChannel) "" else plan.targetChatId.ifBlank { _uiState.value.telegramConfig.defaultChatId },
+                        targetChannelTitle = plan.targetChannelTitle.ifBlank { progTitle },
+                        useForumTopics = plan.useForumTopics || plan.enableLifetimeSync,
+                        videoQuality = plan.videoQuality,
                         includeVideos = plan.includeVideos,
                         includeSlides = plan.includeSlides,
                         includeDailyRoutine = true,
                         isEnabled = true,
-                        lastRunStatus = "সক্রিয় — নির্ধারিত সময়ে GitHub Actions-এ চলবে ✅"
+                        lastRunStatus = "সক্রিয় — প্রতিদিন ${plan.scheduleTimeBn} সময়ে অটো-চেক ও আপলোড চলবে ✅"
                     )
                     repository.saveSchedule(newSchedule)
                     refreshTasksAndSchedules()
-                    appendSystemConfirmationMessage(
-                        "⏰ **২৪/৭ রুটিন সফলভাবে চালু করা হয়েছে!**\n" +
-                            "• রুটিন: **${newSchedule.title}**\n" +
-                            "• সময়: **${newSchedule.timeDisplayBn}**\n" +
-                            "GitHub Actions প্রতিদিন নির্ধারিত সময়ে নতুন ভিডিও ও স্লাইড চেক করে টেলিগ্রামে আপলোড করবে।"
-                    )
-                } else {
-                    val progId = plan.programId.ifBlank { _uiState.value.selectedProgramId }
-                    val progTitle = plan.programTitle.ifBlank { _uiState.value.selectedProgramTitle }
-                    val phaseId = plan.phaseId.ifBlank { _uiState.value.selectedPhaseId }
-
-                    val (lessonCount, bundledLessons) = if (plan.actionType == "CREATE_TELEGRAM_CHANNEL") {
-                        Pair(1, null)
-                    } else {
-                        repository.buildBundledLessonsJson(
-                            programId = progId,
-                            phaseId = phaseId.takeIf { it.isNotBlank() },
-                            subjectCode = plan.subjectCode,
-                            chapterId = plan.chapterId,
-                            specificLessonIds = plan.specificLessonIds
-                        )
+                    _uiState.update {
+                        it.copy(statusBannerMessage = "⏰ ২৪/৭ রুটিন সেভ হয়েছে (${newSchedule.timeDisplayBn})!")
                     }
+                    if (plan.actionType == "CREATE_SCHEDULE" && !plan.enableLifetimeSync) {
+                        appendSystemConfirmationMessage(
+                            "⏰ **২৪/৭ লাইফটাইম অটো-সিঙ্ক রুটিন সফলভাবে চালু হয়েছে!**\n" +
+                                "• কোর্স: **${newSchedule.programTitle}** (সিলেবাস পরিবর্তন বা লগআউট করলেও সচল থাকবে)\n" +
+                                "• সময়: **${newSchedule.timeDisplayBn}**\n" +
+                                "GitHub Actions প্রতিদিন নির্ধারিত সময়ে নতুন ভিডিও ও স্লাইড চেক করে সাবজেক্ট টপিক ওয়াইজ টেলিগ্রামে আপলোড করবে।"
+                        )
+                        return@launch
+                    }
+                }
 
-                    val task = AiAgentTask(
-                        id = "task_${System.currentTimeMillis()}",
-                        title = plan.taskTitle.ifBlank {
-                            if (plan.subjectTitle.isNotBlank()) "$progTitle (${plan.subjectTitle})" else progTitle
-                        },
-                        taskType = if (plan.actionType == "CREATE_TELEGRAM_CHANNEL") {
-                            "CREATE_CHANNEL_ONLY"
-                        } else {
-                            "COURSE_TELEGRAM_UPLOAD"
-                        },
-                        status = "QUEUED",
+                // 2. Build complete lessons bundle and dispatch immediate upload task to GitHub Actions
+                val (lessonCount, bundledLessons) = if (plan.actionType == "CREATE_TELEGRAM_CHANNEL") {
+                    Pair(1, null)
+                } else {
+                    repository.buildBundledLessonsJson(
                         programId = progId,
-                        programTitle = progTitle,
-                        phaseId = phaseId,
+                        phaseId = phaseId.takeIf { it.isNotBlank() },
                         subjectCode = plan.subjectCode,
-                        subjectTitle = plan.subjectTitle,
                         chapterId = plan.chapterId,
-                        chapterTitle = plan.chapterTitle,
-                        videoQuality = plan.videoQuality,
-                        includeVideos = plan.includeVideos,
-                        includeSlides = plan.includeSlides,
-                        createNewChannel = plan.createNewChannel,
-                        useForumTopics = plan.useForumTopics,
-                        targetChannelTitle = plan.targetChannelTitle.ifBlank { progTitle },
-                        targetChatId = if (plan.createNewChannel) "" else plan.targetChatId.ifBlank { _uiState.value.telegramConfig.defaultChatId },
-                        targetTopicId = plan.targetTopicId,
-                        targetTopicTitle = plan.targetTopicTitle,
-                        totalItems = lessonCount.coerceAtLeast(plan.estimatedVideos.coerceAtLeast(1)),
-                        completedItems = 0,
-                        statusMessage = "GitHub Actions ক্লাউড ওয়ার্কারে পাঠানো হচ্ছে..."
-                    )
-
-                    val dispatchResult = repository.dispatchTaskToGitHubActions(task, bundledLessons)
-                    refreshTasksAndSchedules()
-
-                    dispatchResult.fold(
-                        onSuccess = { msg ->
-                            appendSystemConfirmationMessage(
-                                "```text\n" +
-                                    "🚀 টাস্ক স্ট্যাটাস : RUNNING (GitHub Actions)\n" +
-                                    "📦 মোট লেকচার    : ${task.totalItems}টি\n" +
-                                    "🎯 গন্তব্য চ্যানেল : ${task.targetChannelTitle}${if (task.targetTopicTitle.isNotBlank()) " (${task.targetTopicTitle})" else ""}\n" +
-                                    "⚡ স্পিড মোড     : 32x HLS + 8x MTProto Parallel\n" +
-                                    "```\n" +
-                                    "$msg আপনি এখন অ্যাপ বন্ধ করলেও ব্যাকগ্রাউন্ডে আপলোড চলবে এবং শেষ হলে নোটিফিকেশন পাবেন!"
-                            )
-                        },
-                        onFailure = { err ->
-                            appendSystemConfirmationMessage(
-                                "ℹ️ **টাস্ক কিউতে সংরক্ষিত হয়েছে:** ${err.message}"
-                            )
-                        }
+                        specificLessonIds = plan.specificLessonIds,
+                        subjectTitle = plan.subjectTitle
                     )
                 }
+
+                val task = AiAgentTask(
+                    id = "task_${System.currentTimeMillis()}",
+                    title = plan.taskTitle.ifBlank {
+                        if (plan.subjectTitle.isNotBlank()) "$progTitle — ${plan.subjectTitle}" else progTitle
+                    },
+                    taskType = if (plan.actionType == "CREATE_TELEGRAM_CHANNEL") {
+                        "CREATE_CHANNEL_ONLY"
+                    } else {
+                        "COURSE_TELEGRAM_UPLOAD"
+                    },
+                    status = "QUEUED",
+                    programId = progId,
+                    programTitle = progTitle,
+                    phaseId = phaseId,
+                    subjectCode = plan.subjectCode,
+                    subjectTitle = plan.subjectTitle,
+                    chapterId = plan.chapterId,
+                    chapterTitle = plan.chapterTitle,
+                    videoQuality = plan.videoQuality,
+                    includeVideos = plan.includeVideos,
+                    includeSlides = plan.includeSlides,
+                    createNewChannel = plan.createNewChannel,
+                    useForumTopics = plan.useForumTopics,
+                    targetChannelTitle = plan.targetChannelTitle.ifBlank { progTitle },
+                    targetChatId = if (plan.createNewChannel) "" else plan.targetChatId.ifBlank { _uiState.value.telegramConfig.defaultChatId },
+                    targetTopicId = plan.targetTopicId,
+                    targetTopicTitle = plan.targetTopicTitle,
+                    totalItems = if (lessonCount > 0) lessonCount else plan.estimatedVideos.coerceAtLeast(1),
+                    completedItems = 0,
+                    statusMessage = "GitHub Actions ক্লাউড ওয়ার্কারে পাঠানো হচ্ছে..."
+                )
+
+                val dispatchResult = repository.dispatchTaskToGitHubActions(task, bundledLessons)
+                refreshTasksAndSchedules()
+
+                val topicInfoLine = when {
+                    task.targetTopicTitle.isNotBlank() -> " (${task.targetTopicTitle})"
+                    task.useForumTopics -> " (সাবজেক্ট টপিক ওয়াইজ)"
+                    else -> ""
+                }
+                val routineInfoLine = if (plan.enableLifetimeSync) {
+                    "\n⏰ ২৪/৭ রুটিন     : ${plan.scheduleTimeBn} (নতুন ক্লাস অটো-আপলোড সচল)"
+                } else ""
+
+                dispatchResult.fold(
+                    onSuccess = { msg ->
+                        appendSystemConfirmationMessage(
+                            "```text\n" +
+                                "🚀 টাস্ক স্ট্যাটাস : RUNNING (GitHub Actions)\n" +
+                                "📦 মোট লেকচার    : ${task.totalItems}টি\n" +
+                                "🎯 গন্তব্য গ্রুপ/চ্যানেল: ${task.targetChannelTitle}$topicInfoLine\n" +
+                                "⚡ স্পিড মোড     : 48x HLS Prefetch + 16x MTProto Parallel$routineInfoLine\n" +
+                                "```\n" +
+                                "$msg আপনি এখন অ্যাপ বন্ধ করলেও বা সিলেবাস পরিবর্তন করলেও ব্যাকগ্রাউন্ডে আপলোড চলবে এবং শেষ হলে নোটিফিকেশন পাবেন!"
+                        )
+                    },
+                    onFailure = { err ->
+                        appendSystemConfirmationMessage(
+                            "ℹ️ **টাস্ক কিউতে সংরক্ষিত হয়েছে:** ${err.message}"
+                        )
+                    }
+                )
             } finally {
                 _uiState.update { it.copy(isDispatchingTask = false) }
             }
@@ -1445,6 +1761,26 @@ class AiAgentViewModel(
                     workflowRuns = runs,
                     statusBannerMessage = if (ok) "🛑 GitHub Workflow Run বাতিল করা হয়েছে।" else "বাতিল করা যায়নি।"
                 )
+            }
+        }
+    }
+
+    fun deleteTask(taskId: String) {
+        viewModelScope.launch {
+            repository.deleteTask(taskId)
+            refreshTasksAndSchedules()
+            _uiState.update {
+                it.copy(statusBannerMessage = "🗑️ টাস্ক ডাটাবেজ থেকে সফলভাবে ডিলিট করা হয়েছে।")
+            }
+        }
+    }
+
+    fun clearAllCompletedTasks() {
+        viewModelScope.launch {
+            repository.clearCompletedTasks()
+            refreshTasksAndSchedules()
+            _uiState.update {
+                it.copy(statusBannerMessage = "🧹 সকল সম্পন্ন হওয়া পুরনো টাস্ক মুছে ডাটাবেজ ক্লিয়ার করা হয়েছে।")
             }
         }
     }
