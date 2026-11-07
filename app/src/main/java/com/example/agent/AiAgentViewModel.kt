@@ -701,14 +701,30 @@ class AiAgentViewModel(
                 val videoQuery = json.optString("video_search_query", cleanPrompt).trim()
                 val autoPlayVideo = json.optBoolean("auto_play_video", true)
 
-                val matchedQuarter = inspection?.quarters?.firstOrNull {
+                val promptLowerForAll = cleanPrompt.lowercase()
+                val wantsAllQuarters = promptLowerForAll.contains("সব কোয়ার্টার") ||
+                    promptLowerForAll.contains("সব কোয়ার্টার") ||
+                    promptLowerForAll.contains("সকল কোয়ার্টার") ||
+                    promptLowerForAll.contains("যতগুলো ভিডিও আছে") ||
+                    promptLowerForAll.contains("সব ভিডিও") ||
+                    promptLowerForAll.contains("সকল ভিডিও")
+                val wantsAllSubjects = (promptLowerForAll.contains("প্রতিটা সাবজেক্ট") ||
+                    promptLowerForAll.contains("প্রতিটি সাবজেক্ট") ||
+                    promptLowerForAll.contains("সাবজেক্ট ওয়াইজ") ||
+                    promptLowerForAll.contains("সাবজেক্ট ওয়াইজ") ||
+                    promptLowerForAll.contains("সব সাবজেক্ট") ||
+                    promptLowerForAll.contains("সকল সাবজেক্ট") ||
+                    promptLowerForAll.contains("সব বিষয়") ||
+                    promptLowerForAll.contains("সকল বিষয়"))
+
+                val matchedQuarter = if (wantsAllQuarters) null else inspection?.quarters?.firstOrNull {
                     it.phaseId == reqPhaseId ||
                         (reqPhaseTitle.isNotBlank() && reqPhaseTitle != "সব কোয়ার্টার" && it.phaseTitle.contains(reqPhaseTitle, ignoreCase = true))
                 }
-                val finalPhaseId = matchedQuarter?.phaseId ?: state.selectedPhaseId
-                val finalPhaseTitle = matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle
+                val finalPhaseId = if (wantsAllQuarters) "" else (matchedQuarter?.phaseId ?: state.selectedPhaseId)
+                val finalPhaseTitle = if (wantsAllQuarters) "সব কোয়ার্টার" else (matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle)
 
-                val matchedSubject = matchSubjectFromPromptOrHint(
+                val matchedSubject = if (wantsAllSubjects) null else matchSubjectFromPromptOrHint(
                     userPrompt = cleanPrompt,
                     hintCode = subjCode,
                     hintTitle = subjTitle,
@@ -822,8 +838,8 @@ class AiAgentViewModel(
                         programTitle = state.selectedProgramTitle,
                         phaseId = finalPhaseId,
                         phaseTitle = finalPhaseTitle,
-                        subjectCode = matchedSubject?.subjectCode ?: subjCode,
-                        subjectTitle = matchedSubject?.subjectTitle ?: subjTitle,
+                        subjectCode = if (wantsAllSubjects) "" else (matchedSubject?.subjectCode ?: subjCode),
+                        subjectTitle = if (wantsAllSubjects) "" else (matchedSubject?.subjectTitle ?: subjTitle),
                         chapterTitle = chapTitle,
                         targetChannelTitle = finalChannelTitle.ifBlank { state.selectedProgramTitle },
                         targetChatId = finalChatId,
@@ -1073,7 +1089,22 @@ class AiAgentViewModel(
                 (p.contains("quarter 2") && (q.phaseTitle.contains("2") || q.phaseTitle.contains("২")))
         }
 
-        val matchedSub = matchSubjectFromPromptOrHint(
+        val wantsAllQuarters = p.contains("সব কোয়ার্টার") ||
+            p.contains("সব কোয়ার্টার") ||
+            p.contains("সকল কোয়ার্টার") ||
+            p.contains("যতগুলো ভিডিও আছে") ||
+            p.contains("সব ভিডিও") ||
+            p.contains("সকল ভিডিও")
+        val wantsAllSubjects = p.contains("প্রতিটা সাবজেক্ট") ||
+            p.contains("প্রতিটি সাবজেক্ট") ||
+            p.contains("সাবজেক্ট ওয়াইজ") ||
+            p.contains("সাবজেক্ট ওয়াইজ") ||
+            p.contains("সব সাবজেক্ট") ||
+            p.contains("সকল সাবজেক্ট") ||
+            p.contains("সব বিষয়") ||
+            p.contains("সকল বিষয়")
+
+        val matchedSub = if (wantsAllSubjects) null else matchSubjectFromPromptOrHint(
             userPrompt = userPrompt,
             hintCode = "",
             hintTitle = "",
@@ -1085,10 +1116,10 @@ class AiAgentViewModel(
             d.title.length >= 3 && p.contains(d.title.lowercase())
         }
 
-        val subjCode = matchedSub?.subjectCode ?: state.selectedSubjectCode
-        val subjTitle = matchedSub?.subjectTitle ?: state.selectedSubjectTitle
-        val targetVideos = matchedSub?.videosCount ?: totalVideos
-        val targetSlides = matchedSub?.slidesCount ?: totalSlides
+        val subjCode = if (wantsAllSubjects) "" else (matchedSub?.subjectCode ?: state.selectedSubjectCode)
+        val subjTitle = if (wantsAllSubjects) "" else (matchedSub?.subjectTitle ?: state.selectedSubjectTitle)
+        val targetVideos = if (wantsAllSubjects) totalVideos else (matchedSub?.videosCount ?: totalVideos)
+        val targetSlides = if (wantsAllSubjects) totalSlides else (matchedSub?.slidesCount ?: totalSlides)
 
         val quality = when {
             p.contains("1080") -> "1080p"
@@ -1174,6 +1205,35 @@ class AiAgentViewModel(
                     "```\n" +
                     "বস, আপনার নির্দেশ অনুযায়ী **$channelTitle** তৈরি করার কাজ এখনই GitHub Actions-এ পাঠিয়ে দিচ্ছি! 🚀"
             }
+            isUploadMention -> {
+                actionType = "ASK_CONFIRMATION"
+                taskTitle = if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else "$courseTitle — সম্পূর্ণ কোর্স ও ২৪/৭ সিঙ্ক"
+                val targetDesc = if (matchedDialog != null) {
+                    "নির্বাচিত গ্রুপ/চ্যানেল: ${matchedDialog.title} (ID: ${matchedDialog.id})"
+                } else if (useForum) {
+                    "নতুন পাবলিক ফোরাম গ্রুপ: $channelTitle"
+                } else {
+                    "নতুন চ্যানেল তৈরি হবে: $channelTitle"
+                }
+                val topicDesc = if (useForum) {
+                    topicTitle.ifBlank { "প্রতিটি সাবজেক্টের নামে আলাদা টপিক তৈরি হবে" }
+                } else "সাধারণ চ্যানেল"
+                val effQuarterTitle = if (wantsAllQuarters) "সব কোয়ার্টার (সকল ভিডিও)" else (matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle)
+                replyBn = "বস, আমি আপনার নির্দেশনা অনুযায়ী আপলোড ও ২৪/৭ অটো-সিঙ্ক প্ল্যানটি কোডিং করে সুন্দরভাবে সাজিয়ে নিয়েছি:\n\n" +
+                    "```text\n" +
+                    "📚 কোর্স        : $courseTitle\n" +
+                    "🗂️ কোয়ার্টার    : $effQuarterTitle\n" +
+                    "📖 বিষয়        : ${subjTitle.ifBlank { "সকল বিষয় (প্রতিটি সাবজেক্টের আলাদা টপিক)" }}\n" +
+                    "📌 ফোরাম টপিক   : $topicDesc\n" +
+                    "🎬 মোট ভিডিও   : ${targetVideos}টি ($quality)\n" +
+                    "📄 লেকচার স্লাইড: ${targetSlides}টি (PDF)\n" +
+                    "🎯 গন্তব্য      : $targetDesc\n" +
+                    "⏰ ডেইলি রুটিন  : $schedTimeBn (নতুন ক্লাস অটো-আপলোড)\n" +
+                    "⚡ স্পিড ইঞ্জিন : ৪৮-থ্রেড প্রি-ফেচ + ১৬-লেন টেলিগ্রাম আপলোড\n" +
+                    "```\n\n" +
+                    "❓ **আপনি কি এই গ্রুপে সাবজেক্ট টপিক খুলে সব ক্লাস আপলোড ও ২৪/৭ রুটিন চালু করার অনুমতি দিচ্ছেন?**\n" +
+                    "নিচে **'হ্যাঁ, অনুমতি দিলাম'** বাটনে চাপলেই কাজ শুরু হয়ে যাবে!"
+            }
             isScheduleCmd -> {
                 actionType = "CREATE_SCHEDULE"
                 taskTitle = "$courseTitle — ২৪/৭ লাইফটাইম অটো-সিঙ্ক"
@@ -1184,33 +1244,6 @@ class AiAgentViewModel(
                     "সময়     : $schedTimeBn\n" +
                     "```\n" +
                     "⏰ বস, আপনার জন্য **$courseTitle**-এর সম্পূর্ণ কোর্স আপলোড ও প্রতিদিন **$schedTimeBn** সময়ে ২৪/৭ অটোমেটিক রুটিন চালু করে দিচ্ছি!"
-            }
-            isUploadMention -> {
-                actionType = "ASK_CONFIRMATION"
-                taskTitle = if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else "$courseTitle — সম্পূর্ণ কোর্স আপলোড"
-                val targetDesc = if (matchedDialog != null) {
-                    "নির্বাচিত গ্রুপ/চ্যানেল: ${matchedDialog.title} (ID: ${matchedDialog.id})"
-                } else if (useForum) {
-                    "নতুন পাবলিক ফোরাম গ্রুপ: $channelTitle"
-                } else {
-                    "নতুন চ্যানেল তৈরি হবে: $channelTitle"
-                }
-                val topicDesc = if (useForum) {
-                    topicTitle.ifBlank { "সাবজেক্ট অনুযায়ী অটো টপিক তৈরি হবে" }
-                } else "সাধারণ চ্যানেল"
-                replyBn = "বস, আমি আপনার নির্দেশনা অনুযায়ী আপলোড প্ল্যানটি কোডিং করে সুন্দরভাবে সাজিয়ে নিয়েছি:\n\n" +
-                    "```text\n" +
-                    "📚 কোর্স        : $courseTitle\n" +
-                    "🗂️ কোয়ার্টার    : ${matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle}\n" +
-                    "📖 বিষয়        : ${subjTitle.ifBlank { "সকল বিষয় (সাবজেক্ট টপিক ওয়াইজ)" }}\n" +
-                    "📌 ফোরাম টপিক   : $topicDesc\n" +
-                    "🎬 মোট ভিডিও   : ${targetVideos}টি ($quality)\n" +
-                    "📄 লেকচার স্লাইড: ${targetSlides}টি (PDF)\n" +
-                    "🎯 গন্তব্য      : $targetDesc\n" +
-                    "⚡ স্পিড ইঞ্জিন : ৪৮-থ্রেড প্রি-ফেচ + ১৬-লেন টেলিগ্রাম আপলোড\n" +
-                    "```\n\n" +
-                    "❓ **আপনি কি এই গ্রুপে/টপিকে আপলোড শুরু করার অনুমতি দিচ্ছেন?**\n" +
-                    "নিচে থেকে গ্রুপ/টপিক বা ২৪/৭ রুটিন টাইম সিলেক্ট করে **'হ্যাঁ, অনুমতি দিলাম'** বাটনে চাপুন!"
             }
             else -> {
                 actionType = "DISCUSS"
@@ -1231,8 +1264,8 @@ class AiAgentViewModel(
             put("reply_bn", replyBn)
             put("action_type", actionType)
             put("task_title", taskTitle)
-            put("phase_id", matchedQuarter?.phaseId ?: state.selectedPhaseId)
-            put("phase_title", matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle)
+            put("phase_id", if (wantsAllQuarters) "" else (matchedQuarter?.phaseId ?: state.selectedPhaseId))
+            put("phase_title", if (wantsAllQuarters) "সব কোয়ার্টার" else (matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle))
             put("subject_code", subjCode)
             put("subject_title", subjTitle)
             put("video_search_query", userPrompt)
@@ -1377,7 +1410,11 @@ class AiAgentViewModel(
             try {
                 val progId = plan.programId.ifBlank { _uiState.value.selectedProgramId }
                 val progTitle = plan.programTitle.ifBlank { _uiState.value.selectedProgramTitle }
-                val phaseId = plan.phaseId.ifBlank { _uiState.value.selectedPhaseId }
+                val phaseId = if (plan.phaseTitle.contains("সব কোয়ার্টার") || plan.phaseId.isBlank()) {
+                    plan.phaseId
+                } else {
+                    plan.phaseId
+                }
 
                 // 1. If user requested 24/7 Lifetime Sync OR actionType == CREATE_SCHEDULE, save the persistent schedule
                 if (plan.actionType == "CREATE_SCHEDULE" || plan.enableLifetimeSync) {
