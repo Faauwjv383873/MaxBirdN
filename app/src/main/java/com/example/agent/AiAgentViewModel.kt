@@ -690,22 +690,45 @@ class AiAgentViewModel(
                         ?: generateSmartAgentDecision(cleanPrompt, state, inspection)
                 }
 
-                val replyBn = json.optString("reply_bn", "আপনার নির্দেশ বুঝতে পেরেছি।")
-                val actionType = json.optString("action_type", "DISCUSS").uppercase()
-                val taskTitle = json.optString("task_title", "${state.selectedProgramTitle} — টেলিগ্রাম আপলোড")
-                val reqPhaseId = json.optString("phase_id", state.selectedPhaseId).trim()
-                val reqPhaseTitle = json.optString("phase_title", state.selectedPhaseTitle).trim()
-                val subjCode = json.optString("subject_code", state.selectedSubjectCode).trim()
-                val subjTitle = json.optString("subject_title", state.selectedSubjectTitle).trim()
-                val chapTitle = json.optString("chapter_title", "").trim()
-                val videoQuery = json.optString("video_search_query", cleanPrompt).trim()
-                val autoPlayVideo = json.optBoolean("auto_play_video", true)
-
                 val promptLowerForAll = cleanPrompt.lowercase()
+                val hasUploadOrTelegramIntent = promptLowerForAll.contains("আপলোড") ||
+                    promptLowerForAll.contains("টেলিগ্রাম") ||
+                    promptLowerForAll.contains("telegram") ||
+                    promptLowerForAll.contains("গ্রুপ") ||
+                    promptLowerForAll.contains("গুরুপ") ||
+                    promptLowerForAll.contains("চ্যানেল") ||
+                    promptLowerForAll.contains("টপিক") ||
+                    promptLowerForAll.contains("রুটিন") ||
+                    promptLowerForAll.contains("পাঠাও") ||
+                    promptLowerForAll.contains("পাঠান") ||
+                    promptLowerForAll.contains("সিঙ্ক") ||
+                    promptLowerForAll.contains("sync") ||
+                    promptLowerForAll.contains("upload")
+
+                val rawActionType = json.optString("action_type", "DISCUSS").uppercase()
+                val effectiveJson = if (hasUploadOrTelegramIntent && rawActionType in setOf("PLAY_VIDEO", "DISCUSS", "")) {
+                    generateSmartAgentDecision(cleanPrompt, state, inspection)
+                } else {
+                    json
+                }
+
+                val replyBn = effectiveJson.optString("reply_bn", "আপনার নির্দেশ বুঝতে পেরেছি।")
+                val actionType = effectiveJson.optString("action_type", "DISCUSS").uppercase()
+                val taskTitle = effectiveJson.optString("task_title", "${state.selectedProgramTitle} — টেলিগ্রাম আপলোড")
+                val reqPhaseId = effectiveJson.optString("phase_id", state.selectedPhaseId).trim()
+                val reqPhaseTitle = effectiveJson.optString("phase_title", state.selectedPhaseTitle).trim()
+                val subjCode = effectiveJson.optString("subject_code", state.selectedSubjectCode).trim()
+                val subjTitle = effectiveJson.optString("subject_title", state.selectedSubjectTitle).trim()
+                val chapTitle = effectiveJson.optString("chapter_title", "").trim()
+                val videoQuery = effectiveJson.optString("video_search_query", cleanPrompt).trim()
+                val autoPlayVideo = effectiveJson.optString("action_type", "").uppercase() == "PLAY_VIDEO" &&
+                    effectiveJson.optBoolean("auto_play_video", true)
+
                 val wantsAllQuarters = promptLowerForAll.contains("সব কোয়ার্টার") ||
                     promptLowerForAll.contains("সব কোয়ার্টার") ||
                     promptLowerForAll.contains("সকল কোয়ার্টার") ||
-                    promptLowerForAll.contains("যতগুলো ভিডিও আছে") ||
+                    promptLowerForAll.contains("যতগুলো ভিডিও") ||
+                    promptLowerForAll.contains("যতগুলো ক্লাস") ||
                     promptLowerForAll.contains("সব ভিডিও") ||
                     promptLowerForAll.contains("সকল ভিডিও")
                 val wantsAllSubjects = (promptLowerForAll.contains("প্রতিটা সাবজেক্ট") ||
@@ -733,16 +756,16 @@ class AiAgentViewModel(
                 )
 
                 // Match existing Telegram channel/group if user mentioned one
-                val reqChatId = json.optString("target_chat_id", "").trim()
-                val reqChannelTitle = json.optString("target_channel_title", "").trim()
+                val reqChatId = effectiveJson.optString("target_chat_id", "").trim()
+                val reqChannelTitle = effectiveJson.optString("target_channel_title", "").trim()
                 val matchedDialog = state.telegramConfig.dialogs.firstOrNull { d ->
                     (reqChatId.isNotBlank() && d.id == reqChatId) ||
                         (reqChannelTitle.isNotBlank() && d.title.contains(reqChannelTitle, ignoreCase = true)) ||
                         (d.title.length >= 4 && cleanPrompt.contains(d.title, ignoreCase = true))
                 }
                 val matchedTopic = matchedDialog?.topics?.firstOrNull { t ->
-                    t.id == json.optInt("target_topic_id", 0) ||
-                        (json.optString("target_topic_title").isNotBlank() && t.title.contains(json.optString("target_topic_title"), ignoreCase = true)) ||
+                    t.id == effectiveJson.optInt("target_topic_id", 0) ||
+                        (effectiveJson.optString("target_topic_title").isNotBlank() && t.title.contains(effectiveJson.optString("target_topic_title"), ignoreCase = true)) ||
                         (t.title.length >= 3 && cleanPrompt.contains(t.title, ignoreCase = true))
                 }
 
@@ -755,6 +778,7 @@ class AiAgentViewModel(
                 val promptWantsTopic = promptLower.contains("টপিক") ||
                     promptLower.contains("topic") ||
                     promptLower.contains("সাবজেক্ট ওয়াইজ") ||
+                    promptLower.contains("সাবজেক্ট ওয়াইজ") ||
                     promptLower.contains("সাবজেক্ট টপিক")
                 val promptWantsLifetimeSync = promptLower.contains("প্রতিদিন") ||
                     promptLower.contains("রুটিন") ||
@@ -765,7 +789,7 @@ class AiAgentViewModel(
                     promptLower.contains("২৪/৭") ||
                     promptLower.contains("24/7")
 
-                val useTopics = json.optBoolean("use_forum_topics", false) ||
+                val useTopics = effectiveJson.optBoolean("use_forum_topics", false) ||
                     promptWantsGroup ||
                     promptWantsTopic ||
                     matchedDialog?.isForum == true
@@ -780,7 +804,7 @@ class AiAgentViewModel(
                 } else if (matchedDialog != null) {
                     false
                 } else {
-                    json.optBoolean("create_new_channel", finalChatId.isBlank())
+                    effectiveJson.optBoolean("create_new_channel", finalChatId.isBlank())
                 }
 
                 // When creating a Forum Supergroup (`useTopics = true`), the Group name is the Course Title,
@@ -797,23 +821,27 @@ class AiAgentViewModel(
                     }
                 }
 
-                val quality = json.optString("video_quality", "720p")
-                val incVideos = json.optBoolean("include_videos", true)
-                val incSlides = json.optBoolean("include_slides", true)
-                val targetTopicName = matchedTopic?.title
-                    ?: matchedSubject?.subjectTitle?.takeIf { useTopics }
-                    ?: json.optString("target_topic_title", "").trim()
+                val quality = effectiveJson.optString("video_quality", "720p")
+                val incVideos = effectiveJson.optBoolean("include_videos", true)
+                val incSlides = effectiveJson.optBoolean("include_slides", true)
+                val targetTopicName = if (wantsAllSubjects) {
+                    ""
+                } else {
+                    matchedTopic?.title
+                        ?: matchedSubject?.subjectTitle?.takeIf { useTopics }
+                        ?: effectiveJson.optString("target_topic_title", "").trim()
+                }
 
                 val (parsedTimeBn, parsedCron) = parseBengaliScheduleTime(cleanPrompt)
                 val schedTimeBn = if (promptWantsLifetimeSync || actionType == "CREATE_SCHEDULE") {
                     parsedTimeBn
                 } else {
-                    json.optString("schedule_time_bn", parsedTimeBn).ifBlank { parsedTimeBn }
+                    effectiveJson.optString("schedule_time_bn", parsedTimeBn).ifBlank { parsedTimeBn }
                 }
                 val cronExpr = if (promptWantsLifetimeSync || actionType == "CREATE_SCHEDULE") {
                     parsedCron
                 } else {
-                    json.optString("cron_expression", parsedCron).ifBlank { parsedCron }
+                    effectiveJson.optString("cron_expression", parsedCron).ifBlank { parsedCron }
                 }
 
                 // Handle PLAY_VIDEO action: find matching lessons and resolve the top lesson's stream URL!
@@ -843,7 +871,7 @@ class AiAgentViewModel(
                         chapterTitle = chapTitle,
                         targetChannelTitle = finalChannelTitle.ifBlank { state.selectedProgramTitle },
                         targetChatId = finalChatId,
-                        targetTopicId = matchedTopic?.id ?: json.optInt("target_topic_id", 0),
+                        targetTopicId = if (wantsAllSubjects) 0 else (matchedTopic?.id ?: effectiveJson.optInt("target_topic_id", 0)),
                         targetTopicTitle = targetTopicName,
                         videoQuality = quality,
                         includeVideos = incVideos,
@@ -853,8 +881,8 @@ class AiAgentViewModel(
                         enableLifetimeSync = promptWantsLifetimeSync || actionType == "CREATE_SCHEDULE",
                         scheduleTimeBn = schedTimeBn,
                         cronExpression = cronExpr,
-                        estimatedVideos = matchedSubject?.videosCount ?: (inspection?.videoLessonsCount ?: 0),
-                        estimatedSlides = matchedSubject?.slidesCount ?: (inspection?.slideAttachmentsCount ?: 0)
+                        estimatedVideos = if (wantsAllSubjects) (inspection?.videoLessonsCount ?: 0) else (matchedSubject?.videosCount ?: (inspection?.videoLessonsCount ?: 0)),
+                        estimatedSlides = if (wantsAllSubjects) (inspection?.slideAttachmentsCount ?: 0) else (matchedSubject?.slidesCount ?: (inspection?.slideAttachmentsCount ?: 0))
                     )
                 } else null
 
@@ -1074,9 +1102,31 @@ class AiAgentViewModel(
         val totalVideos = inspection?.videoLessonsCount ?: totalLessons
         val totalSlides = inspection?.slideAttachmentsCount ?: totalLessons
 
-        // Check if user wants to play a video
-        val isPlayRequest = p.contains("প্লে") || p.contains("play") || p.contains("চালাও") ||
-            p.contains("চালু কর") || (p.contains("ভিডিও") && (p.contains("দেখাও") || p.contains("দেখব")))
+        val hasUploadOrTelegramIntent = p.contains("আপলোড") ||
+            p.contains("টেলিগ্রাম") ||
+            p.contains("telegram") ||
+            p.contains("গ্রুপ") ||
+            p.contains("গুরুপ") ||
+            p.contains("চ্যানেল") ||
+            p.contains("টপিক") ||
+            p.contains("রুটিন") ||
+            p.contains("পাঠাও") ||
+            p.contains("পাঠান") ||
+            p.contains("সিঙ্ক") ||
+            p.contains("sync") ||
+            p.contains("upload")
+
+        // Check if user wants to play a video (ONLY when NOT asking for Telegram upload / group / topic / schedule!)
+        val isPlayRequest = !hasUploadOrTelegramIntent && (
+            p.contains("প্লে") ||
+                p.contains("play") ||
+                p.contains("ভিডিও চালাও") ||
+                p.contains("ক্লাস চালাও") ||
+                p.contains("ভিডিও চালু") ||
+                p.contains("ক্লাস চালু") ||
+                p.contains("প্লেয়ার চালু") ||
+                (p.contains("ভিডিও") && (p.contains("দেখাও") || p.contains("দেখব") || p.contains("চালাও")))
+            )
 
         val matchedQuarter = inspection?.quarters?.firstOrNull { q ->
             p.contains(q.phaseTitle.lowercase()) ||
@@ -1092,7 +1142,8 @@ class AiAgentViewModel(
         val wantsAllQuarters = p.contains("সব কোয়ার্টার") ||
             p.contains("সব কোয়ার্টার") ||
             p.contains("সকল কোয়ার্টার") ||
-            p.contains("যতগুলো ভিডিও আছে") ||
+            p.contains("যতগুলো ভিডিও") ||
+            p.contains("যতগুলো ক্লাস") ||
             p.contains("সব ভিডিও") ||
             p.contains("সকল ভিডিও")
         val wantsAllSubjects = p.contains("প্রতিটা সাবজেক্ট") ||
@@ -1148,10 +1199,16 @@ class AiAgentViewModel(
             p.contains("পাঠান") || p.contains("প্ল্যান") || p.contains("upload") || matchedSub != null || matchedDialog != null
 
         val channelTitle = matchedDialog?.title ?: if (useForum) courseTitle else if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else courseTitle
-        val topicTitle = if (useForum && subjTitle.isNotBlank()) subjTitle else ""
+        val topicTitle = if (useForum && subjTitle.isNotBlank() && !wantsAllSubjects) subjTitle else ""
         val quartersSummary = inspection?.quarters?.joinToString("\n") { q ->
             "• ${q.phaseTitle}: ${q.videosCount}টি ভিডিও, ${q.slidesCount}টি স্লাইড"
         }?.ifBlank { "• সকল লেকচার প্রস্তুত" } ?: "• সকল লেকচার প্রস্তুত"
+
+        val subjectsTopicsSummary = inspection?.subjectBreakdown
+            ?.filter { it.videosCount > 0 || it.slidesCount > 0 }
+            ?.joinToString("\n") { s ->
+                "  ├─ 📁 ${s.subjectTitle}: ${s.videosCount}টি ভিডিও, ${s.slidesCount}টি স্লাইড"
+            }.orEmpty()
 
         val actionType: String
         val replyBn: String
@@ -1206,9 +1263,10 @@ class AiAgentViewModel(
                     "বস, আপনার নির্দেশ অনুযায়ী **$channelTitle** তৈরি করার কাজ এখনই GitHub Actions-এ পাঠিয়ে দিচ্ছি! 🚀"
             }
             isUploadMention -> {
-                actionType = "ASK_CONFIRMATION"
+                val directApproved = p.contains("অনুমতি দিলাম") || p.contains("সরাসরি শুরু")
+                actionType = if (directApproved) "START_UPLOAD_TASK" else "ASK_CONFIRMATION"
                 taskTitle = if (subjTitle.isNotBlank()) "$courseTitle — $subjTitle" else "$courseTitle — সম্পূর্ণ কোর্স ও ২৪/৭ সিঙ্ক"
-                val targetDesc = if (matchedDialog != null) {
+                val targetDesc = if (matchedDialog != null && !(useForum && p.contains("নতুন"))) {
                     "নির্বাচিত গ্রুপ/চ্যানেল: ${matchedDialog.title} (ID: ${matchedDialog.id})"
                 } else if (useForum) {
                     "নতুন পাবলিক ফোরাম গ্রুপ: $channelTitle"
@@ -1216,23 +1274,26 @@ class AiAgentViewModel(
                     "নতুন চ্যানেল তৈরি হবে: $channelTitle"
                 }
                 val topicDesc = if (useForum) {
-                    topicTitle.ifBlank { "প্রতিটি সাবজেক্টের নামে আলাদা টপিক তৈরি হবে" }
+                    topicTitle.ifBlank { "প্রতিটি সাবজেক্টের নামে আলাদা ফোরাম টপিক" }
                 } else "সাধারণ চ্যানেল"
                 val effQuarterTitle = if (wantsAllQuarters) "সব কোয়ার্টার (সকল ভিডিও)" else (matchedQuarter?.phaseTitle ?: state.selectedPhaseTitle)
-                replyBn = "বস, আমি আপনার নির্দেশনা অনুযায়ী আপলোড ও ২৪/৭ অটো-সিঙ্ক প্ল্যানটি কোডিং করে সুন্দরভাবে সাজিয়ে নিয়েছি:\n\n" +
+                val topicsBreakdownBlock = if (wantsAllSubjects && subjectsTopicsSummary.isNotBlank()) {
+                    "\n📂 সাবজেক্ট টপিক তালিকা:\n$subjectsTopicsSummary"
+                } else ""
+                replyBn = "বস, আমি আপনার সিলেক্ট করা **$courseTitle** কোর্সের লাইভ ডেটা বিশ্লেষণ করে আপলোড ও ২৪/৭ অটো-সিঙ্ক প্ল্যানটি সাজিয়ে নিয়েছি:\n\n" +
                     "```text\n" +
                     "📚 কোর্স        : $courseTitle\n" +
                     "🗂️ কোয়ার্টার    : $effQuarterTitle\n" +
-                    "📖 বিষয়        : ${subjTitle.ifBlank { "সকল বিষয় (প্রতিটি সাবজেক্টের আলাদা টপিক)" }}\n" +
+                    "📖 বিষয়        : ${subjTitle.ifBlank { "সকল বিষয় (${inspection?.subjectsCount ?: 0}টি সাবজেক্ট)" }}\n" +
                     "📌 ফোরাম টপিক   : $topicDesc\n" +
                     "🎬 মোট ভিডিও   : ${targetVideos}টি ($quality)\n" +
                     "📄 লেকচার স্লাইড: ${targetSlides}টি (PDF)\n" +
                     "🎯 গন্তব্য      : $targetDesc\n" +
                     "⏰ ডেইলি রুটিন  : $schedTimeBn (নতুন ক্লাস অটো-আপলোড)\n" +
-                    "⚡ স্পিড ইঞ্জিন : ৪৮-থ্রেড প্রি-ফেচ + ১৬-লেন টেলিগ্রাম আপলোড\n" +
+                    "⚡ স্পিড ইঞ্জিন : ৪৮-থ্রেড প্রি-ফেচ + ১৬-লেন টেলিগ্রাম আপলোড$topicsBreakdownBlock\n" +
                     "```\n\n" +
-                    "❓ **আপনি কি এই গ্রুপে সাবজেক্ট টপিক খুলে সব ক্লাস আপলোড ও ২৪/৭ রুটিন চালু করার অনুমতি দিচ্ছেন?**\n" +
-                    "নিচে **'হ্যাঁ, অনুমতি দিলাম'** বাটনে চাপলেই কাজ শুরু হয়ে যাবে!"
+                    "❓ **আপনি কি '$channelTitle' নামে নতুন পাবলিক ফোরাম গ্রুপ খুলে প্রতিটি সাবজেক্টের টপিকে সব ভিডিও ও স্লাইড আপলোড এবং ২৪/৭ রুটিন চালু করার অনুমতি দিচ্ছেন?**\n" +
+                    "নিচে **'হ্যাঁ, অনুমতি দিলাম'** বাটনে চাপলেই সাথে সাথে GitHub Actions-এ আপলোড ও রুটিন চালু হয়ে যাবে!"
             }
             isScheduleCmd -> {
                 actionType = "CREATE_SCHEDULE"
@@ -1269,14 +1330,14 @@ class AiAgentViewModel(
             put("subject_code", subjCode)
             put("subject_title", subjTitle)
             put("video_search_query", userPrompt)
-            put("auto_play_video", true)
+            put("auto_play_video", actionType == "PLAY_VIDEO")
             put("target_channel_title", channelTitle)
-            put("target_chat_id", matchedDialog?.id ?: "")
+            put("target_chat_id", if (useForum && p.contains("নতুন")) "" else (matchedDialog?.id ?: ""))
             put("target_topic_title", topicTitle)
             put("video_quality", quality)
             put("include_videos", incVideos)
             put("include_slides", incSlides)
-            put("create_new_channel", matchedDialog == null)
+            put("create_new_channel", (useForum && p.contains("নতুন")) || matchedDialog == null)
             put("use_forum_topics", useForum)
             put("schedule_time_bn", schedTimeBn)
             put("cron_expression", cronExpr)
