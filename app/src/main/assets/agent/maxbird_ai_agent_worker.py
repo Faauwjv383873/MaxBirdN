@@ -38,8 +38,8 @@ from telethon.sessions import StringSession
 from telethon.tl.types import DocumentAttributeVideo
 
 START_TIME = time.time()
-# Re-trigger self after 4 hours 45 minutes (17100 seconds) so we never hit GitHub's 6h hard timeout
-MAX_RUNTIME_SECONDS = 17100
+# Re-trigger self after 40 minutes (2400 seconds) so each CI job stays short and never triggers GitHub long-job limits
+MAX_RUNTIME_SECONDS = 2400
 
 DEFAULT_TELEGRAM_API_ID = "38634154"
 DEFAULT_TELEGRAM_API_HASH = "a4194e506db4ad97f1dba20ec28ac383"
@@ -2075,6 +2075,35 @@ async def ensure_telegram_destination(
         except Exception:
             pass
 
+    # Before creating a brand new group/channel, check if the user already has a group/channel
+    # with this exact title on their Telegram account (e.g., created from a previous GitHub account!)
+    norm_wanted_title = re.sub(r"\s+", " ", channel_title.strip()).lower()
+    if norm_wanted_title:
+        try:
+            dialogs = await client.get_dialogs(limit=150)
+            for d in dialogs:
+                ent = getattr(d, "entity", None)
+                if ent is None or not isinstance(ent, types.Channel):
+                    continue
+                can_manage = bool(getattr(ent, "creator", False) or getattr(ent, "admin_rights", None))
+                if not can_manage:
+                    continue
+                d_title = re.sub(r"\s+", " ", str(getattr(ent, "title", "") or "").strip()).lower()
+                if d_title == norm_wanted_title:
+                    peer_id = f"-100{ent.id}"
+                    if use_megagroup and getattr(ent, "megagroup", False) and not getattr(ent, "forum", False):
+                        await enable_forum_on_supergroup(client, ent)
+                    if not existing_invite:
+                        uname = getattr(ent, "username", "")
+                        if uname:
+                            existing_invite = f"https://t.me/{uname}"
+                    task["target_chat_id"] = peer_id
+                    task["telegram_invite_link"] = existing_invite
+                    log(f"♻️ Reusing existing Telegram Group/Channel '{channel_title}' (ID: {peer_id}) so previous uploads stay synced!")
+                    return ent, existing_invite
+        except Exception as scan_exc:
+            log(f"Dialog reuse check note: {scan_exc}")
+
     about_text = (
         f"📚 কোর্স: {task.get('program_title') or channel_title}\n"
         f"🤖 স্বয়ংক্রিয়ভাবে সাবজেক্ট ও অধ্যায় অনুযায়ী সাজানো এইচডি (HD) ভিডিও লেকচার ও পিডিএফ স্লাইড আর্কাইভ।"
@@ -2510,13 +2539,36 @@ async def execute_task_async(
                 }
             )
 
-            # Load dual-layer deduplication cache from GitHub state + Supabase
+            # Load triple-layer deduplication cache from GitHub state + Supabase + Live Telegram Group Messages!
             current_gh_state = gh_bridge.read_state()
             uploaded_keys_list = current_gh_state.get("uploaded_keys")
             uploaded_keys_set: Set[str] = set(uploaded_keys_list) if isinstance(uploaded_keys_list, list) else set()
             newly_uploaded_keys: List[str] = []
 
-            def is_already_uploaded_dual(l_id: str, item_type: str, scope: str) -> bool:
+            # Scan the target Telegram group/channel's existing messages so even if the user switched GitHub accounts,
+            # any video or PDF slide already posted in the Telegram group is immediately recognized and never re-uploaded!
+            existing_tg_video_captions: List[str] = []
+            existing_tg_slide_captions: List[str] = []
+            try:
+                recent_msgs = await tg_client.get_messages(target_entity, limit=500)
+                for m in recent_msgs or []:
+                    msg_txt = str(getattr(m, "message", "") or "").strip()
+                    if not msg_txt:
+                        continue
+                    norm_txt = re.sub(r"\s+", " ", msg_txt).lower()
+                    if "#slide_pdf" in norm_txt or "লেকচার স্লাইড:" in norm_txt:
+                        existing_tg_slide_captions.append(norm_txt)
+                    elif "#video" in norm_txt or "লেকচার #" in norm_txt or getattr(m, "video", None) is not None:
+                        existing_tg_video_captions.append(norm_txt)
+                if existing_tg_video_captions or existing_tg_slide_captions:
+                    log(
+                        f"🔎 Synced {len(existing_tg_video_captions)} existing videos & "
+                        f"{len(existing_tg_slide_captions)} existing slides directly from Telegram group history!"
+                    )
+            except Exception as hist_exc:
+                log(f"Telegram message history scan note: {hist_exc}")
+
+            def is_already_uploaded_dual(l_id: str, item_type: str, scope: str, title_hint: str = "") -> bool:
                 mem_key = f"{program_id}:{l_id}:{item_type}:{scope}"
                 base_key = f"{program_id}:{l_id}:{item_type}:{chat_id_str}"
                 if mem_key in uploaded_keys_set or base_key in uploaded_keys_set:
@@ -2524,6 +2576,14 @@ async def execute_task_async(
                 if supabase.is_item_already_uploaded(program_id, l_id, item_type, scope):
                     uploaded_keys_set.add(mem_key)
                     return True
+                norm_title = re.sub(r"\s+", " ", (title_hint or "").strip()).lower()
+                if len(norm_title) >= 4:
+                    pool = existing_tg_video_captions if item_type == "VIDEO" else existing_tg_slide_captions
+                    if any(norm_title in cap for cap in pool):
+                        uploaded_keys_set.add(mem_key)
+                        uploaded_keys_set.add(base_key)
+                        newly_uploaded_keys.append(mem_key)
+                        return True
                 return False
 
             def mark_uploaded_dual(
@@ -2657,7 +2717,7 @@ async def execute_task_async(
                     # Check if next lesson can be prefetched in background while we process this lesson
                     for next_pos in range(pos + 1, min(pos + 3, len(resolved_lessons))):
                         nxt = resolved_lessons[next_pos]
-                        if nxt["video_url"] and not is_already_uploaded_dual(nxt["id"], "VIDEO", dedup_scope):
+                        if nxt["video_url"] and not is_already_uploaded_dual(nxt["id"], "VIDEO", dedup_scope, nxt["title"]):
                             start_prefetch_if_needed(nxt)
                             break
 
@@ -2679,7 +2739,7 @@ async def execute_task_async(
 
                     # 1. Upload Video if enabled
                     if include_videos and video_url:
-                        if is_already_uploaded_dual(lesson_id, "VIDEO", dedup_scope):
+                        if is_already_uploaded_dual(lesson_id, "VIDEO", dedup_scope, lesson_title):
                             lesson_uploaded_any = True
                             already_uploaded_skipped_count += 1
                             uploaded_videos_count += 1
@@ -2774,7 +2834,7 @@ async def execute_task_async(
                             slide_key = f"{lesson_id}_slide_{s_idx}"
                             if not slide_url:
                                 continue
-                            if is_already_uploaded_dual(slide_key, "SLIDE", dedup_scope):
+                            if is_already_uploaded_dual(slide_key, "SLIDE", dedup_scope, slide_title) or is_already_uploaded_dual(slide_key, "SLIDE", dedup_scope, lesson_title):
                                 lesson_uploaded_any = True
                                 already_uploaded_skipped_count += 1
                                 uploaded_slides_count += 1

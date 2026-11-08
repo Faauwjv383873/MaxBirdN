@@ -114,9 +114,9 @@ class PdfPageRenderer(
         private set
 
     val pageAspectRatios = mutableStateMapOf<Int, Float>()
-    // Memory-bounded LruCache (capped at 32 MB or 1/8th of heap) to prevent OutOfMemoryError on low-RAM phones
-    private val maxCacheBytes: Int = ((Runtime.getRuntime().maxMemory() / 8L)
-        .coerceIn(12L * 1024L * 1024L, 32L * 1024L * 1024L)).toInt()
+    // Memory-bounded LruCache (24 MB to 64 MB) for rendered PDF slide bitmaps
+    private val maxCacheBytes: Int = ((Runtime.getRuntime().maxMemory() / 6L)
+        .coerceIn(24L * 1024L * 1024L, 64L * 1024L * 1024L)).toInt()
     private val cache = object : LruCache<Int, Bitmap>(maxCacheBytes) {
         override fun sizeOf(key: Int, value: Bitmap): Int {
             return value.allocationByteCount.coerceAtLeast(1)
@@ -148,7 +148,7 @@ class PdfPageRenderer(
                         val firstPage = renderer!!.openPage(0)
                         val w = firstPage.width.toFloat()
                         val h = firstPage.height.toFloat()
-                        pageAspectRatios[0] = if (h > 0) w / h else 1.414f // 16:9 or standard slide ratio default
+                        pageAspectRatios[0] = if (h > 0) w / h else 1.414f
                         firstPage.close()
                     } catch (_: Exception) {}
                 }
@@ -179,11 +179,12 @@ class PdfPageRenderer(
                     val aspect = if (pHeight > 0) pWidth.toFloat() / pHeight.toFloat() else 1.414f
                     pageAspectRatios[pageIndex] = aspect
 
-                    // Render at high resolution (1200px to 2000px) with RGB_565 (50% less RAM) since background is opaque white
-                    val renderWidth = targetWidthPx.coerceIn(1200, 2000)
+                    // CRITICAL: Android's PdfRenderer.Page.render() strictly requires Bitmap.Config.ARGB_8888
+                    // (passing RGB_565 throws IllegalArgumentException: Unsupported pixel format!)
+                    val renderWidth = targetWidthPx.coerceIn(1080, 1680)
                     val renderHeight = (renderWidth / aspect).toInt().coerceAtLeast(100)
 
-                    val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.RGB_565)
+                    val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
                     val canvas = Canvas(bitmap)
                     canvas.drawColor(AndroidColor.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -193,7 +194,7 @@ class PdfPageRenderer(
                 } finally {
                     page.close()
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Error rendering page $pageIndex: ${e.message}", e)
                 null
             }
@@ -712,34 +713,40 @@ private fun PdfViewerTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (!isLandscape) Modifier.statusBarsPadding() else Modifier)
-                .padding(horizontal = 6.dp, vertical = if (isLandscape) 3.dp else 6.dp),
+                .padding(horizontal = 4.dp, vertical = if (isLandscape) 3.dp else 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Close Button
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .testTag("pdf_viewer_close_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "বন্ধ করুন",
-                    tint = Color.White
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
             Spacer(modifier = Modifier.width(4.dp))
 
             // Title & Status
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 4.dp)
+            ) {
                 Text(
                     text = title.ifBlank { "ইন-অ্যাপ পিডিএফ স্লাইড" },
-                    fontSize = 14.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
@@ -757,6 +764,8 @@ private fun PdfViewerTopBar(
                                 fontSize = 10.sp,
                                 color = Color(0xFF34D399),
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -764,9 +773,12 @@ private fun PdfViewerTopBar(
 
                     if (pageCount > 0) {
                         Text(
-                            text = "${toBengaliDigits(pageCount)} টি স্লাইড",
+                            text = "${toBengaliDigits(pageCount)}টি স্লাইড",
                             fontSize = 11.sp,
-                            color = Color.White.copy(alpha = 0.7f)
+                            color = Color.White.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -775,13 +787,13 @@ private fun PdfViewerTopBar(
             // 1. Landscape / Orientation Toggle Button
             IconButton(
                 onClick = onToggleOrientation,
-                modifier = Modifier.size(38.dp)
+                modifier = Modifier.size(34.dp)
             ) {
                 Icon(
                     imageVector = if (isLandscape) Icons.Default.ScreenLockLandscape else Icons.Default.ScreenRotation,
                     contentDescription = if (isLandscape) "পোর্ট্রেট মোড" else "ল্যান্ডস্কেপ মোড",
                     tint = if (isLandscape) Color(0xFF38BDF8) else Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
 
@@ -789,13 +801,13 @@ private fun PdfViewerTopBar(
             if (canShare) {
                 IconButton(
                     onClick = onShareClick,
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size(34.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = "শেয়ার করুন",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
@@ -803,20 +815,20 @@ private fun PdfViewerTopBar(
             // 3. Mode Switcher: Continuous Scroll vs Single Slide Presentation
             IconButton(
                 onClick = onToggleViewMode,
-                modifier = Modifier.size(38.dp)
+                modifier = Modifier.size(34.dp)
             ) {
                 Icon(
                     imageVector = if (viewMode == PdfViewMode.VERTICAL_SCROLL) Icons.Default.ViewAgenda else Icons.Default.ViewCarousel,
                     contentDescription = if (viewMode == PdfViewMode.VERTICAL_SCROLL) "স্লাইড মোড" else "স্ক্রল মোড",
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
 
             // 4. Theme Switcher: Day -> Sepia -> Night
             IconButton(
                 onClick = onCycleTheme,
-                modifier = Modifier.size(38.dp)
+                modifier = Modifier.size(34.dp)
             ) {
                 Icon(
                     imageVector = when (readingTheme) {
@@ -830,7 +842,7 @@ private fun PdfViewerTopBar(
                         ReadingTheme.SEPIA -> Color(0xFFFDE68A)
                         ReadingTheme.NIGHT -> Color(0xFF93C5FD)
                     },
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
 
@@ -839,41 +851,41 @@ private fun PdfViewerTopBar(
                 DownloadedItemEntity.STATUS_DOWNLOADING -> {
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .padding(6.dp),
+                            .size(34.dp)
+                            .padding(5.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
                             progress = { downloadedItem.progressFraction },
                             color = Color(0xFF38BDF8),
                             strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
                 DownloadedItemEntity.STATUS_COMPLETED -> {
                     IconButton(
                         onClick = onDownloadClick,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.DownloadDone,
                             contentDescription = "অফলাইনে সংরক্ষিত",
                             tint = Color(0xFF34D399),
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
                 else -> {
                     IconButton(
                         onClick = onDownloadClick,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Download,
                             contentDescription = "ইন-অ্যাপ অফলাইন ডাউনলোড",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
@@ -882,13 +894,13 @@ private fun PdfViewerTopBar(
             // 6. Bookmark / Save Slide Note Button
             IconButton(
                 onClick = onBookmarkClick,
-                modifier = Modifier.size(38.dp)
+                modifier = Modifier.size(34.dp)
             ) {
                 Icon(
                     imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                     contentDescription = if (isBookmarked) "সংরক্ষণ থেকে সরান" else "নোট সংরক্ষণ করুন",
                     tint = if (isBookmarked) Color(0xFFF59E0B) else Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(19.dp)
                 )
             }
         }

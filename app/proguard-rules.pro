@@ -103,7 +103,7 @@
 
 # 9. Firebase & Google Play Services Rules (Suppresses recaptchabase R8 warnings & speeds up build)
 -keep class com.google.firebase.** { *; }
--keep class com.google.android.gms.** { *; }
+-keep class !com.google.android.gms.internal.recaptchabase.**,com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 -dontwarn com.google.android.gms.internal.**

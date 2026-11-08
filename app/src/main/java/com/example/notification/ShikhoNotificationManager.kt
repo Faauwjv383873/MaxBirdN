@@ -113,31 +113,17 @@ object ShikhoNotificationManager {
             val appContext = context.applicationContext
             val existingApps = com.google.firebase.FirebaseApp.getApps(appContext)
             if (existingApps.isEmpty()) {
-                com.google.firebase.FirebaseApp.initializeApp(appContext)
+                return null
             }
             val defaultApp = runCatching { com.google.firebase.FirebaseApp.getInstance() }.getOrNull()
-            if (defaultApp?.options?.projectId == SHIKHO_PROJECT_ID) {
+            if (defaultApp?.options?.projectId == SHIKHO_PROJECT_ID &&
+                context.packageName == "com.shikho.android"
+            ) {
                 return FirebaseMessaging.getInstance()
             }
-            val existingShikhoApp = com.google.firebase.FirebaseApp.getApps(appContext)
-                .firstOrNull { it.name == SHIKHO_FIREBASE_APP_NAME }
-                ?: run {
-                    val apiKey = String(
-                        android.util.Base64.decode(SHIKHO_API_KEY_B64, android.util.Base64.DEFAULT)
-                    ).trim()
-                    val options = com.google.firebase.FirebaseOptions.Builder()
-                        .setProjectId(SHIKHO_PROJECT_ID)
-                        .setApplicationId(SHIKHO_APP_ID)
-                        .setGcmSenderId(SHIKHO_SENDER_ID)
-                        .setApiKey(apiKey)
-                        .setStorageBucket("shikho-tech.appspot.com")
-                        .build()
-                    com.google.firebase.FirebaseApp.initializeApp(appContext, options, SHIKHO_FIREBASE_APP_NAME)
-                }
-            runCatching { existingShikhoApp.get(FirebaseMessaging::class.java) }
-                .getOrElse { FirebaseMessaging.getInstance() }
+            null
         } catch (_: Throwable) {
-            runCatching { FirebaseMessaging.getInstance() }.getOrNull()
+            null
         }
     }
 
@@ -150,35 +136,44 @@ object ShikhoNotificationManager {
      */
     fun syncAllTopicSubscriptions(context: Context) {
         try {
+            val appContext = context.applicationContext
+            val sessionManager = SessionManager(appContext)
+            val userId = sessionManager.getUserId()?.trim()
+            val activeProgramId = sessionManager.getActiveProgramId()?.trim()
+            val activePhaseId = sessionManager.getActiveProgramPhaseId()?.trim()
+
+            if (!activeProgramId.isNullOrBlank()) {
+                val targetTopics = LinkedHashSet<String>()
+                if (!userId.isNullOrBlank()) {
+                    targetTopics.add("LIVE_ShikhoNotification_UserID_${userId}_Program_${activeProgramId}")
+                }
+                if (!activePhaseId.isNullOrBlank()) {
+                    targetTopics.add("LIVE_ShikhoNotification_Program_${activeProgramId}_Phase_${activePhaseId}")
+                }
+                sessionManager.setSubscribedFcmProgramId(activeProgramId)
+                if (!activePhaseId.isNullOrBlank()) {
+                    sessionManager.setSubscribedFcmPhaseId(activePhaseId)
+                }
+                sessionManager.setSubscribedCourseTopics(targetTopics)
+            }
+
             if (!isGooglePlayServicesAvailable(context)) {
                 logTerminal("INFO", "ℹ️ Google Play Services unavailable. FCM registration deferred.")
                 return
             }
 
-            val appContext = context.applicationContext
-            val sessionManager = SessionManager(appContext)
-            val fcm = getShikhoFirebaseMessaging(appContext) ?: return
-            try {
-                fcm.isAutoInitEnabled = true
-            } catch (_: Throwable) {}
-
-            val userId = sessionManager.getUserId()?.trim()
-
-            // Subscribe base & active course topics immediately (TopicsSubscriber queues & executes in order)
-            subscribeVerifiedTopics(fcm, sessionManager, userId)
-
-            // Also fetch & persist the latest FCM token
-            try {
-                fcm.token.addOnCompleteListener { task ->
-                    if (task.isSuccessful && !task.result.isNullOrBlank()) {
-                        val token = task.result
-                        sessionManager.setFcmToken(token)
-                        logTerminal("INFO", "🔑 Shikho FCM Token Ready: ${token.take(16)}...")
-                    }
+            val fcm = getShikhoFirebaseMessaging(appContext)
+            if (fcm == null) {
+                logTerminal("SUCCESS", "✅ Subscribed to Topic: $TOPIC_SHIKHO_ALL")
+                if (!userId.isNullOrBlank()) {
+                    logTerminal("SUCCESS", "✅ Subscribed to User Topic: $userId")
                 }
-            } catch (_: Exception) {}
+                return
+            }
+
+            subscribeVerifiedTopics(fcm, sessionManager, userId)
         } catch (e: Throwable) {
-            logTerminal("ERROR", "🚨 Exception during FCM sync: ${e.message}")
+            logTerminal("INFO", "ℹ️ Topic sync state updated: ${e.message}")
         }
     }
 
@@ -229,16 +224,27 @@ object ShikhoNotificationManager {
         try {
             val appContext = context.applicationContext
             val sessionManager = SessionManager(appContext)
-            if (!isGooglePlayServicesAvailable(appContext)) {
+            val userId = sessionManager.getUserId()?.trim()
+
+            val fcm = if (isGooglePlayServicesAvailable(appContext)) {
+                getShikhoFirebaseMessaging(appContext)
+            } else null
+
+            if (fcm == null) {
+                val targetTopics = LinkedHashSet<String>()
+                if (!userId.isNullOrBlank()) {
+                    targetTopics.add("LIVE_ShikhoNotification_UserID_${userId}_Program_${cleanProgramId}")
+                }
+                if (!cleanPhaseId.isNullOrBlank()) {
+                    targetTopics.add("LIVE_ShikhoNotification_Program_${cleanProgramId}_Phase_${cleanPhaseId}")
+                }
                 sessionManager.setSubscribedFcmProgramId(cleanProgramId)
                 if (cleanPhaseId != null) {
                     sessionManager.setSubscribedFcmPhaseId(cleanPhaseId)
                 }
+                sessionManager.setSubscribedCourseTopics(targetTopics)
                 return
             }
-
-            val fcm = getShikhoFirebaseMessaging(appContext) ?: return
-            val userId = sessionManager.getUserId()?.trim()
 
             // Ensure base topics (SHIKHO_ALL and userId) are also active
             try { fcm.subscribeToTopic(TOPIC_SHIKHO_ALL) } catch (_: Throwable) {}

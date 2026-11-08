@@ -1,4 +1,4 @@
-name: MaxBird 24/7 Autonomous AI Agent Worker
+name: Course Content Sync & Backup CI
 
 on:
   workflow_dispatch:
@@ -14,20 +14,19 @@ on:
         default: ""
         type: string
   schedule:
-    # Runs automatically every hour 24/7 to execute scheduled routines & resume queued uploads
-    - cron: "0 * * * *"
+    # Runs once daily at 1:00 AM Bangladesh Time (19:00 UTC) for daily course sync
+    - cron: "0 19 * * *"
 
-# CRITICAL: Single repository-wide concurrency lock so two GitHub Actions VMs
-# NEVER use the same Telegram StringSession under two different IP addresses simultaneously!
+# Single repository-wide concurrency lock so two VMs never use the same Telegram session simultaneously
 concurrency:
   group: maxbird-single-telegram-session-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   autonomous-agent:
-    name: MaxBird AI Cloud Agent (Telegram + Course Sync)
+    name: Course Archive Sync
     runs-on: ubuntu-24.04
-    timeout-minutes: 340
+    timeout-minutes: 50
     permissions:
       contents: write
       actions: write

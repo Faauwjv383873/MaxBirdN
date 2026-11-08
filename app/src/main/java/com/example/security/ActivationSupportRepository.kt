@@ -105,7 +105,7 @@ object ActivationSupportRepository {
                 return@withContext getCachedLinks(context)
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to fetch support links from Supabase: ${t.message}")
+            Log.w(TAG, "Support links fallback to cached: ${t.message}")
             return@withContext getCachedLinks(context)
         }
     }

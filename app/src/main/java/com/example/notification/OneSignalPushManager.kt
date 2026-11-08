@@ -196,82 +196,19 @@ object OneSignalPushManager {
 
     private fun acquireFcmAndSync(context: Context, studentNameOverride: String? = null) {
         try {
-            val maxBirdApp = getOrInitMaxBirdFirebaseApp(context)
-            val maxBirdFcm = getFirebaseMessagingForApp(maxBirdApp)
-            val defaultFcm = try { FirebaseMessaging.getInstance() } catch (_: Throwable) { null }
+            val cachedToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
+                ?.takeIf { it.isNotBlank() }
+                ?: SessionManager(context).getFcmToken().orEmpty()
 
-            // Also ensure default (shikho-tech) FCM token is initialized for Shikho topic subscriptions
-            try {
-                defaultFcm?.isAutoInitEnabled = true
-                defaultFcm?.token?.addOnCompleteListener { defaultTask ->
-                    if (defaultTask.isSuccessful && !defaultTask.result.isNullOrBlank()) {
-                        SessionManager(context).setFcmToken(defaultTask.result)
-                    }
-                }
-            } catch (_: Throwable) {}
-
-            val targetFcm = maxBirdFcm ?: defaultFcm
-            if (targetFcm != null) {
-                try {
-                    targetFcm.isAutoInitEnabled = true
-                } catch (_: Throwable) {}
-                targetFcm.token.addOnCompleteListener { task ->
-                    val token = if (task.isSuccessful) task.result else null
-                    if (!token.isNullOrBlank()) {
-                        getPrefs(context).edit().putString(KEY_LAST_SYNCED_FCM, token).apply()
-                        scope.launch {
-                            syncStudentDeviceWithOneSignal(
-                                context = context,
-                                fcmToken = token,
-                                studentNameOverride = studentNameOverride
-                            )
-                        }
-                    } else {
-                        // Fallback to default FCM token if secondary token task didn't return
-                        defaultFcm?.token?.addOnCompleteListener { defTask ->
-                            val fallbackToken = if (defTask.isSuccessful && !defTask.result.isNullOrBlank()) {
-                                defTask.result
-                            } else {
-                                getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
-                                    ?: SessionManager(context).getFcmToken().orEmpty()
-                            }
-                            scope.launch {
-                                syncStudentDeviceWithOneSignal(
-                                    context = context,
-                                    fcmToken = fallbackToken,
-                                    studentNameOverride = studentNameOverride
-                                )
-                            }
-                        } ?: scope.launch {
-                            syncStudentDeviceWithOneSignal(
-                                context = context,
-                                fcmToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
-                                    ?: SessionManager(context).getFcmToken().orEmpty(),
-                                studentNameOverride = studentNameOverride
-                            )
-                        }
-                    }
-                }
-            } else {
-                scope.launch {
-                    syncStudentDeviceWithOneSignal(
-                        context = context,
-                        fcmToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
-                            ?: SessionManager(context).getFcmToken().orEmpty(),
-                        studentNameOverride = studentNameOverride
-                    )
-                }
-            }
-        } catch (e: Throwable) {
-            Log.w(TAG, "acquireFcmAndSync warning: ${e.message}")
             scope.launch {
                 syncStudentDeviceWithOneSignal(
                     context = context,
-                    fcmToken = getPrefs(context).getString(KEY_LAST_SYNCED_FCM, null)
-                        ?: SessionManager(context).getFcmToken().orEmpty(),
+                    fcmToken = cachedToken,
                     studentNameOverride = studentNameOverride
                 )
             }
+        } catch (e: Throwable) {
+            Log.w(TAG, "acquireFcmAndSync warning: ${e.message}")
         }
     }
 

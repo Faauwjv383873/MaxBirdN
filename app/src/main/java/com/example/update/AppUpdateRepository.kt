@@ -105,7 +105,7 @@ object AppUpdateRepository {
 
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "Failed to fetch updates: ${response.code} - ${response.message}")
+                    Log.w(TAG, "Failed to fetch updates: ${response.code} - ${response.message}")
                     return@withContext null
                 }
                 val bodyStr = response.body?.string() ?: return@withContext null
@@ -152,7 +152,7 @@ object AppUpdateRepository {
                 )
             }
         } catch (e: Throwable) {
-            Log.e(TAG, "Exception fetching update: ${e.message}", e)
+            Log.w(TAG, "Update check note: ${e.message}")
             null
         }
     }
